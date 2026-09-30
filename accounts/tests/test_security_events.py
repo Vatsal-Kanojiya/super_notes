@@ -119,14 +119,13 @@ class AdminTests(TestCase):
 
     def test_the_trail_cannot_be_added_to_edited_or_deleted_from_the_admin(self):
         row = SecurityEvent.objects.get()
-        self.assertEqual(self.client.get("/admin/accounts/securityevent/add/").status_code, 403)
-        response = self.client.post(
-            f"/admin/accounts/securityevent/{row.pk}/change/", {"event": "logged_out"}
-        )
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(
-            self.client.post(f"/admin/accounts/securityevent/{row.pk}/delete/").status_code, 403
-        )
+        base = "/admin/accounts/securityevent/"
+        with self.assertLogs("django.request", level="WARNING"):
+            self.assertEqual(self.client.get(f"{base}add/").status_code, 403)
+            change = self.client.post(f"{base}{row.pk}/change/", {"event": "logged_out"})
+            delete = self.client.post(f"{base}{row.pk}/delete/")
+
+        self.assertEqual((change.status_code, delete.status_code), (403, 403))
         self.assertEqual(SecurityEvent.objects.get().event, "signed_up")
 
 
@@ -171,6 +170,7 @@ class PurgeSecurityEventsTests(TestCase):
         with (
             self.settings(SECURITY_EVENT_RETENTION_DAYS=365),
             mock.patch("sys.stdout", new_callable=StringIO),
+            self.assertLogs("celery.app.trace", level="INFO"),
         ):
             tasks.purge_security_events.delay()
 
