@@ -92,3 +92,28 @@ Docs in `docs/RAG_ASK_DRAFT.md` (to merge into `RAG.md`). D53–D60.
 
 **Unsure:** the relevance floor's score scale (D58); whether live tests should need an extra
 opt-in flag besides the key (BACKLOG).
+
+### Phase 3a — chunker and embedding providers
+
+**Built:** `retrieval/chunking.py` (structure-aware TipTap chunker: heading paths, atomic list and
+checklist items, whole-block overlap, title-prefixed `embed_text`, sha256 `content_hash`), and
+`retrieval/embeddings/` mirroring the reference's extraction package: boundary (`embed_texts`,
+`embed_query`, `embedding_model_id`), lazy registry, Protocol, a hashed-bag-of-words fake, and
+OpenAI and Gemini providers over plain `requests`. Settings `CHUNK_*` and `EMBEDDING_*`,
+`.env.example`, `docs/RAG.md` (Chunking, Embedding providers). D33–D40. No models, tasks or
+migrations: `NoteChunk` and indexing are Phase 3b.
+
+**What went wrong / notes:**
+
+- A bogus-key probe of each endpoint (through the live tests) showed OpenAI's 401 message quotes
+  the key it was sent. Vendor messages now have header values redacted before they reach an
+  exception.
+- The same probes confirmed both URLs and auth headers exist as written (OpenAI 401, Gemini 400
+  "API key not valid", neither a 404). The request bodies and responses are from memory of the API
+  references and checked only by mocks.
+- The test runner's forced `fake` was verified by running with `EMBEDDING_PROVIDER=openai` in the
+  environment; `override_settings` in the live tests beats it.
+
+**Left:** `NoteChunk`, `index_note`, `reindex_notes`, `index_status` (Phase 3b).
+**Unsure:** real-key behaviour of both providers (Gemini's 100-per-batch limit, response shape);
+chunk sizes until the Phase 4 eval measures them.

@@ -29,6 +29,15 @@ Things that came up and were left for a decision. Each names what it is waiting 
 - **Refusal fallbacks for Claude 5.5-class models** — if `CHAT_CLAUDE_MODEL` moves to Sonnet or
   Opus 5.5, the claude-api skill recommends the server-side `fallbacks` parameter; not sent today
   (default is Haiku 4.5).
+
+- **Choose the embedding provider** — OpenAI and Gemini are both implemented (D37) and neither has
+  been run against a real key. Waiting on the owner's choice and key: run
+  `LIVE_PROVIDER_TESTS=1 python manage.py test retrieval.tests.test_embeddings`, set
+  `EMBEDDING_PROVIDER`, then consider deleting the unused provider.
+- **Real chat provider** — waiting on which keys the owner has (OpenAI, Gemini or Claude). The fake
+  carries the build until then; the registry takes a new one without touching callers.
+- **Sentence splitting on abbreviations** — the chunker's splitter breaks after "e.g." and "Dr.".
+  Only affects blocks longer than `CHUNK_MAX_CHARS` and overlap; revisit if the eval shows it.
 - **Static files in production** — no WhiteNoise (D10). Needs a deployment decision.
 - **413 without CORS headers** — `MaxUploadSizeMiddleware` runs before `CorsMiddleware`, so a
   cross-origin client sees a network error rather than "too large". Same known gap as the
