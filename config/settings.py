@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     "accounts",
     "notes",
     "retrieval",
+    "assistant",
 ]
 
 # Custom user model from the very first migration (the reference's hard
@@ -416,3 +417,47 @@ CACHES = {"default": env.cache_url("CACHE_URL", default="locmemcache://super-not
 # the Android app's (they differ). Not secrets -- they identify the app to
 # Google. Empty turns sign-in off.
 GOOGLE_OAUTH_CLIENT_IDS = env.list("GOOGLE_OAUTH_CLIENT_IDS", default=[])
+
+
+# Asking (assistant/)
+#
+# "fake" needs no API key and no network, so a fresh clone -- and CI --
+# answers questions with nothing configured; the test runner forces it
+# whatever .env says (DECISIONS D11). Each real provider reads its key from
+# the vendor's usual env var (ANTHROPIC_API_KEY, GEMINI_API_KEY,
+# OPENAI_API_KEY), never a CHAT_* setting: a key is a secret, not app
+# configuration, and this keeps it out of this file entirely.
+CHAT_PROVIDER = env("CHAT_PROVIDER", default="fake")
+# The cheap tier of each vendor (DECISIONS D55): answering from a handful of
+# excerpts is reading comprehension, not open-ended reasoning.
+CHAT_MODELS = {
+    "claude": env("CHAT_CLAUDE_MODEL", default="claude-haiku-4-5"),
+    "gemini": env("CHAT_GEMINI_MODEL", default="gemini-2.5-flash-lite"),
+    "openai": env("CHAT_OPENAI_MODEL", default="gpt-5-mini"),
+}
+# A ceiling on the answer, which is a few cited sentences. OpenAI counts its
+# reasoning tokens against this too, so it is not set tighter.
+CHAT_MAX_OUTPUT_TOKENS = env.int("CHAT_MAX_OUTPUT_TOKENS", default=2048)
+# Read timeout of one provider call, in seconds. A timeout is transient
+# (retried); CELERY_TASK_SOFT_TIME_LIMIT still bounds the whole task.
+CHAT_TIMEOUT_SECONDS = env.int("CHAT_TIMEOUT_SECONDS", default=60)
+
+# Asks per calendar month, by User.plan. Failed asks do not count.
+ASK_QUOTAS = {"free": 20, "premium": 500}
+# How many chunks retrieval hands the prompt.
+ASK_RETRIEVAL_K = env.int("ASK_RETRIEVAL_K", default=8)
+# Below this retrieval score nothing counts as relevant, and the ask is
+# answered with ASK_NO_ANSWER_TEXT without calling the provider. Its
+# meaning depends on the score retrieval returns (a fused RRF score and a
+# cosine similarity live on very different scales), so 0.0 -- "only an
+# empty result short-circuits" -- is a placeholder until the evaluation
+# numbers of Phases 4/5 tune it (DECISIONS D58).
+ASK_RELEVANCE_FLOOR = env.float("ASK_RELEVANCE_FLOOR", default=0.0)
+# The fixed answer when the notes hold nothing relevant.
+ASK_NO_ANSWER_TEXT = env(
+    "ASK_NO_ANSWER_TEXT", default="I couldn't find anything in your notes about this."
+)
+# Total excerpt text sent in one prompt (assistant/prompt.py): about 3,000
+# tokens at four characters a token -- eight chunks of the chunker's target
+# size, with headroom. The cost of an ask is mostly this.
+ASK_EXCERPT_MAX_CHARS = env.int("ASK_EXCERPT_MAX_CHARS", default=12000)
