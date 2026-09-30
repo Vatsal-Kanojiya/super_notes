@@ -206,6 +206,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "accounts.tasks.flush_expired_tokens",
         "schedule": 24 * 60 * 60,
     },
+    # Often, because a stuck ask is a spinner someone is watching; the
+    # query is one indexed-range UPDATE and does nothing when all is well.
+    "sweep-stuck-asks": {
+        "task": "assistant.tasks.sweep_stuck_asks",
+        "schedule": 5 * 60,
+    },
 }
 
 
@@ -317,6 +323,13 @@ LOGGING = {
 
 # Django REST Framework
 REST_FRAMEWORK = {
+    # DRF's three defaults, with the JSON one replaced by a parser that
+    # answers 400 to a pathologically nested body (DECISIONS D79).
+    "DEFAULT_PARSER_CLASSES": [
+        "config.api.parsers.JSONParser",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser",
+    ],
     # Bearer tokens only. The reference kept SessionAuthentication for its
     # server-rendered pages; this project has none, and leaving it on would
     # bring CSRF into every API call made from an admin-logged-in browser
@@ -452,6 +465,14 @@ CHAT_MAX_OUTPUT_TOKENS = env.int("CHAT_MAX_OUTPUT_TOKENS", default=2048)
 # Read timeout of one provider call, in seconds. A timeout is transient
 # (retried); CELERY_TASK_SOFT_TIME_LIMIT still bounds the whole task.
 CHAT_TIMEOUT_SECONDS = env.int("CHAT_TIMEOUT_SECONDS", default=60)
+
+# An ask still pending or running this long after it was made is failed by
+# assistant.tasks.sweep_stuck_asks. It must outlast every way a live ask
+# can still be working: answer_ask makes up to 5 attempts (max_retries=4),
+# each bounded by CELERY_TASK_TIME_LIMIT (600 s), with at most 1+2+4+8 s of
+# backoff between them -- 3,015 s. One hour leaves about 10 minutes for
+# queueing behind a backlog, so a slow ask is never failed under a worker.
+ASK_STUCK_AFTER_SECONDS = env.int("ASK_STUCK_AFTER_SECONDS", default=60 * 60)
 
 # Asks per calendar month, by User.plan. Failed asks do not count.
 ASK_QUOTAS = {"free": 20, "premium": 500}

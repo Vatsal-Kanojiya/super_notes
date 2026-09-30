@@ -5,17 +5,19 @@ Celery runs eagerly and the fake chat and embedding providers are forced
 retries included, without their backoff.
 """
 
+from datetime import timedelta
 from unittest import mock
 
 from celery.exceptions import Retry
 from django.conf import settings
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
-from assistant import tasks
+from assistant import quota, tasks
 from assistant.chat import ChatError, ChatResult, TransientChatError
 from assistant.models import AskQuery
 from assistant.prompt import prompt_version
-from assistant.tasks import answer_ask, is_relevant
+from assistant.tasks import answer_ask, is_relevant, sweep_stuck_asks
 from notes import services
 from notes.tests.helpers import doc, make_user
 from retrieval.embeddings import EmbeddingError
@@ -268,3 +270,78 @@ class AnswerTests(TestCase):
     def test_retries_only_transient_errors(self):
         self.assertEqual(set(answer_ask.autoretry_for), set(tasks.TRANSIENT))
         self.assertFalse(issubclass(ChatError, tasks.TRANSIENT))
+
+
+class SweepStuckAsksTests(TestCase):
+    """The sweeper fails what D76's in-task handling cannot reach (D78)."""
+
+    def setUp(self):
+        self.user = make_user()
+
+    def aged(self, question, status, seconds):
+        row = ask(self.user, question, status=status)
+        # auto_now_add ignores a value passed to create(); back-date after.
+        AskQuery.objects.filter(pk=row.pk).update(
+            created_at=timezone.now() - timedelta(seconds=seconds)
+        )
+        return row
+
+    def test_default_cutoff_outlasts_the_full_retry_span(self):
+        attempts = answer_ask.max_retries + 1
+        span = attempts * settings.CELERY_TASK_TIME_LIMIT + (1 + 2 + 4 + 8)
+        self.assertGreater(settings.ASK_STUCK_AFTER_SECONDS, span)
+
+    def test_is_scheduled_every_five_minutes(self):
+        entry = settings.CELERY_BEAT_SCHEDULE["sweep-stuck-asks"]
+        self.assertEqual(entry["task"], "assistant.tasks.sweep_stuck_asks")
+        self.assertEqual(entry["schedule"], 300)
+
+    @override_settings(ASK_STUCK_AFTER_SECONDS=100)
+    def test_old_unfinished_asks_fail_with_a_user_safe_message(self):
+        running = self.aged("a", AskQuery.Status.RUNNING, 200)
+        pending = self.aged("b", AskQuery.Status.PENDING, 200)
+        self.assertEqual(sweep_stuck_asks(), 2)
+        for row in (running, pending):
+            row.refresh_from_db()
+            self.assertEqual(row.status, AskQuery.Status.FAILED)
+            self.assertEqual(row.error, tasks.STUCK)
+            self.assertIsNotNone(row.completed_at)
+
+    @override_settings(ASK_STUCK_AFTER_SECONDS=100)
+    def test_recent_and_finished_asks_are_left_alone(self):
+        recent = self.aged("a", AskQuery.Status.RUNNING, 10)
+        done = self.aged("b", AskQuery.Status.DONE, 500)
+        failed = self.aged("c", AskQuery.Status.FAILED, 500)
+        failed.error = "kept"
+        failed.save()
+        self.assertEqual(sweep_stuck_asks(), 0)
+        for row, status in (
+            (recent, "running"),
+            (done, "done"),
+            (failed, "failed"),
+        ):
+            row.refresh_from_db()
+            self.assertEqual(row.status, status)
+        failed.refresh_from_db()
+        self.assertEqual(failed.error, "kept")
+
+    @override_settings(ASK_STUCK_AFTER_SECONDS=100)
+    def test_an_ask_that_finished_meanwhile_is_not_overwritten(self):
+        row = self.aged("a", AskQuery.Status.RUNNING, 200)
+        # The worker finishes between the sweeper's decision and its write:
+        # the UPDATE's own WHERE is what protects it, so finish it first.
+        tasks._finish(row.pk, answer="real answer")
+        sweep_stuck_asks()
+        row.refresh_from_db()
+        self.assertEqual(row.status, AskQuery.Status.DONE)
+        self.assertEqual(row.answer, "real answer")
+        self.assertEqual(row.error, "")
+
+    @override_settings(ASK_STUCK_AFTER_SECONDS=100)
+    def test_a_swept_ask_stops_counting_against_the_quota(self):
+        row = self.aged("a", AskQuery.Status.RUNNING, 200)
+        self.assertEqual(quota.used(self.user), 1)
+        sweep_stuck_asks()
+        self.assertEqual(quota.used(self.user), 0)
+        row.refresh_from_db()
+        self.assertEqual(row.status, AskQuery.Status.FAILED)

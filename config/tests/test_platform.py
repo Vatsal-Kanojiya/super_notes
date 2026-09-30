@@ -15,6 +15,7 @@ from rest_framework.test import APIClient
 
 from config import checks
 from config.api.exceptions import exception_handler
+from notes.tests.helpers import make_user
 
 BASE_DIR = Path(settings.BASE_DIR)
 
@@ -99,6 +100,54 @@ class MaxUploadSizeTests(TestCase):
     def test_malformed_length_is_ignored(self):
         response = APIClient().get("/api/v1/health/", CONTENT_LENGTH="abc")
         self.assertEqual(response.status_code, 200)
+
+
+@override_settings(DATA_UPLOAD_MAX_MEMORY_SIZE=10, CORS_ALLOWED_ORIGINS=["http://app.test"])
+class TooLargeCorsTests(TestCase):
+    """A cross-origin browser must be able to read the 413 (D80)."""
+
+    def post(self, path="/api/v1/notes/", origin="http://app.test"):
+        extra = {"HTTP_ORIGIN": origin} if origin else {}
+        return APIClient().post(path, data="x" * 50, content_type="application/json", **extra)
+
+    def test_allowed_origin_can_read_it(self):
+        response = self.post()
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response["Access-Control-Allow-Origin"], "http://app.test")
+        self.assertIn("X-Request-ID", response["Access-Control-Expose-Headers"])
+        self.assertIn("Origin", response["Vary"])
+
+    def test_other_origin_gets_no_cors_header(self):
+        response = self.post(origin="http://evil.test")
+        self.assertEqual(response.status_code, 413)
+        self.assertNotIn("Access-Control-Allow-Origin", response)
+        self.assertIn("Origin", response["Vary"])
+
+    def test_no_origin_gets_no_cors_header(self):
+        self.assertNotIn("Access-Control-Allow-Origin", self.post(origin=None))
+
+    def test_path_outside_the_api_gets_none(self):
+        self.assertNotIn("Access-Control-Allow-Origin", self.post(path="/admin/login/"))
+
+
+class DeepJsonTests(TestCase):
+    def test_absurdly_nested_json_is_a_400_not_a_500(self):
+        user = make_user()
+        client = APIClient()
+        client.force_authenticate(user)
+        # json.loads only hits RecursionError past ~20k levels on 3.12; 100k is
+        # still ~200 KB, far under the size limit.
+        body = "[" * 100_000 + "]" * 100_000
+        response = client.post("/api/v1/notes/", data=body, content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "parse_error")
+
+    def test_ordinary_malformed_json_is_still_a_400(self):
+        client = APIClient()
+        client.force_authenticate(make_user())
+        response = client.post("/api/v1/notes/", data="{", content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "parse_error")
 
 
 class PostgresRequiredCheckTests(SimpleTestCase):
