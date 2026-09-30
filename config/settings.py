@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     # Project-wide system checks (config/checks.py).
     "config.apps.ConfigConfig",
     "accounts",
+    "notes",
     "retrieval",
 ]
 
