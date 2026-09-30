@@ -135,6 +135,27 @@ generator (not committed; the JSON is the source of truth, D41).
 provider's numbers in the results table. **Unsure:** whether 31 questions are enough to separate
 the modes — one question moves recall by ~3.6 points, so small differences are noise.
 
+### Phase 4 — retrieval and evaluation
+
+**Built:** `retrieval/search.py` (vector and keyword legs, both owner-scoped in SQL; pure RRF
+fusion and per-note cap; `SearchHit` with the fused score, cosine `similarity` and `ts_rank`),
+`GET /api/v1/search/` (`search` throttle scope, snippet), `eval_retrieval` (rolled-back run of the
+fixtures in all three modes, `--by-kind`, no-answer similarities). "Retrieval" and "Evaluation" in
+`docs/RAG.md` (the draft merged and deleted). D66–D71.
+
+**What went wrong / notes:**
+
+- `ORDER BY distance, id` made the HNSW index unusable; the query now orders by distance alone and
+  ties are broken in Python.
+- EXPLAIN on a small table shows the owner btree for both legs, legitimately: an index only pays
+  off when the owner has far more chunks than the limit. The index tests build 1000 chunks and
+  `ANALYZE` first; with a small owner share the planner scans that user's rows exactly (D68).
+- Fake-provider smoke run: keyword-only recall@5 is 0.179 because `websearch_to_tsquery` ANDs every
+  word of a question. Kept as specified; noted in RAG.md "Known limits" with an OR experiment.
+
+**Left:** real-provider numbers (needs a key), and from them `ASK_RELEVANCE_FLOOR` (Phase 5).
+**Unsure:** AND vs OR keyword semantics; whether 200 is the right `ef_search`.
+
 ### Phase 5a — chat providers and prompt
 
 **Built:** the `assistant` app skeleton; `assistant/chat/` mirroring the reference's extraction

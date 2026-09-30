@@ -728,6 +728,110 @@ review; graded ones would need nDCG and more labelling.
 **Reverse it if:** the eval moves to nDCG, or real questions show a need for "partially
 relevant".
 
+## Phase 4 — retrieval
+
+### D66. Hybrid retrieval merged by reciprocal rank fusion, not vector-only
+
+**Decided:** every search runs a vector leg (cosine over the HNSW index) and a keyword leg
+(`websearch_to_tsquery` over the GIN index), `SEARCH_CANDIDATES` (50) each, merged by RRF:
+score = Σ 1/(`SEARCH_RRF_K` + rank), `SEARCH_RRF_K` = 60, ties to the lower chunk id. Vector-only
+and keyword-only exist as `mode=` for the evaluation.
+
+**Alternatives:** vector only; a weighted sum of normalised scores.
+
+**Why:** notes are full of names, codes and numbers ("Honda City", `select_for_update`, a PNR) that
+embeddings blur and full-text matches exactly; paraphrases are the reverse. RRF uses ranks only, so
+cosine similarity and `ts_rank` never have to be put on one scale, and it has one knob with a
+well-known default. Fusion is a pure function, unit-tested on a hand-built example.
+
+**Reverse it if:** the real-provider eval shows hybrid no better than vector on these fixtures and
+the keyword leg's cost matters; or a weighted fusion measurably beats RRF.
+
+### D67. The owner filter, live notes and the current model are SQL, in every query
+
+**Decided:** both legs and the final read go through `_live_chunks(user)` =
+`NoteChunk.objects.filter(owner=user, note__deleted_at__isnull=True)`. The vector leg also
+filters `embedding_model = embedding_model_id()`.
+
+**Alternatives:** fetch candidates, then drop other users' or deleted notes' chunks in Python;
+rely on de-indexing for deletes.
+
+**Why:** a Python filter after a top-N cut both leaks by construction (one bug from showing another
+user's text) and under-fills (the N best may all be someone else's). De-indexing a deleted note
+runs on commit and may lag or fail; the SQL filter hides it at once. A vector from another model is
+in another space, so its distance is meaningless (D36); keyword search does not care. Tests
+capture the SQL and check the `owner_id` clause, and prove another user's word-for-word copy never
+appears in any mode.
+
+**Reverse it if:** never for the owner filter.
+
+### D68. HNSW `ef_search` raised per query; the planner may choose an exact scan
+
+**Decided:** the vector query runs in a transaction with
+`set_config('hnsw.ef_search', max(SEARCH_HNSW_EF_SEARCH, SEARCH_CANDIDATES), true)`,
+`SEARCH_HNSW_EF_SEARCH` = 200. The query orders by the distance alone (`ORDER BY embedding <=> v
+LIMIT 50`); equal distances are put in chunk-id order in Python after the fetch.
+
+**Alternatives:** pgvector's default `ef_search` (40); `ORDER BY distance, id` in SQL; a partial
+index per user.
+
+**Why:** an HNSW scan returns at most `ef_search` rows, so 40 could never fill 50 candidates, and
+pgvector 0.6 applies the `WHERE` clause *after* the index scan: other users' rows use up the list.
+200 leaves room at small cost. A second sort key makes pgvector's index unusable (seq scan plus
+sort), hence the Python tie-break. Measured with EXPLAIN: when the owner holds most of the table
+the planner uses `chunk_embedding_hnsw` (a test asserts it on 1000 chunks); when the owner is a
+small fraction, it prefers the owner btree and sorts that user's rows exactly, which is cheaper and
+has no recall loss. Known limit: an owner who is a middling fraction of a large table can still get
+fewer than 50 candidates from HNSW; pgvector 0.8's iterative scans fix that.
+
+**Reverse it if:** pgvector is upgraded to 0.8+ (use `hnsw.iterative_scan`), or search latency
+shows the 200 is too many.
+
+### D69. Each hit carries the vector leg's `similarity` for the Ask relevance floor
+
+**Decided:** `SearchHit` has `score` (the fused RRF score), `similarity` (1 − cosine distance, or
+`None` if only the keyword leg found it) and `keyword_rank` (`ts_rank`, or `None`).
+
+**Alternatives:** return only the fused score; normalise and blend the raw scores.
+
+**Why:** an RRF score is about 1/(60 + rank) whatever the text says, so it cannot express
+"irrelevant" (D58). Cosine similarity can, and `eval_retrieval` prints it for the no-answer
+questions next to the answerable ones, which is the data `ASK_RELEVANCE_FLOOR` will be set from.
+`keyword_rank` is kept for the same kind of tuning and for debugging, at no cost.
+
+**Reverse it if:** Ask ends up flooring on something else (a reranker score).
+
+### D70. A failed query embedding falls back to keyword-only in hybrid mode
+
+**Decided:** in `mode="hybrid"`, `EmbeddingError` and `EmbeddingTransientError` from
+`embed_query` are logged as a warning and the search continues with the keyword leg alone (every
+`similarity` is `None`). `mode="vector"` raises.
+
+**Alternatives:** raise, and let the endpoint return 503.
+
+**Why:** a search box that fails whenever the provider rate-limits or is down is worse than one that
+ranks by keyword for a while; the result is a weaker ranking, not a wrong one. The warning makes an
+outage visible in the logs. Ask (Phase 5) must treat all-`None` similarities as "cannot judge
+relevance", not as relevance. The eval uses vector mode first, so a provider failure stops it
+instead of quietly skewing the hybrid numbers.
+
+**Reverse it if:** silent degradation hides a broken key for long; then add a metric or alert, or
+surface a `degraded` flag in the response.
+
+### D71. At most two chunks per note, applied after fusion and before the cut to k
+
+**Decided:** `SEARCH_MAX_CHUNKS_PER_NOTE` = 2. The fused list is walked in order, a note's third
+and later chunks are dropped, then the top k (`SEARCH_DEFAULT_K` 8, at most `SEARCH_MAX_K` 20) are
+returned.
+
+**Alternatives:** no cap; one chunk per note (a note-level result list).
+
+**Why:** a long note on the topic would otherwise fill all k places, leaving Ask one source and the
+search page one note. Two keeps a second section of the best note (answers often span a heading)
+while leaving room for other notes. Applying it before the cut means k still means k results.
+
+**Reverse it if:** the eval's section questions show the answer's section pushed out by the cap.
+
 ## Phase 5a — chat providers and prompt
 
 ### D53. The chat providers call each vendor's HTTP API with `requests`, not its SDK

@@ -2,7 +2,8 @@
 
 How a note becomes something a question can be answered from: chunking, embedding, indexing,
 retrieval, asking, and how it is measured. Plan §6. The decisions behind each part are in
-[DECISIONS.md](DECISIONS.md) (D33–D40 for the first two sections).
+[DECISIONS.md](DECISIONS.md) (D33–D40 for the first two sections, D61–D65 for indexing, D66–D71 for retrieval, D41–D45 for the
+evaluation).
 
 ---
 
@@ -171,7 +172,56 @@ logged and dropped; the note keeps its old chunks and shows up as behind in `ind
 
 ## Retrieval
 
-*Phase 4.*
+`retrieval/search.py` — `search(user, query, k=None, *, mode="hybrid") -> list[SearchHit]`, and
+`GET /api/v1/search/?q=&k=` over it. D66–D71.
+
+```
+query ─┬─ embed_query ── vector leg: top 50 by cosine distance (HNSW) ─┐
+       │                                                                ├─ RRF ─ cap 2/note ─ top k ─ read texts
+       └──────────────── keyword leg: top 50 by ts_rank (GIN) ──────────┘
+```
+
+**Two legs, one SQL query each.** Both start from `_live_chunks(user)`: the owner's chunks of
+notes with no `deleted_at`, as a `WHERE` clause, never a Python filter afterwards (D67).
+
+- **Vector:** `CosineDistance` against the query's embedding, chunks from the current
+  `embedding_model_id()` only, `ORDER BY` the distance alone so pgvector's HNSW index can serve it.
+  `hnsw.ef_search` is raised to 200 for the query (`SET LOCAL`): the default 40 is below the 50
+  candidates, and pgvector 0.6 applies the owner filter after the index scan (D68). For a user
+  whose chunks are a small share of the table Postgres instead scans that user's rows by the owner
+  index and sorts them exactly, which is cheaper and loses nothing.
+- **Keyword:** `websearch_to_tsquery('english', q)` against `chunk_search_vector()` (heading path
+  and text), the expression the GIN index is built on, ranked by `ts_rank`. Tests EXPLAIN both
+  queries and check each index is reachable.
+
+**Fusion (D66).** Reciprocal rank fusion: each chunk scores Σ 1/(60 + rank) over the lists it
+appears in (rank from 1). A chunk both legs agree on beats one that is first in a single list.
+Ties go to the lower chunk id. `fuse` and `cap_per_note` are pure functions over ids.
+
+**Cap, then cut (D71).** Walking the fused list, a note's third and later chunks are dropped; then
+the top k (default 8, max 20) are kept, and one more owner-scoped query reads their titles,
+heading paths and texts.
+
+**What a hit says.**
+
+| Field | Meaning |
+|---|---|
+| `chunk_id`, `note_id`, `title`, `heading_path`, `text` | where it is and what it says |
+| `score` | the fused RRF score: orders hits, says nothing about relevance on its own |
+| `similarity` | 1 − cosine distance from the vector leg; `null` if only keyword search found it |
+| `keyword_rank` | `ts_rank` from the keyword leg; `null` if only vector search found it |
+
+The endpoint adds `snippet` (the first 200 characters, cut at a word). `similarity` is what Ask's
+relevance floor will compare against (D58, D69).
+
+**Failure (D70).** If the query cannot be embedded (provider down, rate-limited, bad key), hybrid
+search logs a warning and answers from the keyword leg alone, every `similarity` `null`.
+`mode="vector"` raises instead. An empty or whitespace query returns `[]` without a query.
+
+**Settings.** `SEARCH_CANDIDATES` (50), `SEARCH_RRF_K` (60), `SEARCH_MAX_CHUNKS_PER_NOTE` (2),
+`SEARCH_DEFAULT_K` (8), `SEARCH_MAX_K` (20, fixed), `SEARCH_HNSW_EF_SEARCH` (200). The endpoint is
+throttled by the `search` scope (`API_SEARCH_THROTTLE`, 120/hour) because each call may cost an
+embedding, and refuses a `q` over 500 characters.
 
 ## Asking
 
@@ -179,7 +229,116 @@ logged and dropped; the note keeps its old chunks and shows up as behind in `ind
 
 ## Evaluation
 
-*Phase 4: recall@k and MRR for vector, keyword and hybrid retrieval, with the real provider.*
+Retrieval is measured, not assumed. A fixed set of notes and labelled questions is run through
+each retrieval mode, and recall@k and MRR are reported. With the fake embedding provider this is
+only a smoke test (its vectors carry no meaning); the numbers that count come from a real
+provider and are recorded below. Code: `retrieval/eval/` and the `eval_retrieval` command.
+
+### The fixtures
+
+`retrieval/eval/fixtures/notes.json` holds 30 notes of the kind one person in India actually keeps:
+a work project and its weekly syncs, trip plans, recipes, grocery and packing lists, a doctor's
+visit and a medicines schedule, rent and subscriptions, investments, book notes, home repairs, a
+car service log, gift ideas, birthdays, learning notes on Django and Postgres. No secrets.
+
+Each note is a **TipTap document**, the same JSON the editor saves (StarterKit plus
+TaskList/TaskItem), so the eval runs the real chunker over real structure: headings, bullet and
+ordered lists, task lists with checked and unchecked items, a blockquote, code blocks, bold,
+italic and inline code. Each has a stable `key` (`n01`...`n30`), a `type` (`text` or `checklist`)
+and a `title`. Database ids change on every load; the keys do not.
+
+The set is built to be hard in specific ways:
+
+| Trait | Notes | Why |
+|---|---|---|
+| Near-duplicates | `n01`/`n02` (two Goa trips, December and February); `n04`/`n05` (Atlas syncs, 8 and 15 September); `n06`/`n07` (groceries, two weeks) | Same shape and vocabulary, different facts: tests picking the *right* one |
+| Checklists | `n06`, `n07`, `n08`, `n24`, `n28`, `n29` | Answers live in task items; each has open and done items |
+| Long, multi-chunk notes | `n03` (~3,900 chars), `n16`, `n20`, `n21` (2,200–2,900) | Answers sit in one section; tests heading paths and the per-note chunk cap |
+| One-liners | `n10`, `n23`, `n30` | A short chunk must still be findable |
+| Hinglish | `n09` (recipe), `n24` (weekend chores) | Hindi in Latin script; neither stemming nor an English embedding model is built for it |
+
+`retrieval/eval/fixtures/questions.json` holds 31 questions, each
+`{id, question, relevant, kind}`, where `relevant` lists the note keys that answer it. Labels are
+strict: a note is relevant only if it contains the answer, not if it is merely on the topic.
+
+| Kind | Count | What it tests |
+|---|---|---|
+| `keyword` | 5 | Shares rare words with the note ("Honda City", `select_for_update`): keyword search should win |
+| `paraphrase` | 6 | Shares no content words ("landlord" for rent, "sunshine vitamin" for vitamin D): only vectors can find it |
+| `section` | 5 | The answer is one section of a long note ("the Atlas risks") |
+| `near_duplicate` | 5 | Only one of a near-duplicate pair is right ("when is the *second* Goa trip") |
+| `checklist` | 3 | The answer is the unchecked items ("what's left to pack?") |
+| `hinglish` | 1 | "weekend pe kya kaam baaki hai?" |
+| `multi_note` | 3 | Two notes are both needed (Riya's birthday *and* gift ideas) |
+| `no_answer` | 3 | Nothing in the notes answers it (passport number, dentist, chocolate cake) |
+
+The loader (`retrieval/eval/loader.py`) validates both files and fails with the file and entry
+named on: a duplicate key or id, a question naming an unknown note, a malformed TipTap document,
+a node type the editor cannot produce, a checklist with no task item, or a `kind` that disagrees
+with its labels (`no_answer` exactly when `relevant` is empty; `multi_note` needs two or more).
+
+### Metrics
+
+Search returns chunks; questions are labelled with notes. Every ranking is first collapsed to
+notes in first-seen order, so each note sits at the rank of its best chunk
+(`dedupe_to_notes`). Then, for one question with relevant notes *R* and note ranking *L*
+(ranks from 1):
+
+- **recall@k** = |R ∩ L[:k]| / |R|: the fraction of relevant notes in the top *k*. One of two
+  relevant notes found scores 0.5.
+- **reciprocal rank** = 1 / rank of the first relevant note in *L*, or 0 if none is ranked.
+- **MRR** and **mean recall@k** are plain means over the *answerable* questions, each question
+  weighing the same.
+
+`no_answer` questions have no recall or rank (|R| = 0), so they are excluded from both means and
+reported as a separate count. They are what the Ask relevance floor is judged on: for them, the
+right outcome is no chunk above the floor.
+
+### Running it
+
+```
+python manage.py eval_retrieval [--k 5] [--provider fake|openai|gemini] [--by-kind]
+```
+
+It creates a throwaway user, the 30 notes (through `notes/services.py`) and their chunks (with
+`index_note`, synchronously) inside one transaction that is always rolled back, so it leaves no
+data and is safe against any database; only the embedding calls cost anything. Each question is
+searched in all three modes asking for 20 chunks, the hits are mapped back to fixture keys, and
+recall@k and MRR are scored on the top k *notes* (with the per-note cap, up to 2k chunks).
+`--provider` overrides `EMBEDDING_PROVIDER` for the run; `--by-kind` adds a row per question kind.
+It ends with the vector leg's top similarity for each no-answer question, next to the minimum and
+median top similarity of the answerable ones: the data for setting `ASK_RELEVANCE_FLOOR`. Vector
+mode runs first, so a provider failure stops the command rather than letting hybrid quietly fall
+back to keyword-only.
+
+### Results
+
+`python manage.py eval_retrieval --k 5`, 28 answerable questions, 3 no-answer.
+
+**Fake provider (smoke test, not a quality measure).** The fake's vectors are a hashed bag of
+words, so its "vector" leg is really a second keyword matcher without stemming; these numbers only
+show the pipeline runs end to end.
+
+| Mode | recall@5 | MRR |
+|---|---|---|
+| vector | 0.625 | 0.587 |
+| keyword | 0.179 | 0.179 |
+| hybrid | 0.661 | 0.622 |
+
+No-answer top similarity (fake): 0.166, 0.144, 0.369; answerable: min 0.170, median 0.328. The
+fake cannot separate them, as expected.
+
+**Real provider: pending an API key.**
+
+| Mode | recall@5 | MRR |
+|---|---|---|
+| vector | pending an API key | |
+| keyword | pending an API key | |
+| hybrid | pending an API key | |
+
+Run `python manage.py eval_retrieval --k 5 --by-kind --provider openai` (or `gemini`) with the key
+set, fill this table and the per-kind breakdown, and set `ASK_RELEVANCE_FLOOR` from the similarity
+lines (D58).
 
 ## Known limits
 
@@ -188,3 +347,10 @@ logged and dropped; the note keeps its old chunks and shows up as behind in `ind
 - Token counts are approximated by characters (D33). Scripts that pack more or fewer characters per
   token (CJK, code) make chunks proportionally smaller or larger in tokens.
 - The sentence splitter knows `.`, `!` and `?` only; "e.g. this" splits after "e.g.".
+- The keyword leg uses `websearch_to_tsquery`, which ANDs every word: a whole question ("How often
+  does the Honda City need a service?") matches only chunks containing all of its non-stopwords.
+  That is why keyword-only recall is low in the smoke run (0.179). An OR of the query's lexemes
+  scored 0.875 keyword / 0.804 hybrid in a throwaway experiment with the fake provider; whether to
+  switch should be decided on the real-provider numbers.
+- pgvector 0.6 filters by owner after the HNSW scan (D68). `ef_search` = 200 leaves room, but an
+  owner who is a middling share of a very large table can get fewer than 50 vector candidates.
