@@ -461,3 +461,15 @@ ASK_NO_ANSWER_TEXT = env(
 # tokens at four characters a token -- eight chunks of the chunker's target
 # size, with headroom. The cost of an ask is mostly this.
 ASK_EXCERPT_MAX_CHARS = env.int("ASK_EXCERPT_MAX_CHARS", default=12000)
+
+# Chunking (retrieval/chunking.py, DECISIONS D33)
+#
+# Measured in characters, not tokens: a tokenizer would be a new dependency
+# and differs per provider. English runs about 4 characters to a token, so
+# the target 1600 is ~400 tokens (the middle of the plan's 300-500), the
+# max 2000 is ~500 and the overlap ~50. Blocks are packed up to the target;
+# only a single block longer than the max is ever cut, and no chunk's text
+# is longer than the max.
+CHUNK_TARGET_CHARS = env.int("CHUNK_TARGET_CHARS", default=1600)
+CHUNK_MAX_CHARS = env.int("CHUNK_MAX_CHARS", default=2000)
+CHUNK_OVERLAP_CHARS = env.int("CHUNK_OVERLAP_CHARS", default=200)
