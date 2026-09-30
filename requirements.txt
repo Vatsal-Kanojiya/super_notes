@@ -3,7 +3,7 @@
 
 Django==5.2.17
 django-environ==0.12.0
-djangorestframework==3.17.2
+djangorestframework==3.18.1
 # Bearer tokens with rotation and a blacklist (token_blacklist app).
 djangorestframework-simplejwt==5.5.1
 django-cors-headers==4.9.0
