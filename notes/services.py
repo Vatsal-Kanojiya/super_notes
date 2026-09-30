@@ -6,7 +6,7 @@ Each write, in one transaction:
 2. increments ``User.notes_revision``,
 3. stamps the note with that value as its ``revision`` and bumps its
    ``version``; ``Note.save()`` derives ``content_text``,
-4. calls ``_after_write(note)``.
+4. calls ``_after_write(note)``, which enqueues indexing on commit.
 
 The lock is the point (DECISIONS D5). A user's writes queue on their own
 row, so revisions are handed out *in commit order*: once revision n is
@@ -23,6 +23,7 @@ would overwrite the first without a conflict.
 
 from __future__ import annotations
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
@@ -67,13 +68,20 @@ def _locked_live_note(owner, note_id) -> Note:
 def _after_write(note: Note) -> None:
     """Runs inside the write's transaction, after the note is saved.
 
-    **Phase 3 hook.** Indexing will be enqueued here with
-    ``transaction.on_commit(lambda: index_note.apply_async(...))`` -- on
-    commit, so a worker never looks for a row that is not visible yet, and
-    never indexes a write that rolled back. A tombstone (``deleted_at`` set)
-    means "remove its chunks". One function, so no write path can forget.
-    Intentionally a no-op until then.
+    Enqueues indexing on commit, so a worker never looks for a row that is
+    not visible yet and a rolled-back write is never indexed. One function,
+    so no write path can forget. A tombstone is enqueued without the
+    debounce: it means "remove its chunks", and that should be quick.
     """
+    # Imported here: retrieval imports notes, so a module-level import
+    # would be a cycle.
+    from retrieval.tasks import index_note_task
+
+    countdown = 0 if note.deleted_at else settings.INDEX_DEBOUNCE_SECONDS
+    note_id, version = note.pk, note.version
+    transaction.on_commit(
+        lambda: index_note_task.apply_async((note_id, version), countdown=countdown)
+    )
 
 
 @transaction.atomic

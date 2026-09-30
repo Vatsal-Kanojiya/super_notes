@@ -485,6 +485,14 @@ CHUNK_TARGET_CHARS = env.int("CHUNK_TARGET_CHARS", default=1600)
 CHUNK_MAX_CHARS = env.int("CHUNK_MAX_CHARS", default=2000)
 CHUNK_OVERLAP_CHARS = env.int("CHUNK_OVERLAP_CHARS", default=200)
 
+# Indexing (retrieval/tasks.py, DECISIONS D61)
+#
+# Seconds a note write waits before its index task runs. Autosave writes
+# every few seconds while someone types; each write enqueues a task for its
+# own version and all but the last find the note has moved on and stop
+# before embedding anything. A delete ignores this and de-indexes at once.
+INDEX_DEBOUNCE_SECONDS = env.int("INDEX_DEBOUNCE_SECONDS", default=20)
+
 
 # Embeddings (retrieval/embeddings/, DECISIONS D36-D39)
 #
