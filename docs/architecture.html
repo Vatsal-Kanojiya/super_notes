@@ -59,7 +59,7 @@ flowchart LR
   worker --> emb["Embedding provider<br/>(fake / OpenAI / Gemini)"]
   worker --> chat["Chat provider<br/>(fake / Claude / Gemini / OpenAI)"]
   api -->|"verify ID token"| google["Google"]
-  api -.->|"query embedding (planned)"| emb
+  api -.->|"query embedding"| emb
 </div></div>
 
 <h3>Built and planned</h3>
@@ -69,13 +69,13 @@ flowchart LR
 <tr><td>0</td><td>Scaffold: settings, custom User, pgvector migration, health, schema and docs</td><td><span class="tag built">built</span></td></tr>
 <tr><td>1</td><td>Auth: Google sign-in, JWT, devices, security events</td><td><span class="tag built">built</span></td></tr>
 <tr><td>2</td><td>Notes and sync: CRUD, version conflicts, revision-based changes, keyword search</td><td><span class="tag built">built</span></td></tr>
-<tr><td>3</td><td>Chunking and indexing. Chunker and embedding providers exist. The indexer and its task are being built right now.</td><td><span class="tag wip">in progress</span></td></tr>
-<tr><td>4</td><td>Hybrid search (vector + full-text, RRF), <code>search/</code>, <code>eval_retrieval</code>. Eval fixtures and metrics exist.</td><td><span class="tag plan">search planned</span></td></tr>
-<tr><td>5</td><td>Ask. Chat providers, prompt and citation parsing exist. The AskQuery model, task, quota and API are planned.</td><td><span class="tag plan">endpoint planned</span></td></tr>
-<tr><td>6</td><td>Web client. Built against the API contract. Not yet run against the real API.</td><td><span class="tag plan">wiring planned</span></td></tr>
+<tr><td>3</td><td>Chunking, embedding providers, debounced idempotent indexing, <code>reindex_notes</code>, <code>index_status</code></td><td><span class="tag built">built</span></td></tr>
+<tr><td>4</td><td>Hybrid search (vector + full-text, RRF), <code>search/</code>, <code>eval_retrieval</code>. Real-provider numbers wait for an API key.</td><td><span class="tag built">built</span></td></tr>
+<tr><td>5</td><td>Ask: AskQuery, monthly quota, idempotency, relevance floor, background task, citations, <code>ask/</code></td><td><span class="tag built">built</span></td></tr>
+<tr><td>6</td><td>Web client (Vue 3 + TipTap), checked in a browser against the real API. Google sign-in waits for an OAuth client id.</td><td><span class="tag built">built</span></td></tr>
 <tr><td>7</td><td>Android via Capacitor</td><td><span class="tag plan">planned</span></td></tr>
 </table></div>
-<p>In the diagrams below, steps marked "planned" do not exist yet.</p>
+<p>Everything in the diagrams below is built except Android.</p>
 
 <h2 id="code">2. Code map</h2>
 <div class="tbl"><table>
@@ -176,7 +176,7 @@ sequenceDiagram
 <p>Reading the ceiling first is the trick. Everything at or below it is already committed, so the list is complete. A note written twice appears once, at its newest revision. A deleted note arrives as a tombstone so the device can remove it.</p>
 
 <h3>4d. Indexing a note</h3>
-<p><span class="tag wip">in progress</span> The chunker and embedding providers are built. The indexer and task are being built now.</p>
+<p><span class="tag built">built</span></p>
 <div class="diagram"><div class="mermaid">
 sequenceDiagram
   autonumber
@@ -204,7 +204,7 @@ sequenceDiagram
 <p>Chunks target about 1600 characters with a little overlap, and never cross a heading. The embedded text starts with the title and heading path, so "move it to Friday" still knows its note. The job is safe to run twice. Permanent errors are logged and dropped. Transient errors retry with backoff.</p>
 
 <h3>4e. Ask your notes</h3>
-<p><span class="tag plan">planned</span> The endpoint, model, task and quota are not built. The prompt, citation parsing and chat providers are.</p>
+<p><span class="tag built">built</span> The relevance floor is 0.0 until a real-provider evaluation sets it (D58, D74).</p>
 <div class="diagram"><div class="mermaid">
 sequenceDiagram
   autonumber
@@ -268,7 +268,7 @@ erDiagram
   NOTE ||--o{ NOTECHUNK : "split into"
   USER ||--o{ SIGNEDINDEVICE : "signed in on"
   USER ||--o{ SECURITYEVENT : "has trail"
-  USER ||--o{ ASKQUERY : "asks (planned)"
+  USER ||--o{ ASKQUERY : "asks"
   USER {
     string email "unique, the login key"
     string google_sub "stable Google id"
@@ -293,11 +293,16 @@ erDiagram
     int note_version
   }
   ASKQUERY {
-    text question
+    string question
+    string status
     text answer
     json citations
-    string status
+    json retrieved
+    string idempotency_key
+    string provider
     string prompt_version
+    int input_tokens
+    int output_tokens
   }
   SIGNEDINDEVICE {
     string refresh_jti
@@ -311,7 +316,7 @@ erDiagram
     json detail
   }
 </div></div>
-<p>The user field names shown are the intent. Check <code>accounts/models.py</code> for exact columns. The AskQuery fields are a sketch. The model is not built. <code>version</code> answers "did this note change since I loaded it". <code>revision</code> answers "what changed since I last synced".</p>
+<p>The user field names shown are the intent. Check <code>accounts/models.py</code> for exact columns. AskQuery (<code>assistant/models.py</code>) is one row per question, and those rows are the quota counter. <code>version</code> answers "did this note change since I loaded it". <code>revision</code> answers "what changed since I last synced".</p>
 
 <h2 id="run">7. Run locally</h2>
 <p>Needs Postgres 16 with pgvector, Redis, Python 3.x and Node. Full setup is in <code>README.md</code>.</p>
