@@ -378,3 +378,131 @@ review; graded ones would need nDCG and more labelling.
 
 **Reverse it if:** the eval moves to nDCG, or real questions show a need for "partially
 relevant".
+
+## Phase 5a — chat providers and prompt
+
+### D53. The chat providers call each vendor's HTTP API with `requests`, not its SDK
+
+**Decided:** `assistant/chat/providers/{claude,openai,gemini}.py` POST JSON through one shared
+helper (`_http.py`) that sets a (5 s connect, `CHAT_TIMEOUT_SECONDS` read) timeout, reads the key
+from the vendor's usual env var and translates failures.
+
+**Alternatives:** the `anthropic`, `openai` and `google-genai` SDKs, as the reference's bill
+scanner uses.
+
+**Why:** plan §3 allows no new dependency without asking, `requests` is already pinned (for
+google-auth), and each provider is one POST. The SDKs' value here would be retries and typed
+errors, which the helper replaces in about fifty lines; Celery does the retrying.
+
+**Reverse it if:** a provider needs streaming, tool use or file uploads; then add that vendor's
+SDK (after asking).
+
+### D54. `ChatError` gives up, `TransientChatError` retries, and neither subclasses the other
+
+**Decided:** 408, 409, 429, every 5xx (Anthropic's 529 included), timeouts and dropped
+connections raise `TransientChatError`, for the ask task's `autoretry_for`. Everything else raises
+`ChatError`: bad key or missing key, unknown model, rejected request, non-JSON body, a refusal or
+safety block, and an answer **cut off by the token ceiling** (not stored half-finished: it may end
+mid-claim or mid-citation, and a failed ask does not count against the quota).
+
+**Alternatives:** let the vendor's exceptions propagate, as the reference does with SDK
+exceptions (with `requests` there are no vendor exceptions to propagate); make the transient class
+a `ChatError` subclass.
+
+**Why:** separate classes mean `except ChatError: mark_failed()` in the task cannot swallow a
+failure Celery was meant to retry.
+
+**Reverse it if:** truncation turns out common in practice; then keep the partial answer with a
+flag instead of failing.
+
+### D55. Cheap default models: `claude-haiku-4-5`, `gemini-2.5-flash-lite`, `gpt-5-mini`
+
+**Decided:** `CHAT_MODELS` defaults, each overridable (`CHAT_CLAUDE_MODEL`, …). Claude is given
+by its alias `claude-haiku-4-5`, which the claude-api skill lists as the current ID (the dated
+snapshot is `claude-haiku-4-5-20251001`; the result records whichever the API reports). No
+`thinking` is sent to Claude; OpenAI gets `reasoning.effort: "low"` and `store: false`.
+`CHAT_MAX_OUTPUT_TOKENS` defaults to 2048 because OpenAI counts hidden reasoning against it.
+
+**Alternatives:** Sonnet 5.5 / Opus 5.5 class models.
+
+**Why:** answering from eight excerpts is reading comprehension; the quota prices every ask the
+same, and the cheap tier costs a fraction of the others. Gemini matches the reference's choice.
+
+**Reverse it if:** the Phase 5 evaluation shows the cheap tier ignoring the grounding rules
+(uncited claims, guessing). A thinking model then needs a larger `CHAT_MAX_OUTPUT_TOKENS`, and
+Sonnet/Opus 5.5 would want the refusal `fallbacks` parameter the claude-api skill recommends.
+
+### D56. Excerpts sit in `<excerpt>` tags; only the prompt's own tag names are neutralised
+
+**Decided:** each excerpt is `<excerpt n="1" title="…" section="…">text</excerpt>` inside
+`<excerpts>`, then `<question>`. Inside excerpt text and the question, any opening or closing
+`excerpt`/`excerpts`/`question` tag (any case or spacing) has its `<` replaced by `&lt;`; titles and
+heading paths are HTML-escaped and put on one line. The system prompt says excerpts are data and
+their instructions are not to be followed.
+
+**Alternatives:** HTML-escape all excerpt text; random per-request delimiters; JSON.
+
+**Why:** escaping only our tag names leaves code, maths and HTML in notes exactly as written (a
+model that sees `&lt;` everywhere tends to quote it back), while still making it impossible for
+note text to close its excerpt. Random delimiters would defeat reproducible prompts and tests.
+
+**Reverse it if:** a red-team prompt gets through; add a random nonce to the tag names.
+
+### D57. The excerpt budget keeps whole excerpts in rank order
+
+**Decided:** `fit_excerpts` adds excerpts in the given (rank) order until `ASK_EXCERPT_MAX_CHARS`
+(12,000) would overflow; the overflowing one is cut at a word boundary if at least 200 characters
+remain, and the rest are dropped. The best match is always sent, truncated if needed. The ask
+task should parse citations against `fit_excerpts`' output, i.e. what the model actually saw.
+`build_messages` keeps the `(system, user)` return the brief asked for and calls `fit_excerpts`
+itself (it is idempotent).
+
+**Alternatives:** trim every excerpt proportionally; count tokens exactly.
+
+**Why:** the top-ranked chunks matter most, and a 200-character scrap cut from its context
+misleads more than it helps. Characters approximate tokens as the chunker does.
+
+**Reverse it if:** answers often miss facts in the lower-ranked excerpts; raise the budget.
+
+### D58. `ASK_RELEVANCE_FLOOR` defaults to 0.0 until the evaluation tunes it
+
+**Decided:** the setting exists (float, env-overridable) with 0.0, meaning only an empty
+retrieval short-circuits to `ASK_NO_ANSWER_TEXT`.
+
+**Alternatives:** guess a number now.
+
+**Why:** the floor's meaning depends on which score retrieval returns. A fused RRF score is about
+`1/(60 + rank)` whatever the text says, so it cannot express "irrelevant" at all; the vector leg's
+cosine similarity can. Picking a value before retrieval (Phase 4) and its eval numbers exist would
+be a guess. See BACKLOG.
+
+**Reverse it if:** Phase 4/5 lands; set it from the eval, against the score it actually applies to.
+
+### D59. Citation markers: `[1]`, `[1][2]`, `[1, 2]`, `[1; 2]` and `[1-3]`
+
+**Decided:** all read; ranges (hyphen or en dash, either direction) expand only over existing
+excerpt numbers. Not markers: `[^1]`, `[1a]`, `[see above]`, Markdown links, `[1,]`.
+
+**Alternatives:** `[n]` only, as the prompt asks.
+
+**Why:** models drift into the grouped and range forms even when told otherwise; losing a
+citation for its punctuation would be worse than accepting it. Bounding ranges by the excerpt set
+keeps `[1-999999999]` cheap.
+
+**Reverse it if:** a false positive shows up in real answers.
+
+### D60. Unknown markers are dropped from `citations` but left in the answer text
+
+**Decided:** `parse_citations` keeps only numbers that name a sent excerpt, de-duplicated in
+first-appearance order, each keeping its own `n` (no renumbering). The answer is stored exactly as
+the model wrote it; the client links only the numbers present in `citations`. Snippets are the
+excerpt text on one line, cut at a word boundary to 240 characters (a constant).
+
+**Alternatives:** strip invalid markers from the text; renumber citations 1..m and rewrite the
+text to match.
+
+**Why:** the verbatim answer is what debugging and evaluation need (an invented `[9]` is itself a
+finding), and stripping "markers" would also eat an innocent `[2024]`. Keeping `n` means every
+marker in the text still matches its citation.
+
+**Reverse it if:** users find unlinked numbers confusing; strip them at render time in the client.

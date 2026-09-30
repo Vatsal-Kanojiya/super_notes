@@ -68,3 +68,27 @@ generator (not committed; the JSON is the source of truth, D41).
 **Left:** `eval_retrieval` (needs search), a per-kind breakdown in its output, and the real
 provider's numbers in the results table. **Unsure:** whether 31 questions are enough to separate
 the modes — one question moves recall by ~3.6 points, so small differences are noise.
+
+### Phase 5a — chat providers and prompt
+
+**Built:** the `assistant` app skeleton; `assistant/chat/` mirroring the reference's extraction
+package (`complete()` → frozen `ChatResult`, `ChatError` / `TransientChatError`, lazy registry,
+Protocol) with a grounded-looking fake and Claude, OpenAI and Gemini providers over plain
+`requests`; the versioned prompt `assistant/prompts/ask.md` and `build_messages` with protected
+`<excerpt>` delimiters and a character budget; `[n]` citation parsing; the Ask settings block.
+Docs in `docs/RAG_ASK_DRAFT.md` (to merge into `RAG.md`). D53–D60.
+
+**What went wrong / notes:**
+
+- The session was cut off by a usage limit after the code commits; docs finished on resume.
+- The Claude default uses the alias `claude-haiku-4-5` (the claude-api skill's current ID) rather
+  than the dated `claude-haiku-4-5-20251001` from the brief. Both are valid.
+- In commit `23c95b8` the registry test imports the real providers, which land one commit later;
+  that single commit is not green on its own.
+- No live test has run: no vendor key on this machine.
+
+**Left:** the `AskQuery` model, the ask task (retrieval, floor short-circuit, `fit_excerpts` →
+`build_messages` → `complete` → `parse_citations`), quota, idempotency and the API — Phase 5b.
+
+**Unsure:** the relevance floor's score scale (D58); whether live tests should need an extra
+opt-in flag besides the key (BACKLOG).

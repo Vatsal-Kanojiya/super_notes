@@ -18,6 +18,17 @@ Things that came up and were left for a decision. Each names what it is waiting 
 - **Real embedding and chat providers** — waiting on which keys the owner has (OpenAI, Gemini or
   Claude). The fake providers carry the build until then; the registry takes a new one without
   touching callers.
+- **Relevance floor value and score** (D58) — `ASK_RELEVANCE_FLOOR` is 0.0 (only an empty
+  retrieval short-circuits). Waiting on Phase 4's `search()` score shape and the eval numbers:
+  the floor should compare the vector leg's cosine similarity, not the fused RRF score.
+- **Live provider tests run whenever a key is set** — including a key in `.env`, since
+  django-environ loads it into the environment. Each costs a fraction of a cent, but it breaks
+  the spirit of D11. Waiting on the owner: add a `RUN_LIVE_TESTS=1` gate on top of the key?
+- **Localised no-answer text** — `ASK_NO_ANSWER_TEXT` is fixed English while model answers follow
+  the question's language. V1 accepts it.
+- **Refusal fallbacks for Claude 5.5-class models** — if `CHAT_CLAUDE_MODEL` moves to Sonnet or
+  Opus 5.5, the claude-api skill recommends the server-side `fallbacks` parameter; not sent today
+  (default is Haiku 4.5).
 - **Static files in production** — no WhiteNoise (D10). Needs a deployment decision.
 - **413 without CORS headers** — `MaxUploadSizeMiddleware` runs before `CorsMiddleware`, so a
   cross-origin client sees a network error rather than "too large". Same known gap as the
