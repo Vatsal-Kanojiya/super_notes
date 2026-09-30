@@ -5,6 +5,12 @@ Out of V1's scope, or parked during the build. Nothing here is started without t
 ## V2 candidates (from the plan)
 
 - **Multi-turn chat with conversation memory** — the long-term goal. V1's Ask is single-turn.
+  - **User memory, in-stack (supermemory's ideas, not its service).** A `UserFact(user, text,
+    kind=static|dynamic, source_ask, valid_until, embedding)` table; a Celery task after each
+    answered ask extracts facts through the chat provider layer; the few most relevant facts go
+    into the Ask prompt beside the note excerpts; a new fact supersedes one it contradicts. Reuses
+    pgvector and the owner filter in SQL, with no new service. Research:
+    `docs/research/memory-tools.html`.
 - **Streaming answers** (and websockets). V1 polls.
 - **AI "format my note" button.**
 - **Reminders** and **calendar**.

@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory tools explained</title>
+<style>
+:root{
+  --bg:#fbfbf9; --fg:#1d2229; --muted:#5b6572; --line:#dcdfe3; --card:#ffffff; --code:#f0f1ee;
+  --accent:#1f6feb; --accent-soft:#e6efff; --ok:#1a7f4b; --ok-soft:#e3f4ea; --warn:#9a5b00; --warn-soft:#fff1d6; --bad:#b42318; --bad-soft:#fde8e6;
+  --n1:#e6efff; --n1s:#1f6feb; --n2:#e3f4ea; --n2s:#1a7f4b; --n3:#fff1d6; --n3s:#9a5b00; --n4:#f0e9fb; --n4s:#6f42c1;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#14171b; --fg:#e6e8eb; --muted:#9aa4b1; --line:#2d333b; --card:#1b1f24; --code:#232930;
+    --accent:#6ea8ff; --accent-soft:#1c2a42; --ok:#56d38c; --ok-soft:#173326; --warn:#f0b75a; --warn-soft:#3a2c12; --bad:#ff8b80; --bad-soft:#3d1b18;
+    --n1:#1c2a42; --n1s:#6ea8ff; --n2:#173326; --n2s:#56d38c; --n3:#3a2c12; --n3s:#f0b75a; --n4:#2a2140; --n4s:#b594f5;
+  }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:0 16px 80px;display:grid;grid-template-columns:200px 1fr;gap:32px}
+header.top{max-width:1000px;margin:0 auto;padding:32px 16px 8px}
+header.top h1{margin:0 0 6px;font-size:2rem;line-height:1.2}
+header.top p{margin:0;color:var(--muted)}
+nav.toc{position:sticky;top:16px;align-self:start;font-size:.9rem;padding-top:8px}
+nav.toc ol{list-style:none;margin:0;padding:0;border-left:2px solid var(--line)}
+nav.toc a{display:block;padding:4px 12px;color:var(--muted);text-decoration:none}
+nav.toc a:hover{color:var(--accent)}
+main{min-width:0}
+section{padding-top:16px}
+h2{font-size:1.5rem;margin:40px 0 8px;padding-top:8px;border-top:1px solid var(--line)}
+section:first-child h2{border-top:0;margin-top:8px}
+h3{font-size:1.1rem;margin:28px 0 4px}
+p,li{max-width:70ch}
+a{color:var(--accent)}
+code{background:var(--code);padding:1px 5px;border-radius:4px;font:.88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+pre{background:var(--code);padding:12px 14px;border-radius:8px;overflow-x:auto;font:.85rem/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:10px 0}
+pre code{background:none;padding:0}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:12px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card h3{margin-top:0}
+.note{border-left:4px solid var(--accent);background:var(--accent-soft);padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0}
+.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+.key{border-left-color:var(--ok);background:var(--ok-soft)}
+.note p{margin:4px 0}
+.tag{display:inline-block;font-size:.75rem;font-weight:600;padding:1px 8px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.t-have{background:var(--ok-soft);color:var(--ok);border-color:var(--ok)}
+.t-part{background:var(--warn-soft);color:var(--warn);border-color:var(--warn)}
+.t-miss{background:var(--bad-soft);color:var(--bad);border-color:var(--bad)}
+.tablewrap{overflow-x:auto;margin:12px 0;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:.92rem;background:var(--card)}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--code);font-weight:600}
+tr:last-child td{border-bottom:0}
+td:first-child{font-weight:600}
+figure{margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;overflow-x:auto}
+figure svg{display:block;width:100%;height:auto;min-width:560px}
+figcaption{font-size:.85rem;color:var(--muted);margin-top:6px}
+svg text{fill:var(--fg);font:13px system-ui,-apple-system,"Segoe UI",sans-serif}
+svg .sub{fill:var(--muted);font-size:11.5px}
+svg .b1{fill:var(--n1);stroke:var(--n1s);stroke-width:1.5}
+svg .b2{fill:var(--n2);stroke:var(--n2s);stroke-width:1.5}
+svg .b3{fill:var(--n3);stroke:var(--n3s);stroke-width:1.5}
+svg .b4{fill:var(--n4);stroke:var(--n4s);stroke-width:1.5}
+svg .b0{fill:var(--code);stroke:var(--line);stroke-width:1.5}
+svg .ar{stroke:var(--muted);stroke-width:1.6;fill:none}
+svg .arh{fill:var(--muted)}
+svg .dash{stroke-dasharray:5 4}
+.small{font-size:.88rem;color:var(--muted)}
+ul{padding-left:1.2rem}
+@media (max-width:820px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{position:static;padding:0 0 8px}
+  nav.toc ol{border-left:0;display:flex;flex-wrap:wrap;gap:4px 12px}
+  nav.toc a{padding:2px 0}
+  .cards{grid-template-columns:1fr}
+  header.top h1{font-size:1.6rem}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Two memory tools, explained</h1>
+  <p>supermemory and codebase-memory-mcp, and what either means for Super Notes. Researched 2026-10-01 from a shallow clone of each repo. README figures are marked as claims.</p>
+</header>
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+<ol>
+  <li><a href="#minute">1. In one minute</a></li>
+  <li><a href="#supermemory">2. supermemory</a></li>
+  <li><a href="#cbm">3. codebase-memory-mcp</a></li>
+  <li><a href="#compare">4. Side by side</a></li>
+  <li><a href="#sn">5. For Super Notes</a></li>
+  <li><a href="#verdict">6. Verdict</a></li>
+  <li><a href="#unverified">Not verified</a></li>
+</ol>
+</nav>
+<main>
+
+<section id="minute">
+<h2>1. In one minute</h2>
+<div class="cards">
+  <div class="card">
+    <h3>supermemory</h3>
+    <p>A memory and context layer for <strong>AI apps</strong>. You send it text, chats and files. It keeps document chunks for search, and it also extracts short <em>facts</em> about a user and keeps them up to date. You ask it for the user's profile or for relevant facts, and paste the result into your prompt.</p>
+    <p class="small">For: developers building a chatbot or agent that should remember users.</p>
+  </div>
+  <div class="card">
+    <h3>codebase-memory-mcp</h3>
+    <p>A code index for <strong>AI coding agents</strong> such as Claude Code. It parses your source into a graph of functions, classes and calls, stores it in SQLite, and lets the agent query it over MCP. The agent asks "who calls X?" instead of running grep and reading files.</p>
+    <p class="small">For: people who use coding agents, especially on large repos.</p>
+  </div>
+</div>
+<div class="note key">
+<p><strong>The key difference.</strong> supermemory remembers <em>what users said and prefer</em>, to make an app's answers personal. codebase-memory-mcp remembers <em>how your code is wired</em>, to make a coding agent's searches cheaper. They do not compete. Only the first is relevant to the Super Notes product; the second is a developer tool.</p>
+</div>
+</section>
+
+<section id="supermemory">
+<h2>2. supermemory explained</h2>
+<p>Repo: <a href="https://github.com/supermemoryai/supermemory">supermemoryai/supermemory</a>. MIT licence. A TypeScript monorepo (Next.js web app, docs, an MCP server, SDK wrappers, a memory-graph UI component). The README calls it "the memory and context layer for AI".</p>
+
+<h3>The flow</h3>
+<figure>
+<svg viewBox="0 0 900 250" role="img" aria-label="Flow: content in, extraction, memory store, profile and search out">
+  <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arh"/></marker></defs>
+  <rect class="b0" x="10" y="20" width="150" height="80" rx="8"/>
+  <text x="85" y="48" text-anchor="middle" font-weight="600">Content in</text>
+  <text class="sub" x="85" y="68" text-anchor="middle">chat turns, text, PDFs,</text>
+  <text class="sub" x="85" y="84" text-anchor="middle">URLs, connector items</text>
+
+  <rect class="b1" x="215" y="20" width="170" height="80" rx="8"/>
+  <text x="300" y="48" text-anchor="middle" font-weight="600">Ingest pipeline</text>
+  <text class="sub" x="300" y="68" text-anchor="middle">extract, chunk,</text>
+  <text class="sub" x="300" y="84" text-anchor="middle">embed, index</text>
+
+  <rect class="b3" x="440" y="20" width="170" height="80" rx="8"/>
+  <text x="525" y="48" text-anchor="middle" font-weight="600">"Dreaming"</text>
+  <text class="sub" x="525" y="68" text-anchor="middle">LLM turns content into</text>
+  <text class="sub" x="525" y="84" text-anchor="middle">facts, links to old ones</text>
+
+  <rect class="b2" x="665" y="10" width="225" height="100" rx="8"/>
+  <text x="777" y="36" text-anchor="middle" font-weight="600">Store, per containerTag</text>
+  <text class="sub" x="777" y="58" text-anchor="middle">document chunks (the source)</text>
+  <text class="sub" x="777" y="74" text-anchor="middle">memories (facts + versions)</text>
+  <text class="sub" x="777" y="90" text-anchor="middle">vectors + full-text + graph</text>
+
+  <path class="ar" d="M160 60 H213" marker-end="url(#a1)"/>
+  <path class="ar" d="M385 60 H438" marker-end="url(#a1)"/>
+  <path class="ar" d="M610 60 H663" marker-end="url(#a1)"/>
+
+  <rect class="b4" x="440" y="170" width="200" height="64" rx="8"/>
+  <text x="540" y="196" text-anchor="middle" font-weight="600">profile()</text>
+  <text class="sub" x="540" y="216" text-anchor="middle">static facts + dynamic context</text>
+  <rect class="b4" x="690" y="170" width="200" height="64" rx="8"/>
+  <text x="790" y="196" text-anchor="middle" font-weight="600">search()</text>
+  <text class="sub" x="790" y="216" text-anchor="middle">hybrid: chunks + memories</text>
+  <path class="ar" d="M740 110 V168" marker-end="url(#a1)"/>
+  <path class="ar" d="M700 110 L560 168" marker-end="url(#a1)"/>
+  <rect class="b0" x="10" y="170" width="380" height="64" rx="8"/>
+  <text x="200" y="196" text-anchor="middle" font-weight="600">Your app puts the result in the LLM prompt</text>
+  <text class="sub" x="200" y="216" text-anchor="middle">supermemory returns context. It does not write the answer.</text>
+  <path class="ar dash" d="M438 202 H392" marker-end="url(#a1)"/>
+</svg>
+<figcaption>Based on the docs "How it works" and "Graph memory" pages. Memory extraction can finish after a document shows status "done" (default mode is <code>dynamic</code>, which batches related documents).</figcaption>
+</figure>
+
+<h3>Memories vs chunks</h3>
+<p>A <strong>chunk</strong> is a piece of the original document, found by similarity. It is the same for every user. A <strong>memory</strong> is a short fact the system extracted: "Alex works at Stripe as a PM". It belongs to a user or entity and changes over time. Supermemory keeps both and searches both. You already do chunks in Super Notes. Memories are the new part.</p>
+
+<h3>Fact extraction and how memories change</h3>
+<p>An LLM reads new content and writes atomic facts. Each new fact is linked to old ones by one of three relations (the type is <code>updates | extends | derives</code> in the repo's <code>packages/validation/schemas.ts</code>):</p>
+<pre><code>Day 1   "Alex works at Google as an engineer"   isLatest = true
+Day 40  "Alex just started at Stripe as a PM"   UPDATES Day 1
+                                                Day 1 -> isLatest = false  (kept for history)
+"Alex is a PM"  EXTENDS the Stripe fact         "Alex likely manages roadmaps"  DERIVES (isInference)</code></pre>
+<p><strong>Contradictions:</strong> the newer fact supersedes the older one; search returns only the latest by default. <strong>Forgetting:</strong> a fact can carry <code>forgetAfter</code> (for example "exam tomorrow") and a <code>forgetReason</code>, and it drops out after that date. The schema fields I confirmed in the repo: <code>version</code>, <code>isLatest</code>, <code>parentMemoryId</code>, <code>rootMemoryId</code>, <code>isStatic</code>, <code>isInference</code>, <code>isForgotten</code>, <code>forgetAfter</code>, <code>memoryEmbedding</code>.</p>
+
+<h3>Static vs dynamic profile</h3>
+<pre><code>profile.static  = ["Senior engineer at Acme", "Prefers dark mode", "Uses Vim"]     stable, long-lived
+profile.dynamic = ["Working on auth migration", "Debugging rate limits"]           recent, changes often</code></pre>
+<p>The profile is one call that needs no query. The idea: you attach it to every prompt so the model always knows who it is talking to, instead of hoping a search finds it. The docs claim ~50ms (a claim, not measured here).</p>
+
+<h3>Container tags</h3>
+<p>A <code>containerTag</code> is a string such as <code>user_123</code> that you pass on every add, search and profile call. The docs call it a "hard isolation boundary" (user, tenant or project). Scoped API keys can be restricted to one tag. This is the multi-user model: you choose the tag, and supermemory keeps tags apart. Metadata filters work inside a tag.</p>
+
+<h3>Search modes and connectors</h3>
+<ul>
+  <li><strong>Hybrid search</strong> (default <code>searchMode: "hybrid"</code>) returns document chunks and memories in one query. <code>"memories"</code> returns facts only. Docs say the engine has vector, full-text and graph built in.</li>
+  <li><strong>Connectors:</strong> Google Drive, Gmail, Notion, OneDrive, GitHub, web crawler (plus S3 and Granola docs pages) sync content in.</li>
+  <li><strong>File processing:</strong> PDFs, images (OCR), video (transcription), code.</li>
+</ul>
+
+<h3>How you would use it</h3>
+<pre><code># Python SDK (from the README)
+client.add(content="User loves TypeScript", container_tag="user_123")
+r = client.profile(container_tag="user_123", q="programming style")
+r.profile.static   # long-term facts
+r.profile.dynamic  # recent context</code></pre>
+<p>Other routes: framework wrappers (Vercel AI SDK, LangChain, OpenAI Agents, Mastra, ...) and an MCP server at <code>https://mcp.supermemory.ai/mcp</code> with three tools: <code>memory</code> (save or forget), <code>recall</code> (search plus profile), <code>context</code> (inject the profile). Plugins exist for Claude Code, Cursor, Codex and others. Note the MCP and plugins are for <em>your own AI assistant</em> remembering <em>you</em>. They are a different use than putting memory inside an app for its users.</p>
+
+<h3>Hosted vs self-hosted, and what the licence covers</h3>
+<div class="note warn">
+<p><strong>Finding.</strong> The repo's <code>LICENSE</code> is MIT, but the memory engine is not in it. What I found in the clone: the Next.js web app (<code>apps/web</code> has only a landing page and config), the docs, the MCP server, SDK and framework wrappers (<code>packages/tools</code>, Python SDKs), a graph-visualisation component, a Raycast extension, and type/validation schemas. I found no code for fact extraction, the graph engine, embeddings pipeline, or the <code>supermemory-server</code> binary. The docs say the extraction is done by "a custom learning model and a graph database that we built internally".</p>
+<p>So MIT applies to what is in this repo: the client side. The self-hosted "Supermemory local" binary is described in the docs as "free, open source", with a link to <code>git.new/memory</code>. I did not follow that link, so I cannot say where its source lives or under what licence. Treat "self-hostable" as true (docs describe a single binary that runs offline with Ollama) but "open source engine under MIT" as unverified.</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th></th><th>Supermemory local</th><th>Enterprise / hosted</th></tr>
+<tr><td>Engine</td><td>Embedded graph engine, single machine, one API key</td><td>Managed, proprietary models for extraction</td></tr>
+<tr><td>Models</td><td>Your own key (OpenAI, Anthropic, Gemini, Groq, any OpenAI-compatible, or Ollama)</td><td>Supermemory's models</td></tr>
+<tr><td>Connectors</td><td>Not included ("-" in their comparison table)</td><td>Drive, Notion, Gmail, OneDrive with sync</td></tr>
+<tr><td>Teams / roles</td><td>Single tenant</td><td>Multi-member orgs, scoped keys</td></tr>
+</table></div>
+<p class="small">Source: <code>apps/docs/self-hosting/local-vs-enterprise.mdx</code>. The local binary by default uses local embeddings (<code>Xenova/bge-base-en-v1.5</code>) and calls whichever LLM you configure. With the hosted API, your content goes to their servers.</p>
+
+<div class="note">
+<p><strong>Claims to treat as claims.</strong> "#1 on LongMemEval, LoCoMo and ConvoMem", "95% Recall@15 with 99.4% context reduction", "~50ms profiles", "3x fewer tokens with SMFS". These are from the vendor's README and research page. I did not reproduce any of them. They test conversational memory, not note search like yours.</p>
+</div>
+</section>
+
+<section id="cbm">
+<h2>3. codebase-memory-mcp explained</h2>
+<p>Repo: <a href="https://github.com/DeusData/codebase-memory-mcp">DeusData/codebase-memory-mcp</a>. MIT licence. Written in C, shipped as one native binary. It has no LLM inside. Your coding agent is the "query translator": it decides which graph tool to call.</p>
+
+<h3>The pipeline</h3>
+<figure>
+<svg viewBox="0 0 900 270" role="img" aria-label="Source files to tree-sitter to graph to SQLite to MCP tools to agent">
+  <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arh"/></marker></defs>
+  <rect class="b0" x="10" y="20" width="130" height="70" rx="8"/>
+  <text x="75" y="48" text-anchor="middle" font-weight="600">Source files</text>
+  <text class="sub" x="75" y="68" text-anchor="middle">respects .gitignore</text>
+  <rect class="b1" x="175" y="20" width="140" height="70" rx="8"/>
+  <text x="245" y="48" text-anchor="middle" font-weight="600">tree-sitter</text>
+  <text class="sub" x="245" y="68" text-anchor="middle">parse to syntax tree</text>
+  <rect class="b3" x="350" y="20" width="160" height="70" rx="8"/>
+  <text x="430" y="48" text-anchor="middle" font-weight="600">Resolve</text>
+  <text class="sub" x="430" y="68" text-anchor="middle">imports, calls, types</text>
+  <rect class="b2" x="545" y="20" width="150" height="70" rx="8"/>
+  <text x="620" y="48" text-anchor="middle" font-weight="600">SQLite</text>
+  <text class="sub" x="620" y="68" text-anchor="middle">~/.cache/codebase-</text>
+  <text class="sub" x="620" y="82" text-anchor="middle">memory-mcp/</text>
+  <rect class="b4" x="730" y="20" width="160" height="70" rx="8"/>
+  <text x="810" y="48" text-anchor="middle" font-weight="600">MCP server</text>
+  <text class="sub" x="810" y="68" text-anchor="middle">17 tools, stdio</text>
+  <path class="ar" d="M140 55 H173" marker-end="url(#a2)"/>
+  <path class="ar" d="M315 55 H348" marker-end="url(#a2)"/>
+  <path class="ar" d="M510 55 H543" marker-end="url(#a2)"/>
+  <path class="ar" d="M695 55 H728" marker-end="url(#a2)"/>
+
+  <rect class="b0" x="10" y="150" width="300" height="100" rx="8"/>
+  <text x="160" y="175" text-anchor="middle" font-weight="600">Graph (a tiny example)</text>
+  <text class="sub" x="160" y="200" text-anchor="middle">File --DEFINES--&gt; Function checkout()</text>
+  <text class="sub" x="160" y="218" text-anchor="middle">checkout() --CALLS--&gt; charge_card()</text>
+  <text class="sub" x="160" y="236" text-anchor="middle">Route POST /pay --HANDLES--&gt; checkout()</text>
+  <path class="ar dash" d="M430 92 V130 H160 V148" marker-end="url(#a2)"/>
+
+  <rect class="b0" x="360" y="150" width="240" height="100" rx="8"/>
+  <text x="480" y="175" text-anchor="middle" font-weight="600">Agent asks the graph</text>
+  <text class="sub" x="480" y="200" text-anchor="middle">trace_path("checkout", inbound)</text>
+  <text class="sub" x="480" y="218" text-anchor="middle">returns callers in one reply,</text>
+  <text class="sub" x="480" y="236" text-anchor="middle">not 20 grep + read cycles</text>
+  <path class="ar" d="M810 92 V130 H480 V148" marker-end="url(#a2)"/>
+
+  <rect class="b2" x="640" y="150" width="250" height="100" rx="8"/>
+  <text x="765" y="175" text-anchor="middle" font-weight="600">Kept fresh</text>
+  <text class="sub" x="765" y="200" text-anchor="middle">background watcher notices</text>
+  <text class="sub" x="765" y="218" text-anchor="middle">git changes and re-indexes.</text>
+  <text class="sub" x="765" y="236" text-anchor="middle">Optional auto-index on start.</text>
+</svg>
+<figcaption>From the README "How It Works" and "Features". The binary also bundles an embedding model (for <code>semantic_query</code>) and a 3D graph viewer at localhost:9749.</figcaption>
+</figure>
+
+<h3>Node and edge types</h3>
+<p><strong>Nodes</strong> (README, "Graph Data Model"): <code>Project</code>, <code>Package</code>, <code>Folder</code>, <code>File</code>, <code>Module</code>, <code>Class</code>, <code>Function</code>, <code>Method</code>, <code>Interface</code>, <code>Enum</code>, <code>Type</code>, <code>Route</code>, <code>Resource</code> (Docker and Kubernetes objects).</p>
+<p><strong>Edges:</strong> containment (<code>CONTAINS_PACKAGE/FOLDER/FILE</code>, <code>DEFINES</code>, <code>DEFINES_METHOD</code>, <code>MEMBER_OF</code>), code relations (<code>IMPORTS</code>, <code>CALLS</code>, <code>CALL_REFERENCE</code>, <code>USAGE</code>, <code>IMPLEMENTS</code>, <code>USES_TYPE</code>, <code>WRITES</code>), web and config (<code>HTTP_CALLS</code>, <code>ASYNC_CALLS</code>, <code>HANDLES</code>, <code>CONFIGURES</code>, <code>REFERENCES_FILE</code>), and others (<code>TESTS</code>, <code>FILE_CHANGES_WITH</code>). Some extra edge kinds (<code>DATA_FLOWS</code>, <code>SIMILAR_TO</code>, <code>EMITS</code>) appear in the feature list.</p>
+<p>Parsing is tree-sitter for 162 languages (claim), with a lighter type-resolution layer for about 10 of them including Python, TypeScript and Go. For Django code the call graph will be best-effort: dynamic Python (signals, <code>getattr</code>, ORM magic) cannot be fully resolved statically.</p>
+
+<h3>The 17 MCP tools</h3>
+<div class="tablewrap"><table>
+<tr><th>Group</th><th>Tools</th></tr>
+<tr><td>Indexing</td><td><code>index_repository</code>, <code>list_projects</code>, <code>delete_project</code>, <code>index_status</code>, <code>check_index_coverage</code></td></tr>
+<tr><td>Find</td><td><code>search_graph</code> (structural, BM25, semantic), <code>search_code</code> (grep over indexed files), <code>get_file_outline</code>, <code>get_code_snippet</code></td></tr>
+<tr><td>Trace and impact</td><td><code>trace_path</code> (callers/callees, depth 1-5), <code>detect_changes</code> (git diff to affected symbols), <code>compare_graphs</code></td></tr>
+<tr><td>Overview and raw</td><td><code>get_architecture</code>, <code>get_graph_schema</code>, <code>query_graph</code> (read-only Cypher subset)</td></tr>
+<tr><td>Notes and traces</td><td><code>manage_adr</code> (store architecture decision records), <code>ingest_traces</code></td></tr>
+</table></div>
+<p class="small">The tool table is from the README; I confirmed from the source that <code>index_repository</code>, <code>search_graph</code> and <code>query_graph</code> are registered in the server's tool list, and did not check the rest one by one.</p>
+
+<h3>What installing it changes on your machine</h3>
+<p>The README is direct about this: "This tool reads your codebase and writes to your agent configuration files." Running <code>install</code> auto-detects coding agents and, for each one found, writes:</p>
+<ul>
+  <li>The MCP entry (for Claude Code, <code>~/.claude.json</code>).</li>
+  <li>Instructions and skills (for example <code>AGENTS.md</code> pointers, a skill file) and three sub-agent definitions (Scout, Verify, Auditor) where the client supports them.</li>
+  <li><strong>Hooks</strong> in Claude Code: <code>SessionStart</code>, <code>SubagentStart</code>, a non-blocking <code>PreToolUse</code> on <code>Grep</code>/<code>Glob</code>/<code>Bash</code> (it nudges the agent to use the graph), and a post-<code>Read</code> coverage check.</li>
+  <li>A binary on your PATH and a background <strong>daemon</strong> shared across sessions (watcher, optional UI on a local port). Logs go under <code>~/.cache/codebase-memory-mcp/logs</code>.</li>
+</ul>
+<p>Options: <code>--skip-config</code> installs the binary only. Manual setup is one JSON entry in <code>~/.claude.json</code> or a project <code>.mcp.json</code>. <code>codebase-memory-mcp uninstall</code> removes what it owns. Installation via <code>curl ... | bash</code> runs a script from the internet; the README says releases are checksummed and scanned, which I did not verify.</p>
+
+<div class="note">
+<p><strong>Claims to treat as claims.</strong> "120x fewer tokens" (five queries: ~3,400 vs ~412,000 tokens), "10x fewer tokens, 83% answer quality" (from an arXiv preprint written by the project), Linux-kernel index in 3 minutes, "8,050 tests". Not reproduced here. The repo does include <code>docs/MEASURING_SAVINGS.md</code> for testing on your own workload.</p>
+</div>
+</section>
+
+<section id="compare">
+<h2>4. Side by side</h2>
+<div class="tablewrap"><table>
+<tr><th></th><th>supermemory</th><th>codebase-memory-mcp</th></tr>
+<tr><td>Purpose</td><td>Per-user memory plus RAG for AI apps</td><td>Code knowledge graph for AI coding agents</td></tr>
+<tr><td>Remembers</td><td>Facts about users, documents</td><td>Functions, classes, calls, routes in a repo</td></tr>
+<tr><td>Language</td><td>TypeScript repo (plus Python SDKs); engine not in repo</td><td>C, single native binary</td></tr>
+<tr><td>Runs where</td><td>Hosted API, or a local binary (docs); MCP at mcp.supermemory.ai</td><td>Locally only; stdio MCP plus a local daemon</td></tr>
+<tr><td>Data leaves machine?</td><td>Hosted: yes, content goes to their servers. Local with Ollama: docs say no. Local with OpenAI key: content goes to that LLM</td><td>README says no: 100% local, no telemetry, no background network calls. Not audited by me</td></tr>
+<tr><td>Uses an LLM?</td><td>Yes, to extract facts (theirs or yours)</td><td>No. The agent is the LLM</td></tr>
+<tr><td>Licence</td><td>MIT for this repo. Engine/server licence unverified</td><td>MIT, whole tool</td></tr>
+<tr><td>Maturity signals</td><td>Published npm and PyPI packages, docs site, multiple plugins. Last commit in clone: 2026-09-29. Stars: not checked</td><td>Releases on many package managers, CI, claimed 8,000+ tests, SLSA and OpenSSF badges, arXiv preprint by the authors, small org. Last commit in clone: 2026-09-29. Stars: not checked</td></tr>
+<tr><td>What you'd integrate</td><td>SDK calls in your backend, or the MCP server in an assistant</td><td>Nothing in your code. Add as an MCP server to your coding agent</td></tr>
+</table></div>
+<p class="small">I did not look up star counts, issue history or contributor counts, so "maturity" is only what the repos and READMEs show.</p>
+</section>
+
+<section id="sn">
+<h2>5. What this means for Super Notes</h2>
+
+<h3>supermemory features vs what Super Notes has</h3>
+<div class="tablewrap"><table>
+<tr><th>supermemory feature</th><th>Super Notes today</th><th></th></tr>
+<tr><td>Chunking</td><td>Heading-aware chunker, tuned for notes</td><td><span class="tag t-have">have</span></td></tr>
+<tr><td>Embeddings and providers</td><td>Fake / OpenAI / Gemini behind a boundary, registry and adapters</td><td><span class="tag t-have">have</span></td></tr>
+<tr><td>Hybrid search</td><td>pgvector + full-text, merged with RRF</td><td><span class="tag t-have">have</span></td></tr>
+<tr><td>Tenant isolation (container tags)</td><td>Owner isolation enforced in SQL</td><td><span class="tag t-have">have</span></td></tr>
+<tr><td>Quality measurement</td><td>Eval harness: recall@k, MRR</td><td><span class="tag t-have">have</span></td></tr>
+<tr><td>Ask with citations and answer LLM</td><td>"Ask your notes", Claude/OpenAI/Gemini chat providers</td><td><span class="tag t-have">have</span></td></tr>
+<tr><td>Connectors (Drive, Gmail, Notion)</td><td>Notes are created in-app; uploads and imports are V2</td><td><span class="tag t-miss">missing</span></td></tr>
+<tr><td>File processing (PDF, OCR, video)</td><td>"Uploads and summaries" is on the V2 list</td><td><span class="tag t-miss">missing</span></td></tr>
+<tr><td>Fact extraction from conversations</td><td>Ask is single-turn; nothing is extracted from answers</td><td><span class="tag t-miss">missing</span></td></tr>
+<tr><td>Static / dynamic user profile</td><td>None</td><td><span class="tag t-miss">missing</span></td></tr>
+<tr><td>Updates and contradictions (<code>isLatest</code>)</td><td>None. Notes are edited in place and re-indexed</td><td><span class="tag t-miss">missing</span></td></tr>
+<tr><td>Forgetting (<code>forgetAfter</code>)</td><td>None</td><td><span class="tag t-miss">missing</span></td></tr>
+<tr><td>Memory graph (updates / extends / derives)</td><td>None</td><td><span class="tag t-miss">missing</span></td></tr>
+<tr><td>Conversation memory across turns</td><td>V2 top item, "the long-term goal"</td><td><span class="tag t-part">planned</span></td></tr>
+</table></div>
+<p>Pattern: the retrieval half is done, and is arguably more controlled than supermemory's. The missing half is all about <em>memory over time</em>, which is exactly the backlog's top V2 item.</p>
+
+<h3>Why not replace retrieval with supermemory</h3>
+<ul>
+  <li><strong>Control.</strong> You built chunking, RRF and the eval harness so you can see why a note was or was not found and measure it. supermemory's chunking and ranking are inside a service you cannot tune the same way, and its benchmarks are not on your notes.</li>
+  <li><strong>Owner isolation in SQL.</strong> Today a user's rows cannot be read by another because the query itself filters on owner. With supermemory, isolation is a <code>containerTag</code> string your code must always pass correctly. It is a fair model, but it moves a guarantee from your database to a service's API.</li>
+  <li><strong>An extra service, and maybe a licence gap.</strong> You would run or pay for a second system, keep it in sync with Postgres (every note edit, delete and account deletion), and depend on an engine whose source I could not find in the MIT repo. Notes are private data: the hosted API means sending them to a third party.</li>
+</ul>
+
+<h3>The in-stack V2 idea: UserFact</h3>
+<p>Copy the useful idea (facts that supersede each other) and keep it inside Django and Postgres. Sketch:</p>
+<pre><code>UserFact
+  user          FK, owner isolation as everywhere else
+  text          "Prefers answers in bullet points"
+  kind          static | dynamic
+  source_ask    FK to the Ask that produced it
+  valid_until   null, or a date (dynamic facts expire)
+  superseded_by FK to UserFact, null (see below; or use valid_until only)
+  embedding     vector, same provider boundary as chunks</code></pre>
+<figure>
+<svg viewBox="0 0 900 290" role="img" aria-label="After an ask is answered a Celery task extracts facts, stores them in UserFact, and top facts are added to the next Ask prompt">
+  <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arh"/></marker></defs>
+  <rect class="b0" x="10" y="20" width="160" height="70" rx="8"/>
+  <text x="90" y="48" text-anchor="middle" font-weight="600">Ask answered</text>
+  <text class="sub" x="90" y="68" text-anchor="middle">question + answer saved</text>
+  <rect class="b3" x="215" y="20" width="190" height="70" rx="8"/>
+  <text x="310" y="48" text-anchor="middle" font-weight="600">Celery task</text>
+  <text class="sub" x="310" y="68" text-anchor="middle">LLM extracts 0-3 facts</text>
+  <rect class="b1" x="450" y="20" width="190" height="70" rx="8"/>
+  <text x="545" y="48" text-anchor="middle" font-weight="600">Reconcile</text>
+  <text class="sub" x="545" y="68" text-anchor="middle">similar fact exists?</text>
+  <rect class="b2" x="685" y="20" width="205" height="70" rx="8"/>
+  <text x="787" y="48" text-anchor="middle" font-weight="600">UserFact table</text>
+  <text class="sub" x="787" y="68" text-anchor="middle">Postgres + pgvector</text>
+  <path class="ar" d="M170 55 H213" marker-end="url(#a3)"/>
+  <path class="ar" d="M405 55 H448" marker-end="url(#a3)"/>
+  <path class="ar" d="M640 55 H683" marker-end="url(#a3)"/>
+
+  <text class="sub" x="545" y="118" text-anchor="middle">yes: old fact gets valid_until = now, new fact added (supersede)</text>
+
+  <rect class="b0" x="10" y="160" width="160" height="80" rx="8"/>
+  <text x="90" y="190" text-anchor="middle" font-weight="600">Next Ask</text>
+  <text class="sub" x="90" y="210" text-anchor="middle">question arrives</text>
+  <rect class="b4" x="215" y="160" width="230" height="80" rx="8"/>
+  <text x="330" y="188" text-anchor="middle" font-weight="600">Retrieve</text>
+  <text class="sub" x="330" y="208" text-anchor="middle">note chunks (existing hybrid)</text>
+  <text class="sub" x="330" y="224" text-anchor="middle">+ top facts: valid, same owner</text>
+  <rect class="b1" x="490" y="160" width="400" height="80" rx="8"/>
+  <text x="690" y="188" text-anchor="middle" font-weight="600">Prompt</text>
+  <text class="sub" x="690" y="208" text-anchor="middle">"About the user: ... facts ..."   then   "Note excerpts: ..."</text>
+  <text class="sub" x="690" y="224" text-anchor="middle">then the question. Citations stay note-only.</text>
+  <path class="ar" d="M170 200 H213" marker-end="url(#a3)"/>
+  <path class="ar" d="M445 200 H488" marker-end="url(#a3)"/>
+  <path class="ar dash" d="M787 92 V130 H330 V158" marker-end="url(#a3)"/>
+</svg>
+<figcaption>Extraction runs after the answer, off the request path, so it adds no latency to the user. It reuses Celery, the provider registry and owner filtering you already have.</figcaption>
+</figure>
+<ul>
+  <li><strong>Supersede, do not delete.</strong> On a contradiction, set <code>valid_until</code> on the old fact and insert the new one. History stays for debugging. Retrieval filters <code>valid_until IS NULL OR valid_until &gt; now()</code>.</li>
+  <li><strong>Same pipeline, new table.</strong> Facts use the same embedding boundary and the same hybrid or vector query with an owner filter in SQL. Your eval harness can get a second fixture set: "does the right fact surface?".</li>
+  <li><strong>Risks to plan for:</strong> the extractor inventing facts (keep the source ask, let the user see and delete facts); private facts leaking into answers the user did not expect (show them in the UI); cost (one extra small LLM call per ask; use the cheap model); and a bad fact poisoning later answers (cap how many are injected).</li>
+  <li><strong>Start small:</strong> static facts only, top 5 by similarity, no dynamic expiry. Add the rest if the eval shows it helps. Multi-turn chat is the feature that really needs this, so build them together.</li>
+</ul>
+
+<h3>codebase-memory-mcp as an optional dev tool</h3>
+<p>It is unrelated to the product. The question is only whether it helps you when you work on the Super Notes code with a coding agent.</p>
+<ul>
+  <li><strong>Honest benefit:</strong> small. Super Notes is a modest Django codebase. Agents already handle it with grep and a few file reads, and docs like <code>RAG.md</code> and <code>BUILD_LOG.md</code> give them a map. The big claims (10x to 120x fewer tokens) come from large repos and from the project itself. You might see faster "who calls this?" and "what does this change affect?" answers (<code>trace_path</code>, <code>detect_changes</code>). You would not see a dramatic saving.</li>
+  <li><strong>Python and Django limits:</strong> signals, Celery task dispatch by name, DRF routing and ORM calls are dynamic, so some edges will be missing or guessed. An agent may trust a graph answer that is incomplete. The tool's own docs say a clean coverage check means only "no recorded gap".</li>
+  <li><strong>Risks:</strong> it writes to agent config and installs hooks that change how your agent searches; it runs a background daemon; the installer is a piped shell script; it is a young project by a small team with fast-moving changes (a single huge <code>mcp.c</code> of ~12k lines, visible in the clone). Your working tree has uncommitted work from another agent, so any tool that hooks into agent behaviour should be tried in a separate clone.</li>
+  <li><strong>Cheap way to try:</strong> <code>install --skip-config</code> or a manual <code>.mcp.json</code> entry in a throwaway copy of the repo, index it, ask five real questions, compare with plain grep. Uninstall if it does not help.</li>
+</ul>
+</section>
+
+<section id="verdict">
+<h2>6. Verdict and next steps</h2>
+<ul>
+  <li><strong>supermemory: do not adopt, do borrow the idea.</strong> Your retrieval is already the stronger, more controllable half. The part you lack (facts, profile, supersede, expire) is small enough to build in Postgres.</li>
+  <li><strong>Read, do not install, for design:</strong> the supermemory docs pages "Graph memory" and "User profiles", and the memory schema in <code>packages/validation/schemas.ts</code>, are a good checklist for a <code>UserFact</code> design.</li>
+  <li><strong>Plan <code>UserFact</code> together with multi-turn chat.</strong> Both are the V2 "conversation memory" goal. Build static facts first, extraction in Celery, top-k into the Ask prompt, and add an eval fixture so you can measure it like retrieval.</li>
+  <li><strong>codebase-memory-mcp: optional, low priority.</strong> Try it in a throwaway clone for an afternoon if you want. Expect a small gain on this repo. Do not let it touch your main setup until you have read the hooks it would add.</li>
+  <li><strong>If you ever reconsider supermemory,</strong> first find where the self-hosted engine's source and licence really live, and decide whether notes may leave your servers.</li>
+</ul>
+</section>
+
+<section id="unverified">
+<h2>Not verified</h2>
+<ul>
+  <li>Where the supermemory local/engine source is (docs point to <code>git.new/memory</code>; not followed) and its licence.</li>
+  <li>Every benchmark and token-saving number in both READMEs. I ran neither tool.</li>
+  <li>Star counts, issue health, contributor counts, and real-world reports for both.</li>
+  <li>The codebase-memory-mcp install script's exact writes (taken from the README), and its claim of no network use.</li>
+  <li>How well the graph handles Django/Celery code (an inference from how static analysis works, not a test).</li>
+  <li>The clones were shallow (one commit each), so I saw no history.</li>
+</ul>
+</section>
+
+</main>
+</div>
+</body>
+</html>
