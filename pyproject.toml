@@ -1,0 +1,45 @@
+# Single home for tool configuration, as in the reference.
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".venv", "migrations", "web"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes: unused imports, undefined names
+    "I",    # isort: import ordering
+    "UP",   # pyupgrade: modernise syntax for the target version
+    "B",    # bugbear: likely bugs, e.g. mutable default arguments
+    "DJ",   # flake8-django: Django-specific rules
+    "C4",   # comprehension simplifications
+]
+
+[tool.ruff.lint.per-file-ignores]
+"config/settings.py" = ["E501"]
+"*/migrations/*" = ["E501", "I001"]
+
+[tool.coverage.run]
+source = ["accounts", "config", "notes", "retrieval", "assistant"]
+omit = [
+    "*/migrations/*",
+    "*/tests/*",
+    "manage.py",
+    "config/asgi.py",
+    "config/test_runner.py",
+    "config/wsgi.py",
+]
+
+[tool.coverage.report]
+# Fail the build below this. Raise it as coverage improves, never lower it.
+fail_under = 90
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.$",
+]

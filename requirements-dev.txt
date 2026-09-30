@@ -1,0 +1,9 @@
+# Development and CI only:
+#   pip install -r requirements.txt -r requirements-dev.txt
+
+# Linter + formatter, replaces black/flake8/isort.
+ruff==0.14.2
+# The [toml] extra lets coverage read pyproject.toml on Python < 3.11.
+coverage[toml]==7.11.0
+# Runs the linters before each commit.
+pre-commit==4.4.0

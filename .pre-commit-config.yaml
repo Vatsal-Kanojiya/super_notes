@@ -1,0 +1,33 @@
+# Runs before every commit, so style and obvious mistakes never enter a diff.
+# Install once per clone:  pre-commit install
+# Run against everything:  pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      # Catches an .env or a private key before it reaches history.
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.2
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      # Fails if a model changed without a matching migration.
+      - id: django-makemigrations-check
+        name: django makemigrations --check
+        entry: python manage.py makemigrations --check --dry-run
+        language: system
+        pass_filenames: false
+        types: [python]
