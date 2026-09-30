@@ -117,3 +117,30 @@ Docs in `docs/RAG_ASK_DRAFT.md` (to merge into `RAG.md`). D53–D60.
 
 **Unsure:** the relevance floor's score scale (D58); whether live tests should need an extra
 opt-in flag besides the key (BACKLOG).
+
+### Phase 6a — web client first pass
+
+**Built:** `web/`, a Vue 3 + Vite + TypeScript client with Pinia and TipTap: Google sign-in (GIS
+button), a notes list with server-side search and a type filter, a TipTap editor (text and
+checklists) that autosaves about a second after typing with the note's `version` and prompts
+"keep mine / take theirs" on a 409, revision-based sync through `notes/changes/` (on focus, on
+becoming visible, every 30 s), an Ask panel with `[n]` citation chips that open the source note
+and the monthly usage line, and a devices list in the account menu. All payload types are in
+`web/src/api/types.ts`. CI gains a `web` job (Node 24, `npm ci`, `npm run build`). D46–D52.
+
+**Built against the contract, not the real API.** The backend's auth, notes, search and ask
+endpoints were being written in parallel, so the client follows plan §7 and the coordinator's
+shapes. It has **not been run against the real API yet**. It was smoke-tested in headless Chrome
+at phone width against a throwaway mock of the contract (not committed): a stale access token
+refreshed and retried; the list loaded from `changes?after=0`; an edit autosaved; an edit from
+"another device" produced the conflict prompt and "keep mine" saved; an ask was accepted with an
+`Idempotency-Key`, polled to done, rendered two chips (a `<script>` in the answer stayed text),
+and a chip opened its note; the next ask got the quota message.
+
+**What went wrong / notes:** the scaffold's `.vscode/` folder is ignored by the root
+`.gitignore` and was dropped. The title field's style was overridden by the generic input rule
+(fixed).
+
+**Left:** everything in BACKLOG under "Web:". **Unsure:** the API assumptions listed there as
+"contract reconciliation" — in particular device sign-out's method, the ask status values, and
+whether `changes` tombstones carry `deleted_at`.

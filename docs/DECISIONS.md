@@ -631,3 +631,94 @@ finding), and stripping "markers" would also eat an innocent `[2024]`. Keeping `
 marker in the text still matches its citation.
 
 **Reverse it if:** users find unlinked numbers confusing; strip them at render time in the client.
+
+### D46. No router in the web client: a view store instead
+
+**Decided:** `web/src/stores/view.ts` holds the screen (`list` | `note` | `ask`), the open note's
+id, and where "back" from a note goes. There is no vue-router.
+
+**Alternatives:** vue-router with hash history.
+
+**Why:** the plan's web stack (§3) does not list a router, and three screens need one string, not
+a dependency. Capacitor wraps a single page anyway.
+
+**Reverse it if:** deep links or the browser/Android back button become a requirement (Phase 7's
+back button is the likely trigger); add vue-router then.
+
+### D47. JWTs in localStorage
+
+**Decided:** the access and refresh tokens are stored in `localStorage` and sent as a bearer
+header. They are read fresh on each request, so tabs share one session.
+
+**Alternatives:** an httpOnly refresh cookie (needs cookie + CSRF handling in a JWT-only API, and
+`CORS_ALLOW_CREDENTIALS`, which is off); memory only (every reload signs out).
+
+**Why:** the API is bearer-only by design (D4), and the same code runs in the Capacitor WebView.
+The trade-off is XSS: any script running in the page can read both tokens. It is contained by
+rendering untrusted text (model answers, device labels) only as text — never `v-html` (D50) —
+by loading no third-party script once signed in (D51), by short-lived access tokens (30 min), and
+by rotating, blacklisted refresh tokens plus the device list, from which a stolen session can be
+signed out.
+
+**Reverse it if:** the web client gains a same-origin deployment; then move the refresh token to
+an httpOnly `SameSite=Strict` cookie and keep only the access token in memory.
+
+### D48. Single-flight refresh, across tabs with Web Locks
+
+**Decided:** on a 401 the client refreshes once and retries once. Concurrent failures share one
+refresh promise, and where the browser has `navigator.locks` the refresh runs under a named lock;
+inside it, an access token that changed since the failed request means another tab already
+refreshed, and that pair is used. A refused refresh signs out; a network failure keeps the tokens.
+
+**Why:** refresh tokens rotate and the old one is blacklisted, so two tabs refreshing at once
+would have one of them refused and signed out for no reason.
+
+**Reverse it if:** the backend stops rotating refresh tokens.
+
+### D49. The sync revision lives in memory
+
+**Decided:** `lastRevision` is not persisted; every page load syncs from `after=0`, which fetches
+every note. The unfiltered list is the local map; a search or type filter asks `notes/?q=&type=`.
+
+**Why:** offline-first storage is out of V1 (plan §1). A full pull is fine at personal-notes
+scale, and it means no stale local cache can survive a sign-out.
+
+**Reverse it if:** accounts grow to thousands of notes or offline mode arrives; persist notes and
+the revision in IndexedDB then.
+
+### D50. Model output is rendered as text only
+
+**Decided:** an answer is split on `[n]` / `[n, m]` markers into text segments and citation
+buttons (`web/src/lib/citations.ts`); nothing from the model goes through `v-html`. A marker with
+no matching citation stays as literal text.
+
+**Alternatives:** render the answer as Markdown/HTML with a sanitiser.
+
+**Why:** answers are built from note text, which can contain anything, and tokens live in
+`localStorage` (D47). Text rendering makes injection impossible by construction.
+
+**Reverse it if:** formatted answers are wanted; add a Markdown renderer with a strict allow-list
+sanitiser, and ask before adding the dependency.
+
+### D51. Google Identity Services loaded at runtime, on the sign-in screen only
+
+**Decided:** the GIS script is injected from `https://accounts.google.com/gsi/client` when the
+sign-in screen mounts. Sign-in is Google-only; there is no development bypass.
+
+**Why:** Google requires the script from its own origin. Loading it only when signed out keeps
+third-party code out of signed-in page loads (D47).
+
+**Reverse it if:** Phase 7 swaps it for the native Capacitor plugin on Android.
+
+### D52. Conflict prompt resolves whole notes
+
+**Decided:** on a 409 the editor offers "Keep mine" (re-PATCH on top of the server's `version`,
+overwriting it) or "Take theirs" (load the server copy, dropping unsaved local edits). A newer
+copy arriving through sync replaces the editor's content only when nothing is unsaved.
+
+**Alternatives:** a three-way merge of the TipTap documents.
+
+**Why:** the plan asks for a simple keep mine / take theirs prompt, and a correct rich-text merge
+is a project of its own.
+
+**Reverse it if:** conflicts turn out to be common in use (a phone and a laptop open at once).

@@ -52,3 +52,17 @@ Things that came up and were left for a decision. Each names what it is waiting 
   `DEFAULT_PARSER_CLASSES`. Found in phase 2; platform-wide, so waiting on the owner.
 - **Trash / undo for deleted notes** — tombstones keep their content (D28), so a restore endpoint
   is possible; not in V1's scope.
+
+- **Web: semantic search UI** — `searchApi.search()` and its types exist (`web/src/api/`), but
+  the notes list only uses keyword `q`. A "related passages" view is a small addition.
+- **Web: back button and deep links** — no router (D46). Needed for Android's back button in
+  Phase 7, and for linking to a note.
+- **Web: unit tests** — no test runner is installed (only the listed dependencies). Vitest would
+  cover `lib/citations.ts`, the refresh single-flight and the notes sync loop; ask before adding.
+- **Web: a save on tab close** — autosave flushes when the tab is hidden, but a PATCH started as
+  the page unloads may be cut off. `fetch(..., {keepalive: true})` would close the gap.
+- **Web: offline edits** — edits made offline are retried every 5 s while the editor is open, but
+  are lost if the note is closed first (offline-first is out of V1, D49).
+- **Web: dark-mode toggle** — the theme follows the system only.
+- **Web: API contract reconciliation** — `web/src/api/types.ts` was written from the plan, not the
+  generated schema. Reconcile it with `docs/openapi.yml` once the backend phases merge.
