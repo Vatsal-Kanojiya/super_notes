@@ -514,6 +514,25 @@ EMBEDDING_DIMENSIONS = env.int("EMBEDDING_DIMENSIONS", default=1536)
 # is the tighter, 100), and small enough that a retried call redoes little.
 EMBEDDING_BATCH_SIZE = env.int("EMBEDDING_BATCH_SIZE", default=64)
 
+# Retrieval (retrieval/search.py, DECISIONS D66-D71)
+#
+# Chunks each leg (vector, keyword) contributes before fusion: deep enough
+# that a chunk ranked modestly by both legs still surfaces, cheap at 50.
+SEARCH_CANDIDATES = env.int("SEARCH_CANDIDATES", default=50)
+# The reciprocal-rank-fusion constant from the original RRF paper; larger
+# flattens the gap between rank 1 and rank 10.
+SEARCH_RRF_K = env.int("SEARCH_RRF_K", default=60)
+# At most this many chunks of one note in a result, so one long note on the
+# topic cannot crowd every other note out of the top k.
+SEARCH_MAX_CHUNKS_PER_NOTE = env.int("SEARCH_MAX_CHUNKS_PER_NOTE", default=2)
+SEARCH_DEFAULT_K = env.int("SEARCH_DEFAULT_K", default=8)
+SEARCH_MAX_K = 20
+# HNSW's candidate list for the vector leg (pgvector's default is 40, below
+# SEARCH_CANDIDATES). The owner filter runs after the index scan, so the
+# list needs headroom for other users' chunks (D68). Never below
+# SEARCH_CANDIDATES.
+SEARCH_HNSW_EF_SEARCH = env.int("SEARCH_HNSW_EF_SEARCH", default=200)
+
 # Account security (accounts/, DECISIONS D6)
 #
 # How long a security event is kept before purge_security_events removes
