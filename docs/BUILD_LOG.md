@@ -29,6 +29,31 @@ enabled by migration. ruff, coverage, pre-commit, CI with a pgvector service, De
 
 **Left:** nothing in the phase. **Unsure:** coverage bar (D12).
 
+### Phase 2 — notes and sync
+
+**Built:** the `notes` app. `Note` with `(owner, revision)`, `(owner, -id)` and a GIN full-text
+index on `title` + `content_text` (`english`, D24). `notes/content.py` derives `content_text` from
+the TipTap document and validates its shape (D23). `notes/services.py` is the only writer: it locks
+the owner's row, takes the next `notes_revision`, bumps `version`, and calls `_after_write(note)`,
+a documented no-op where phase 3 enqueues indexing on commit. API: list (cursor, `type`, `q`),
+create, retrieve, PATCH with `version` → `409 version_conflict` + server copy, soft DELETE,
+`changes?after=&limit=` with tombstones and `has_more` (D25). Read-only admin (D29). Tests cover
+ownership on every endpoint, derivation, conflicts, tombstones, exact `changes`, search (title,
+body, stems, other users), the content cap, ignored server fields, an EXPLAIN proving the GIN index
+is used, and threaded `TransactionTestCase`s for revision order. `notes/` is at 100% coverage.
+
+**What went wrong / notes:**
+
+- The first "commit order" concurrency test recorded each revision *after* `create_note`
+  returned, which races (a thread can be descheduled between commit and append). It now records
+  from `_after_write`, inside the lock. Removing `select_for_update` makes both ordering tests
+  fail, so they do test the lock.
+- A JSON body nested a few thousand levels deep makes DRF's `JSONParser` raise `RecursionError`,
+  a 500, before any serializer runs. Platform-wide, so parked (BACKLOG), not patched here.
+
+**Left:** indexing (phase 3 fills `_after_write`). **Unsure:** `english` vs `simple` (D24) depends
+on what language the owner writes in.
+
 ### Phase 4a — evaluation fixtures
 
 **Built:** `retrieval/eval/`: 30 TipTap fixture notes and 31 labelled questions (eight kinds,

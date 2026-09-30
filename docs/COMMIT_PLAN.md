@@ -11,7 +11,7 @@
 |---|---|---|
 | 0 — scaffold | `phase-0-scaffold` | ✅ Built |
 | 1 — auth | `phase-1-auth` | ⏳ |
-| 2 — notes and sync | `phase-2-notes` | ⏳ |
+| 2 — notes and sync | `phase-2-notes` | ✅ Built |
 | 3 — chunking and indexing | `phase-3-indexing` | ⏳ |
 | 4 — retrieval and evaluation | `phase-4-retrieval` | ⏳ |
 | 5 — ask | `phase-5-ask` | ⏳ |

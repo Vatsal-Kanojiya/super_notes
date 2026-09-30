@@ -27,3 +27,10 @@ Things that came up and were left for a decision. Each names what it is waiting 
   ~3.6 points, so differences under ~5 points should not drive decisions. Waiting on search.
 - **Eval: relevance-floor check** — the three `no_answer` questions should report the top score
   against the Ask floor once that floor exists (Phase 5).
+
+- **Deeply nested JSON bodies are a 500** — `json.loads` raises `RecursionError` (not a
+  `ValueError`) on a body nested a few thousand levels deep, which DRF's `JSONParser` does not
+  catch. Fix: a project `JSONParser` that turns it into a `ParseError` (400), set in
+  `DEFAULT_PARSER_CLASSES`. Found in phase 2; platform-wide, so waiting on the owner.
+- **Trash / undo for deleted notes** — tombstones keep their content (D28), so a restore endpoint
+  is possible; not in V1's scope.

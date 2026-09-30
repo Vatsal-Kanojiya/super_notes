@@ -155,6 +155,154 @@ UI is the Vue client, which Vite builds.
 
 **Reverse it if:** the suite settles; raise it to 95.
 
+---
+
+## Phase 2 — notes and sync
+
+### D23. `content_text` is one line per block, derived in `Note.save()`
+
+**Decided:** `notes/content.py` walks the TipTap tree and writes one line per block: paragraphs and
+headings as their text, list items as `- ` / `1. `, checklist items as `- [x] ` / `- [ ] `,
+quotes as `> `, nested lists indented two spaces, hard breaks as newlines, empty blocks dropped.
+Unknown nodes contribute their text and children; malformed ones contribute nothing; it never
+raises. Validation is shallow: the `{"type": "doc", "content": [...]}` envelope, every node an
+object with a string `type`, string `text`, list `content`, and at most 100 levels deep (checked
+iteratively). It is derived in `Note.save()`, not in the service, so no write path can skip it.
+
+**Alternatives:** validate against TipTap's schema (which node may hold which); derive in the
+service only; store no derived text and search the JSON.
+
+**Why:** the server needs the words (search, admin), not a renderer. A full schema check would
+make every new editor extension a server release. The checked state is kept because "what is
+still open on my list" is a question Ask should be able to answer. The depth cap keeps every walk
+far from Python's recursion limit.
+
+**Reverse it if:** the client adds a node whose text lives somewhere other than `text` / `content`
+(e.g. a mention's `attrs.label`); teach `_block_lines` about it.
+
+### D24. Full-text search uses the `english` configuration
+
+**Decided:** `notes.search.SEARCH_CONFIG = "english"`, one constant used by both the GIN
+expression index and the query (`note_search_vector()`), queried with `websearch_to_tsquery`.
+Phase 4's chunk search reuses the constant.
+
+**Alternatives:** `simple` (lowercase only, no stemming, no stop words).
+
+**Why:** stemming is most of what keyword search is for ("flight" finds "flights", "booking"
+finds "book"), and the reference used `english`. Words in other languages still match exactly,
+because the query goes through the same stemmer as the text. The cost: a query made only of stop
+words ("the", "and") finds nothing, and stems are English-shaped. `websearch_to_tsquery` takes
+what people type (quotes, `or`, `-word`) and never raises a syntax error. One function builds the
+expression for both index and query, so they cannot drift apart and silently stop using the index
+(`test_search.SearchIndexTests` proves the plan uses `note_fts`).
+
+**Reverse it if:** the owner's notes are largely non-English; switch to `simple` (a migration
+rebuilding `note_fts`, and the chunk index with it).
+
+### D25. `changes`: ceiling first, `limit` + `has_more`, tombstones without content
+
+**Decided:** refinements to D5.
+- The user's `notes_revision` (the ceiling) is read **before** the notes, and the query is
+  `after < revision <= ceiling`. Read the other way round, a write committing between the two
+  reads would be covered by `latest_revision` without being sent, and skipped for ever.
+- `limit` (default 500, max 1000). The response is `{results, latest_revision, has_more}`. With
+  `has_more`, `latest_revision` is the last sent note's revision (revisions are unique per user,
+  so resuming there is exact); the client calls again straight away. Otherwise it is the ceiling.
+- A note written several times since `after` appears once, at its newest revision.
+- Tombstones carry `id, type, version, revision, updated_at, deleted_at` and no content; live
+  notes carry the full note with `deleted_at: null`. The schema is a `oneOf`.
+- A client whose `after` is above the server's revision (a restored database) gets
+  `latest_revision` lower than it sent: its cue to resync from 0.
+
+**Alternatives:** no limit (a first sync of thousands of notes in one response); cursor pagination
+(a cursor over a set that is still being written); returning tombstone content.
+
+**Why:** the loop is trivial for a client and bounds every response. A deleted note's content has
+no business travelling to devices after the delete.
+
+**Reverse it if:** notes get large enough that 500 per batch is too heavy; lower the default.
+
+### D26. Keyword search on `notes/` stays in newest-first order
+
+**Decided:** `GET notes/?q=` filters by full-text match but keeps the `-id` cursor order.
+
+**Alternatives:** order by `ts_rank`.
+
+**Why:** cursor pagination needs a unique, unchanging ordering (`config/api/pagination.py`); a
+rank is neither. This endpoint is a filter for the notes list; ranked retrieval is phase 4's
+`search/`.
+
+**Reverse it if:** people use the list's search to find rather than to filter; add a ranked,
+non-paginated mode.
+
+### D27. The version check runs after the owner lock; a conflict leaves no trace
+
+**Decided:** `update_note` locks the owner, then re-reads the note, then compares versions.
+`VersionConflict` rolls back the whole transaction, including the revision increment. The `409`
+body is `{detail, code: "version_conflict", current: <full note>}`.
+
+**Alternatives:** check before locking; `select_for_update` on the note row as well.
+
+**Why:** checked before the lock, two saves carrying the same version can both pass. After the
+lock every writer for that owner is queued, so the re-read is the truth and no second lock is
+needed. Rolling back keeps revisions gap-free, which makes "exactly the writes after n" testable.
+
+### D28. Delete has no version check; the tombstone keeps the content
+
+**Decided:** `DELETE notes/<id>/` deletes whatever version is current. The row keeps its title and
+content (visible in the admin); clients only ever receive the tombstone fields. A deleted note is
+a 404 everywhere except `changes`.
+
+**Alternatives:** require `version` on delete; blank the content.
+
+**Why:** a person deleting a note means "this note", not "this version of it". An edit from
+another device that lost the race is lost with it, which is what delete means. Keeping the
+content leaves room for an undo or trash later (BACKLOG) and costs nothing: the indexer removes
+its chunks.
+
+**Reverse it if:** deletes-after-edits cause complaints; require `version` and return 409.
+
+### D29. The Note admin is read-only
+
+**Decided:** no add, change or delete in the admin.
+
+**Why:** a save there bypasses `services.py`, so no revision: every device would miss it. A delete
+there is a hard delete, which no device ever hears about.
+
+**Reverse it if:** support needs to edit notes; add an admin action that calls the service.
+
+### D30. No PUT; PATCH requires `version`; `type` may change
+
+**Decided:** `http_method_names` has no `put`. PATCH takes `version` (required) plus any of
+`type`, `title`, `content`.
+
+**Why:** a full replace would have to invent values for every omitted field, and autosave sends
+what changed anyway. Changing a note between text and checklist is a legitimate edit; the content
+is the same TipTap document either way.
+
+### D31. The content cap is measured as compact UTF-8 JSON of `content` alone
+
+**Decided:** `len(json.dumps(content, ensure_ascii=False, separators=(",", ":")).encode())` against
+`NOTE_CONTENT_MAX_BYTES` (1 MB), checked after the shape validation; titles are at most 500
+characters.
+
+**Why:** that is close to what Postgres stores, and independent of how the client happened to
+format or escape its request body. Measuring after `validate_doc` means `json.dumps` never meets
+anything deeper than 100 levels.
+
+### D32. The owner FK has no index of its own
+
+**Decided:** `owner` is `db_index=False`; `(owner, revision)` and `(owner, -id)` both lead with it.
+`(owner, revision)` is a plain index, not a unique constraint.
+
+**Why:** a third index on the same leading column is write cost for no read. Revisions are unique
+per owner by construction (the lock), but a unique constraint would make every note created
+outside the service with the default revision 0 collide, which would bite fixtures and tests more
+than it would ever catch a bug.
+
+**Reverse it if:** anything but `services.py` ever writes notes in production; then make it
+unique so the invariant is enforced by the database.
+
 ### D41. Eval notes are hand-written TipTap JSON, validated strictly on load
 
 **Decided:** `retrieval/eval/fixtures/notes.json` is the source of truth: 30 TipTap documents
