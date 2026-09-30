@@ -7,6 +7,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # The plan pins Django 5.2 (an LTS). Patch and minor security releases
+      # still come through; a major upgrade is a decision, not a bump.
+      - dependency-name: django
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /web
