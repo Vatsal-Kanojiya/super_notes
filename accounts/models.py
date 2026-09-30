@@ -122,3 +122,41 @@ class SecurityEvent(models.Model):
     def __str__(self):
         who = self.email or (self.user_id and f"user {self.user_id}") or "unknown"
         return f"{self.get_event_display()} — {who} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class SignedInDevice(models.Model):
+    """One signed-in device: one refresh-token chain.
+
+    At most ``MAX_SIGNED_IN_DEVICES`` of these exist per account; a further
+    sign-in ends the oldest (DECISIONS D6). Written and pruned only through
+    ``accounts.devices``, which keeps this table in step with the
+    ``OutstandingToken`` rows it stands for.
+
+    The reference also tracked web sessions (a ``kind`` column and a
+    ``session_key``). Here the only session is the admin's, so a device is
+    always an API refresh-token chain and neither column exists (D17).
+
+    ``refresh_jti`` is the id of the chain's *current* refresh token: a
+    refresh rotates the token and moves this row to the new one, so a device
+    keeps one row for its whole life. It is how the row finds the token to
+    revoke, and is never shown to a client.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="signed_in_devices"
+    )
+    refresh_jti = models.CharField(max_length=255, db_index=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    # Moved on every refresh, so "oldest" means least recently used, not
+    # first signed in: a phone used every day outlives a laptop left idle.
+    last_seen_at = models.DateTimeField(default=timezone.now)
+    # The User-Agent, truncated: enough for a person to tell their phone
+    # from their laptop. Untrusted text -- a client must escape it.
+    label = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        # The foreign key's own index covers "this user's devices".
+        ordering = ["last_seen_at", "id"]
+
+    def __str__(self):
+        return f"Device {self.pk} for user {self.user_id}"

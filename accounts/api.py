@@ -15,22 +15,26 @@ accounts/ratelimit.py.
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import update_last_login
+from django.db import transaction
 from django.http import Http404
 from django.urls import path
 from django.views.decorators.debug import sensitive_variables
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from config.api.common import RATE_LIMIT_RESPONSE, MessageSerializer
 
-from . import audit, ratelimit
+from . import audit, devices, ratelimit
 from .google import GoogleSignInError, google_signin_enabled, sign_in_with_google
+from .models import SignedInDevice
 
 User = get_user_model()
 
@@ -75,15 +79,46 @@ class RefreshedPairSerializer(serializers.Serializer):
     refresh = serializers.CharField(help_text="The next refresh token. The one sent is now dead.")
 
 
+class DeviceSerializer(serializers.ModelSerializer):
+    """A signed-in device, as the list shows it. Never its token id."""
+
+    current = serializers.SerializerMethodField(
+        help_text="True for the device making this request, found from the `device` claim "
+        "its access token carries."
+    )
+
+    class Meta:
+        model = SignedInDevice
+        fields = ["id", "label", "created_at", "last_seen_at", "current"]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.BooleanField)
+    def get_current(self, device):
+        auth = self.context["request"].auth
+        return auth is not None and auth.get(DEVICE_CLAIM) == device.pk
+
+
 # --- Helpers --------------------------------------------------------------
+
+
+# The SignedInDevice id, carried in the refresh token and so in every access
+# token made from it (simplejwt copies custom claims into both, and keeps
+# them through rotation). It lets a request say which device it is --
+# `current` in the devices list -- which the reference could not do for an
+# API device (D18).
+DEVICE_CLAIM = "device"
 
 
 def issue_tokens(user, request=None):
     """A fresh access/refresh pair, plus the profile a client needs at once.
 
-    Every path that signs a device in ends here.
+    Every path that signs a device in ends here, so this is where the new
+    refresh-token chain is registered as a device -- and where the oldest
+    device is signed out if that makes one too many (accounts/devices.py).
     """
     refresh = RefreshToken.for_user(user)
+    device = devices.register(user, str(refresh["jti"]), request)
+    refresh[DEVICE_CLAIM] = device.pk
     update_last_login(None, user)
     return {
         "access": str(refresh.access_token),
@@ -175,7 +210,9 @@ class RefreshView(TokenRefreshView):
         tags=AUTH_TAG,
         summary="Refresh tokens",
         description="Exchange a refresh token for a new pair. The old refresh token is "
-        "blacklisted at once: presenting it again is a 401.",
+        "blacklisted at once: presenting it again is a 401. So is a device that was signed "
+        "out -- from the devices list, or by a newer sign-in once the account is on "
+        "`MAX_SIGNED_IN_DEVICES` devices (default 2): sign in again.",
         request=RefreshSerializer,
         responses={
             200: RefreshedPairSerializer,
@@ -185,12 +222,40 @@ class RefreshView(TokenRefreshView):
     )
     @sensitive_variables()
     def post(self, request, *args, **kwargs):
-        try:
-            return super().post(request, *args, **kwargs)
-        except User.DoesNotExist:
-            # simplejwt looks the token's user up with a bare .get(); a token
-            # outliving its account would otherwise be a 500.
-            raise InvalidToken("No active account found for the given token.") from None
+        raw = request.data.get("refresh") if isinstance(request.data, dict) else None
+        old_jti = _refresh_jti(raw)
+        with transaction.atomic():
+            if old_jti:
+                # Two requests racing with the same refresh token would both
+                # pass simplejwt's blacklist check before either wrote to it,
+                # and both walk away with a live chain -- the very replay
+                # rotation exists to stop. Locking the token's row makes the
+                # second wait, then see the blacklist entry: a 401 (D20).
+                OutstandingToken.objects.select_for_update().filter(jti=old_jti).first()
+            try:
+                response = super().post(request, *args, **kwargs)
+            except User.DoesNotExist:
+                # simplejwt looks the token's user up with a bare .get(); a
+                # token outliving its account would otherwise be a 500.
+                raise InvalidToken("No active account found for the given token.") from None
+
+            # The token rotated: the device keeps one row for its whole
+            # chain, moved to the new token.
+            if response.status_code == 200:
+                new = RefreshToken(response.data["refresh"], verify=False)
+                user = User.objects.get(pk=new["user_id"])
+                devices.rotate(old_jti, str(new["jti"]), user, request)
+        return response
+
+
+def _refresh_jti(raw):
+    """The ``jti`` of a valid refresh token, else ``None``. Changes nothing."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        return str(RefreshToken(raw)["jti"])
+    except TokenError:
+        return None
 
 
 class LogoutView(PublicView):
@@ -216,6 +281,7 @@ class LogoutView(PublicView):
         try:
             token = RefreshToken(body.validated_data["refresh"])
             token.blacklist()
+            devices.forget(str(token["jti"]))
         except TokenError:
             return Response(
                 {"detail": "That token is invalid or already revoked.", "code": "token_invalid"},
@@ -244,9 +310,55 @@ class MeView(APIView):
         return Response(MeSerializer(request.user).data)
 
 
+class DeviceListView(APIView):
+    """The devices this account is signed in on."""
+
+    @extend_schema(
+        tags=AUTH_TAG,
+        summary="Signed-in devices",
+        description="At most `MAX_SIGNED_IN_DEVICES` (default 2): a further sign-in signs the "
+        "least recently used device out. Most recently seen first; a device that has gone "
+        "away (its refresh token expired or was revoked) is not listed.",
+        responses={
+            200: DeviceSerializer(many=True),
+            401: OpenApiResponse(MessageSerializer, description="Not signed in."),
+        },
+    )
+    def get(self, request, *args, **kwargs):
+        found = devices.live_devices(request.user)
+        return Response(DeviceSerializer(found, many=True, context={"request": request}).data)
+
+
+class DeviceDetailView(APIView):
+    """Sign one device out."""
+
+    @extend_schema(
+        tags=AUTH_TAG,
+        summary="Sign a device out",
+        description="Revokes that device's refresh token, so its next refresh is a 401. Its "
+        "current access token keeps working until it expires (`JWT_ACCESS_MINUTES`, default "
+        "30). Another account's device id is 404.",
+        responses={
+            204: None,
+            401: OpenApiResponse(MessageSerializer, description="Not signed in."),
+            404: OpenApiResponse(MessageSerializer, description="No such device of yours."),
+        },
+    )
+    def delete(self, request, pk, *args, **kwargs):
+        # Scoped to the caller in the query, so someone else's id is a 404,
+        # never a 403 that says it exists.
+        device = SignedInDevice.objects.filter(pk=pk, user=request.user).first()
+        if device is None:
+            raise NotFound("No such device.")
+        devices.end(device, request=request, reason="user")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 urlpatterns = [
     path("auth/google/", GoogleLoginView.as_view(), name="auth-google"),
     path("auth/refresh/", RefreshView.as_view(), name="auth-refresh"),
     path("auth/logout/", LogoutView.as_view(), name="auth-logout"),
+    path("auth/devices/", DeviceListView.as_view(), name="auth-devices"),
+    path("auth/devices/<int:pk>/", DeviceDetailView.as_view(), name="auth-device"),
     path("me/", MeView.as_view(), name="me"),
 ]

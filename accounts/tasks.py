@@ -18,3 +18,17 @@ def purge_security_events():
     happened to be current when the schedule was written.
     """
     call_command("purge_security_events")
+
+
+@shared_task
+def flush_expired_tokens():
+    """Beat's entry point into simplejwt's ``manage.py flushexpiredtokens``.
+
+    Every refresh rotates the token, and every token leaves an
+    ``OutstandingToken`` row (and its blacklist row) behind: about 50 a day
+    for one device in steady use. Once expired they prove nothing -- an
+    expired token is refused on its ``exp`` alone -- so they go. A device
+    whose token is flushed is already dead, and ``accounts.devices.prune``
+    treats a missing token exactly like an expired one.
+    """
+    call_command("flushexpiredtokens")

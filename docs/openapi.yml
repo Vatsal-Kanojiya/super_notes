@@ -6,6 +6,64 @@ info:
     with citations. Sign in with `POST /api/v1/auth/google/` and send `Authorization:
     Bearer <access>`.'
 paths:
+  /api/v1/auth/devices/:
+    get:
+      operationId: auth_devices_list
+      description: 'At most `MAX_SIGNED_IN_DEVICES` (default 2): a further sign-in
+        signs the least recently used device out. Most recently seen first; a device
+        that has gone away (its refresh token expired or was revoked) is not listed.'
+      summary: Signed-in devices
+      tags:
+      - Account
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Device'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+  /api/v1/auth/devices/{id}/:
+    delete:
+      operationId: auth_devices_destroy
+      description: Revokes that device's refresh token, so its next refresh is a 401.
+        Its current access token keeps working until it expires (`JWT_ACCESS_MINUTES`,
+        default 30). Another account's device id is 404.
+      summary: Sign a device out
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Account
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such device of yours.
   /api/v1/auth/google/:
     post:
       operationId: auth_google_create
@@ -96,7 +154,9 @@ paths:
     post:
       operationId: auth_refresh_create
       description: 'Exchange a refresh token for a new pair. The old refresh token
-        is blacklisted at once: presenting it again is a 401.'
+        is blacklisted at once: presenting it again is a 401. So is a device that
+        was signed out -- from the devices list, or by a newer sign-in once the account
+        is on `MAX_SIGNED_IN_DEVICES` devices (default 2): sign in again.'
       summary: Refresh tokens
       tags:
       - Account
@@ -182,6 +242,35 @@ paths:
           description: Not signed in.
 components:
   schemas:
+    Device:
+      type: object
+      description: A signed-in device, as the list shows it. Never its token id.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        label:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_seen_at:
+          type: string
+          format: date-time
+          readOnly: true
+        current:
+          type: boolean
+          readOnly: true
+          description: True for the device making this request, found from the `device`
+            claim its access token carries.
+      required:
+      - created_at
+      - current
+      - id
+      - label
+      - last_seen_at
     GoogleLoginRequest:
       type: object
       properties:

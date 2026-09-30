@@ -201,6 +201,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "accounts.tasks.purge_security_events",
         "schedule": 24 * 60 * 60,
     },
+    # Every refresh leaves a token row behind; expired ones prove nothing.
+    "flush-expired-tokens": {
+        "task": "accounts.tasks.flush_expired_tokens",
+        "schedule": 24 * 60 * 60,
+    },
 }
 
 
@@ -508,3 +513,8 @@ EMBEDDING_BATCH_SIZE = env.int("EMBEDDING_BATCH_SIZE", default=64)
 # happened to my account", not for ever. The command's --days overrides it
 # for a one-off run.
 SECURITY_EVENT_RETENTION_DAYS = env.int("SECURITY_EVENT_RETENTION_DAYS", default=365)
+
+# How many devices (refresh-token chains) an account may be signed in on at
+# once. A further sign-in signs the least recently used one out
+# (accounts/devices.py). Two covers the web client and the Android app.
+MAX_SIGNED_IN_DEVICES = env.int("MAX_SIGNED_IN_DEVICES", default=2)
