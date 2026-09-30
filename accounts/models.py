@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils import timezone
@@ -73,3 +74,51 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
+
+
+class SecurityEvent(models.Model):
+    """One row per security-relevant thing that happened to an account.
+
+    Carried over from the reference: sign-ins and failures, sign-ups,
+    sign-outs, devices ended by the limit, attempts refused by the rate
+    limit. Written through ``accounts.audit.record``, never directly: that
+    function is what guarantees a failure here never breaks the request it
+    rides along with, and that nothing secret ends up in ``detail``.
+
+    ``user`` is SET_NULL rather than CASCADE, so a deleted account's events
+    stay in the trail. ``email`` is a snapshot, not a live lookup: a failed
+    sign-in may name no account at all. Rows are pruned only by
+    ``purge_security_events``, after ``SECURITY_EVENT_RETENTION_DAYS``.
+    """
+
+    class Event(models.TextChoices):
+        GOOGLE_LOGIN_SUCCEEDED = "google_login_succeeded", "Google sign-in succeeded"
+        GOOGLE_LOGIN_FAILED = "google_login_failed", "Google sign-in failed"
+        LOGIN_BLOCKED = "login_blocked", "Sign-in blocked (rate limited)"
+        SIGNED_UP = "signed_up", "Signed up"
+        LOGGED_OUT = "logged_out", "Logged out"
+        DEVICE_SIGNED_OUT = "device_signed_out", "Device signed out"
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    event = models.CharField(max_length=32, choices=Event.choices)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="security_events",
+    )
+    email = models.CharField(max_length=254, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    request_id = models.CharField(max_length=64, blank=True)
+    # Small, structured context, e.g. {"reason": "inactive"}. Never a token,
+    # a claim set or anything else secret -- see accounts/audit.py.
+    detail = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["event", "created_at"])]
+
+    def __str__(self):
+        who = self.email or (self.user_id and f"user {self.user_id}") or "unknown"
+        return f"{self.get_event_display()} — {who} @ {self.created_at:%Y-%m-%d %H:%M}"

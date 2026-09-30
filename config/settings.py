@@ -195,7 +195,13 @@ CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=False)
 CELERY_TASK_EAGER_PROPAGATES = True
 
 # Periodic jobs. Each is harmless to run twice.
-CELERY_BEAT_SCHEDULE = {}
+CELERY_BEAT_SCHEDULE = {
+    # Daily: the trail changes slowly, and hourly would be wasted work.
+    "purge-old-security-events": {
+        "task": "accounts.tasks.purge_security_events",
+        "schedule": 24 * 60 * 60,
+    },
+}
 
 
 # Upload size
@@ -494,3 +500,11 @@ EMBEDDING_DIMENSIONS = env.int("EMBEDDING_DIMENSIONS", default=1536)
 # Texts per provider call. Under both vendors' per-request limits (Gemini's
 # is the tighter, 100), and small enough that a retried call redoes little.
 EMBEDDING_BATCH_SIZE = env.int("EMBEDDING_BATCH_SIZE", default=64)
+
+# Account security (accounts/, DECISIONS D6)
+#
+# How long a security event is kept before purge_security_events removes
+# it. Each row holds an address and an email: long enough to answer "what
+# happened to my account", not for ever. The command's --days overrides it
+# for a one-off run.
+SECURITY_EVENT_RETENTION_DAYS = env.int("SECURITY_EVENT_RETENTION_DAYS", default=365)
