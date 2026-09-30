@@ -1181,3 +1181,130 @@ unit in the history.
 **Reverse it if:** V2 work stalls and fixes pile up on both lines; then merge `v2` early and
 continue on `master` with flags.
 
+### D78. A periodic sweeper fails asks stuck past a cutoff, in one conditional UPDATE
+
+**Decided:** `assistant.tasks.sweep_stuck_asks`, scheduled every 5 minutes, runs one
+`UPDATE ... WHERE status IN (pending, running) AND created_at < now - ASK_STUCK_AFTER_SECONDS`
+setting `failed`, `completed_at` and the error "This took too long. Please ask again." The cutoff
+defaults to 3,600 s: a live ask can take 5 attempts (`max_retries=4`), each bounded by the 600 s
+hard time limit, plus at most 1+2+4+8 s of backoff -- 3,015 s -- and the rest is headroom for
+queueing. A failed ask drops out of the quota by itself (`quota.used` excludes failed).
+
+**Alternatives:** cutoff measured from when the ask went `running` (needs a new column and a
+migration); a short cutoff just above the time limit (would fail asks still retrying); a lock or
+`SELECT ... FOR UPDATE` per row.
+
+**Why:** D76 cannot reach a worker killed at the hard limit, or a lost message: no code runs. The
+WHERE clause does the race-proofing -- an ask that finished between the sweeper's clock reading and
+its write no longer matches, so it can never be overwritten. `created_at` is what exists; pending
+asks are covered by the same rule.
+
+**Reverse it if:** asks are routinely slower than an hour to start (a long backlog): raise the
+setting, or move to a `started_at` column and sweep from that.
+
+### D79. Nested JSON is refused by a project JSONParser that turns RecursionError into ParseError
+
+**Decided:** `config.api.parsers.JSONParser` wraps DRF's and converts `RecursionError` to
+`ParseError` (400, `code: "parse_error"`). `DEFAULT_PARSER_CLASSES` lists it with DRF's own
+`FormParser` and `MultiPartParser`, so nothing else changes. `ValueError` needs no handling: DRF's
+parser already turns it into a `ParseError`.
+
+**Alternatives:** a depth check before parsing (a second pass over the body); a middleware; a
+lower recursion limit.
+
+**Why:** `json.loads` raises `RecursionError`, which is not a `ValueError`, past roughly 20,000
+levels on Python 3.12 (the exact depth depends on the interpreter). That is about 40 KB, well under
+the body size limit, so a 500 was one cheap request away. Catching it where the parse happens is the
+smallest change and costs nothing on valid input.
+
+**Reverse it if:** bodies nested only a few thousand levels (which parse fine) prove to hurt
+elsewhere, say in validation or rendering; then cap depth explicitly instead of relying on the
+interpreter's limit.
+
+### D80. The 413 adds CORS headers itself, for allowed origins only
+
+**Decided:** `MaxUploadSizeMiddleware` stays first. On its 413 it sets
+`Access-Control-Allow-Origin` (echoing the origin) and `Access-Control-Expose-Headers` only when the
+request `Origin` is in `CORS_ALLOWED_ORIGINS` and the path matches `CORS_URLS_REGEX`, and always adds
+`Vary: Origin`.
+
+**Alternatives:** move `CorsMiddleware` ahead of the size check.
+
+**Why:** the point of the check is to refuse before anything touches the request, and the
+Content-Length check must stay ahead of everything that could read the body. Moving CORS up would
+make that an ordering convention between two middlewares instead of a fact of the list, and would
+also make the 413 pass through CORS's own processing. Repeating the allow-list rule for one response
+is ten lines and leaves the order alone. A disallowed origin gets no CORS header, as with any other
+response, so the browser still blocks it.
+
+**Reverse it if:** CORS configuration grows beyond `CORS_ALLOWED_ORIGINS` (regexes, allow-all): the
+copied rule would then drift from `django-cors-headers`; move `CorsMiddleware` first instead. Only
+the plain list is honoured here.
+
+### D81. Google's signing keys are cached by a wrapping transport, with a retry on failure
+
+**Decided:** `accounts.google.CachedCertsRequest` wraps the google-auth transport passed to
+`verify_oauth2_token`. For a GET of the certificates URL it serves the body from Django's cache
+(key `google-certs:<url>`), or fetches it and stores it for the response's `Cache-Control: max-age`,
+capped at `CERTS_MAX_TTL` (1 hour). No `max-age`, `no-store`/`no-cache`, or a non-200 means nothing
+is cached. If verification fails on keys that came from the cache, the entry is dropped and the
+token is verified once more against a fresh fetch, so a key rotation (an unknown `kid`) heals
+itself; a token that is truly bad fails the second time too.
+
+**Alternatives:** subclassing `google.auth.transport.requests.Request`; caching inside
+`_fetch_certs` by patching the library; `cachecontrol` on the `requests` session (a new dependency);
+a fixed TTL ignoring the header.
+
+**Why:** `_fetch_certs` makes one `request(certs_url, method="GET")` and reads `.status` and
+`.data`, so a callable wrapper is the whole seam and needs no library internals beyond the URL
+constant. Wrapping (not subclassing) leaves `_transport()`, and every test that patches it,
+unchanged. The cap plus retry keep "fail closed" true without failing forever: the worst case after
+a rotation is one extra fetch, and a stale entry can live at most an hour. The retry also fires for
+an expired or wrong-audience token that arrives while keys are cached, costing the fetch sign-in
+made before caching; the sign-in throttle bounds that. Tests turn a `LocMemCache` on, since the
+runner uses `DummyCache`.
+
+**Reverse it if:** Google changes the certificates URL or format (the wrapper matches the library's
+private `_GOOGLE_OAUTH2_CERTS_URL`; a library upgrade that renames it will fail the tests), or the
+cache backend is per-process and hit rates are poor.
+
+### D82. Sentence splitting skips common abbreviations and initials
+
+**Decided:** `_SENTENCES` in `retrieval/chunking.py` no longer splits after `e.g.`, `i.e.`, `etc.`,
+`Dr.`, `Mr.`, `Mrs.`, `Ms.`, `vs.`, `approx.`, `No.` or a single capital letter plus a dot
+(`J. R. R.`), via fixed-width negative lookbehinds anchored on `\b`. Output stays deterministic.
+
+**Alternatives:** a tokenizer such as NLTK's punkt (a dependency and a data download); a
+sentence-start heuristic (next word capitalised); leaving it.
+
+**Why:** a split inside "e.g. this" or "Dr. Who" produces a chunk that starts mid-sentence and
+embeds worse. Not splitting after `etc.` or `No.` when they do end a sentence only makes a chunk
+slightly longer, never wrong. Case matters for `No.` and initials (so "casino." and "go." still
+end sentences); the others match any case.
+
+**Reverse it if:** the evaluation shows the list costs more than it saves, or notes are
+predominantly in a language with other abbreviations; then a real sentence segmenter is warranted.
+
+**Consequence:** splitting changes for blocks long enough to be split by sentence (longer than
+`CHUNK_MAX_CHARS`) that contain these abbreviations, so their chunks change and their content
+hashes (D35) change. Those chunks re-embed on the note's next index; nothing else does.
+
+### D83. The final PATCH on tab hide uses `keepalive`, through the API client, for small bodies
+
+**Decided:** `RequestOptions` gains `keepalive`, threaded through `notesApi.update` and the notes
+store; the editor's save passes it only from the `visibilitychange` (hidden) handler. `send` sets
+`fetch`'s `keepalive` only when the serialized body is at most 60 KiB (`KEEPALIVE_MAX_BYTES`);
+larger bodies go as a normal fetch. Timer- and unmount-driven saves are unchanged.
+
+**Alternatives:** `navigator.sendBeacon` (POST only, no `Authorization` header); a raw `fetch` in
+the component (bypasses the client's auth and error handling); keepalive on every save.
+
+**Why:** browsers cap keepalive bodies at 64 KiB in total across in-flight requests, and reject
+larger ones outright, so a big note would lose its save entirely; the fallback keeps today's
+behaviour for it. The margin under 64 KiB leaves room for a second save. Keepalive only matters
+when the page is going away, so it is not used elsewhere.
+
+**Reverse it if:** notes routinely exceed 60 KiB (autosave's 1 s timer already covers them, so the
+window is small) or the gap needs a real fix (a service worker or a sync queue). Limits: a 401
+during that save triggers the normal refresh, which is not keepalive; and there is no web test
+runner (BACKLOG), so this is verified by the build and by hand, not by a test.

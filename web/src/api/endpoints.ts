@@ -35,7 +35,8 @@ export const notesApi = {
   list: (params: NoteListParams = {}) => request<CursorPage<Note>>('notes/', { query: { ...params } }),
   get: (id: Id) => request<Note>(`notes/${id}/`),
   create: (body: NoteCreateRequest) => request<Note>('notes/', { method: 'POST', body }),
-  update: (id: Id, body: NoteUpdateRequest) => request<Note>(`notes/${id}/`, { method: 'PATCH', body }),
+  update: (id: Id, body: NoteUpdateRequest, options: { keepalive?: boolean } = {}) =>
+    request<Note>(`notes/${id}/`, { method: 'PATCH', body, keepalive: options.keepalive }),
   remove: (id: Id) => request<void>(`notes/${id}/`, { method: 'DELETE' }),
   changes: (after: number) => request<ChangesResponse>('notes/changes/', { query: { after } }),
 }

@@ -66,14 +66,19 @@ function markDirty() {
   dirty = true
   status.value = 'unsaved'
   window.clearTimeout(timer)
-  timer = window.setTimeout(save, AUTOSAVE_MS)
+  timer = window.setTimeout(() => save(), AUTOSAVE_MS)
 }
 
 watch(title, (value) => {
   if (value !== base.value.title || dirty) markDirty()
 })
 
-async function save() {
+/**
+ * `keepalive` is for the save as the tab is hidden: the request then survives
+ * the page being closed (api/client.ts falls back to a normal request for a
+ * body over 60 KiB, which a browser would refuse as keepalive).
+ */
+async function save(keepalive = false) {
   window.clearTimeout(timer)
   if (saving) {
     saveAgain = true
@@ -85,7 +90,7 @@ async function save() {
   status.value = 'saving'
   const body = { version: base.value.version, title: title.value, content: latestContent }
   try {
-    base.value = await notes.update(id, body)
+    base.value = await notes.update(id, body, { keepalive })
     saveError.value = ''
     status.value = dirty ? 'unsaved' : 'saved'
   } catch (e) {
@@ -100,7 +105,7 @@ async function save() {
       saveError.value = errorMessage(e)
       status.value = 'error'
       // Offline or a server hiccup: try again shortly, keeping the edits.
-      timer = window.setTimeout(save, RETRY_MS)
+      timer = window.setTimeout(() => save(), RETRY_MS)
     }
   } finally {
     saving = false
@@ -169,7 +174,7 @@ function back() {
 
 // Leaving the tab (or the app, on a phone) is the moment to save, not later.
 function onHide() {
-  if (document.visibilityState === 'hidden' && dirty) void save()
+  if (document.visibilityState === 'hidden' && dirty) void save(true)
 }
 onMounted(() => document.addEventListener('visibilitychange', onHide))
 onBeforeUnmount(() => {

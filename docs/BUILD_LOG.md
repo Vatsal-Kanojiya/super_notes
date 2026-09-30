@@ -266,6 +266,16 @@ order again.
 push at each phase tag; providers stay modular — boundary function, settings-selected registry,
 one adapter per vendor — with fake providers until keys are set.
 
+### V2 0a — hardening
+
+Six small items on `v2-feat/0a-hardening` (D78-D83), each with tests and its BACKLOG entry removed:
+a stuck-ask sweeper (every 5 minutes, cutoff 3,600 s from the retry span); deeply nested JSON is a
+400 `parse_error`; the 413 carries CORS headers for allowed origins; Google's signing keys are cached
+for their `max-age` (capped at 1 h, with a fresh-fetch retry on failure); the chunker no longer
+splits after common abbreviations (chunks of long blocks that contain them re-embed on next index);
+and the tab-hide save uses `fetch` `keepalive` for bodies up to 60 KiB. The web client has no test
+runner, so item 6 is verified by the build only.
+
 ### V2 — multi-turn eval fixtures
 
 `retrieval/eval/fixtures/conversations.json`: 17 follow-up cases (pronoun, ellipsis, topic shift, refinement, near-duplicate, no-answer) over the existing 30 notes, each with a hand-written standalone rewrite; loader validation and tests added, the raw-vs-condensed comparison waits for phase 1's command.

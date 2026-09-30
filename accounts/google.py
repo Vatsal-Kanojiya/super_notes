@@ -21,9 +21,11 @@ the same address); ``sub`` never does.
 
 import functools
 import logging
+import re
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
@@ -40,6 +42,14 @@ ALLOWED_ISSUERS = ("accounts.google.com", "https://accounts.google.com")
 # Seconds to wait for Google's signing keys. The transport's own default is
 # 120: a slow key endpoint would hold a worker for two minutes per sign-in.
 CERTS_TIMEOUT = 10
+
+# Never keep Google's keys longer than this, whatever Cache-Control says
+# (Google's is about six hours). Keys rotate, and a token signed with a new
+# one must not be refused for long if the retry in verify_id_token ever
+# misses: the cap bounds that worst case (DECISIONS D81).
+CERTS_MAX_TTL = 60 * 60
+
+_MAX_AGE = re.compile(r"(?:^|[\s,])max-age=(\d+)", re.IGNORECASE)
 
 # The User columns the claims land in (accounts/models.py).
 _NAME_MAX = User._meta.get_field("name").max_length
@@ -70,6 +80,66 @@ def _transport():
     return functools.partial(google_requests.Request(), timeout=CERTS_TIMEOUT)
 
 
+class _CachedBody:
+    """The part of a transport response that google-auth reads."""
+
+    status = 200
+    headers = {}
+
+    def __init__(self, data):
+        self.data = data
+
+
+class CachedCertsRequest:
+    """A google-auth transport that caches Google's signing keys (DECISIONS D81).
+
+    Wraps another transport, and only touches a GET of the certificates URL
+    (the one request verification makes): the response body is kept in
+    Django's cache for the ``max-age`` of its Cache-Control header, capped
+    at CERTS_MAX_TTL, keyed by URL. No max-age, ``no-store`` or ``no-cache``
+    means not cached. ``from_cache`` records whether the keys came from the
+    cache, so a failed verification can tell a rotated key from a bad token.
+    """
+
+    def __init__(self, transport):
+        self.transport = transport
+        self.from_cache = False
+
+    @staticmethod
+    def key(url):
+        return f"google-certs:{url}"
+
+    def __call__(self, url, method="GET", **kwargs):
+        if method != "GET" or url != google_id_token._GOOGLE_OAUTH2_CERTS_URL:
+            return self.transport(url, method=method, **kwargs)
+
+        body = cache.get(self.key(url))
+        if body is not None:
+            self.from_cache = True
+            return _CachedBody(body)
+
+        self.from_cache = False
+        response = self.transport(url, method=method, **kwargs)
+        ttl = self._ttl(response)
+        if response.status == 200 and ttl:
+            cache.set(self.key(url), response.data, ttl)
+        return response
+
+    @staticmethod
+    def _ttl(response):
+        headers = {
+            str(k).lower(): str(v) for k, v in (getattr(response, "headers", None) or {}).items()
+        }
+        control = headers.get("cache-control", "")
+        if re.search(r"no-store|no-cache", control, re.IGNORECASE):
+            return 0
+        match = _MAX_AGE.search(control)
+        return min(int(match.group(1)), CERTS_MAX_TTL) if match else 0
+
+    def forget(self):
+        cache.delete(self.key(google_id_token._GOOGLE_OAUTH2_CERTS_URL))
+
+
 def verify_id_token(credential):
     """Return the verified claims of a Google ID token, or raise.
 
@@ -83,12 +153,20 @@ def verify_id_token(credential):
     the reference's rule, and cheap insurance against a library change.
     ``email_verified`` is not checked by the library at all.
     """
+    transport = CachedCertsRequest(_transport())
     try:
-        payload = google_id_token.verify_oauth2_token(
-            credential,
-            _transport(),
-            audience=list(settings.GOOGLE_OAUTH_CLIENT_IDS),
-        )
+        try:
+            payload = _verify(credential, transport)
+        except Exception:
+            if not transport.from_cache:
+                raise
+            # Fail closed, but not forever: keys that came from the cache
+            # may be out of date (Google rotated them), so drop them and
+            # verify once more against a fresh fetch. A token that is really
+            # bad fails again, at the cost of the fetch sign-in made before
+            # caching existed.
+            transport.forget()
+            payload = _verify(credential, transport)
     except Exception as exc:
         # Every failure the library can raise (bad signature, expired, wrong
         # audience, malformed token, Google's key endpoint unreachable)
@@ -120,6 +198,14 @@ def verify_id_token(credential):
         "name": (payload.get("name") or "").strip(),
         "picture": payload.get("picture") or "",
     }
+
+
+def _verify(credential, transport):
+    return google_id_token.verify_oauth2_token(
+        credential,
+        transport,
+        audience=list(settings.GOOGLE_OAUTH_CLIENT_IDS),
+    )
 
 
 def _profile(claims):

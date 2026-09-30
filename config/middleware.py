@@ -5,11 +5,13 @@ with its reasoning; trimmed to what an API-only project needs.
 """
 
 import logging
+import re
 import uuid
 from contextvars import ContextVar
 
 from django.conf import settings
 from django.http import JsonResponse
+from django.utils.cache import patch_vary_headers
 
 # ContextVar, not threading.local: under ASGI one thread interleaves many
 # requests, and a thread-local would leak one request's id into another's
@@ -46,11 +48,33 @@ class MaxUploadSizeMiddleware:
 
             if declared_size is not None and declared_size > limit:
                 # The API's own error shape, so a client reads one field.
-                return JsonResponse(
+                response = JsonResponse(
                     {"detail": "Request body too large.", "code": "too_large"}, status=413
                 )
+                self._add_cors(request, response)
+                return response
 
         return self.get_response(request)
+
+    @staticmethod
+    def _add_cors(request, response):
+        """Let an allowed origin read this 413 (DECISIONS D80).
+
+        CorsMiddleware sits after this one, so the 413 never reaches it and
+        a cross-origin browser would report a network error, not "too
+        large". Rather than move it up -- which would run it, and so touch
+        the request, before the size check -- repeat its rule for this one
+        response: the same origin allow-list and path filter, and nothing
+        for any other origin. Only CORS_ALLOWED_ORIGINS is honoured, the one
+        form this project configures.
+        """
+        origin = request.META.get("HTTP_ORIGIN")
+        if origin in settings.CORS_ALLOWED_ORIGINS and re.match(
+            settings.CORS_URLS_REGEX, request.path_info
+        ):
+            response["Access-Control-Allow-Origin"] = origin
+            response["Access-Control-Expose-Headers"] = ", ".join(settings.CORS_EXPOSE_HEADERS)
+        patch_vary_headers(response, ["Origin"])
 
 
 class ContentSecurityPolicyMiddleware:

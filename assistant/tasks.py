@@ -7,6 +7,7 @@ running out, the soft time limit and bugs (DECISIONS D76): a row left
 """
 
 import logging
+from datetime import timedelta
 
 from celery import shared_task
 from django.conf import settings
@@ -175,3 +176,25 @@ def _fail(ask_id, message: str) -> None:
     AskQuery.objects.filter(pk=ask_id, status__in=UNFINISHED).update(
         status=AskQuery.Status.FAILED, completed_at=timezone.now(), error=message
     )
+
+
+STUCK = "This took too long. Please ask again."
+
+
+@shared_task
+def sweep_stuck_asks() -> int:
+    """Fail asks left pending or running past ASK_STUCK_AFTER_SECONDS (DECISIONS D78).
+
+    The net under D76: a worker killed at the hard time limit, or a lost
+    message, runs no code, so the ask would be polled forever and -- never
+    failing -- count against the quota. One conditional UPDATE on status and
+    age, so an ask that finishes meanwhile is never overwritten. Returns how
+    many it failed, for the log.
+    """
+    cutoff = timezone.now() - timedelta(seconds=settings.ASK_STUCK_AFTER_SECONDS)
+    failed = AskQuery.objects.filter(status__in=UNFINISHED, created_at__lt=cutoff).update(
+        status=AskQuery.Status.FAILED, completed_at=timezone.now(), error=STUCK
+    )
+    if failed:
+        logger.warning("Failed %s stuck ask(s) older than %s", failed, cutoff)
+    return failed

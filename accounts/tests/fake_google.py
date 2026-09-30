@@ -79,8 +79,9 @@ def id_token(**overrides):
 class _Response:
     status = 200
 
-    def __init__(self, body):
+    def __init__(self, body, headers=None):
         self.data = json.dumps(body).encode()
+        self.headers = headers or {}
 
 
 def _fetch(url, method="GET", **kwargs):
@@ -91,3 +92,23 @@ def _fetch(url, method="GET", **kwargs):
 def google_keys():
     """Serve our certificate in place of Google's for the duration."""
     return mock.patch("accounts.google._transport", return_value=_fetch)
+
+
+class CountingCerts:
+    """A certificate endpoint that counts its fetches and sets Cache-Control.
+
+    ``keys`` is what it serves, ``{key id: PEM}``; change it to rotate.
+    """
+
+    def __init__(self, cache_control="public, max-age=3600", keys=None):
+        self.cache_control = cache_control
+        self.keys = keys if keys is not None else {KEY_ID: _keys()[1]}
+        self.fetches = 0
+
+    def __call__(self, url, method="GET", **kwargs):
+        self.fetches += 1
+        headers = {"Cache-Control": self.cache_control} if self.cache_control else {}
+        return _Response(self.keys, headers)
+
+    def patch(self):
+        return mock.patch("accounts.google._transport", return_value=self)

@@ -4,16 +4,25 @@ Tokens are really signed and really verified by google-auth, against a
 throwaway key served in place of Google's (fake_google.py). No network.
 """
 
+import json
 import time
 from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 
 from accounts import google
 from accounts.models import SecurityEvent
 
-from .fake_google import ANDROID_CLIENT_ID, CLIENT_IDS, claims, google_keys, id_token
+from .fake_google import (
+    ANDROID_CLIENT_ID,
+    CLIENT_IDS,
+    CountingCerts,
+    claims,
+    google_keys,
+    id_token,
+)
 
 User = get_user_model()
 
@@ -32,6 +41,80 @@ class SwitchTests(TestCase):
     def test_the_transport_has_a_timeout(self):
         transport = google._transport()
         self.assertEqual(transport.keywords, {"timeout": google.CERTS_TIMEOUT})
+
+
+CERTS_KEY = google.CachedCertsRequest.key(google.google_id_token._GOOGLE_OAUTH2_CERTS_URL)
+LOCMEM = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
+
+@with_google
+@override_settings(CACHES=LOCMEM)
+class CertsCacheTests(TestCase):
+    """Google's signing keys are fetched once per Cache-Control max-age (D81).
+
+    The test runner swaps in DummyCache, so these turn a real one back on.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def verify(self, certs, **overrides):
+        with certs.patch():
+            return google.verify_id_token(id_token(**overrides))
+
+    def test_a_second_verification_makes_no_second_fetch(self):
+        certs = CountingCerts()
+        self.verify(certs)
+        self.verify(certs)
+        self.assertEqual(certs.fetches, 1)
+
+    def test_the_ttl_comes_from_max_age(self):
+        certs = CountingCerts(cache_control="public, max-age=120, must-revalidate")
+        with mock.patch.object(google.cache, "set", wraps=google.cache.set) as put:
+            self.verify(certs)
+        self.assertEqual(put.call_args.args[2], 120)
+
+    def test_the_ttl_is_capped(self):
+        certs = CountingCerts(cache_control="max-age=999999")
+        with mock.patch.object(google.cache, "set", wraps=google.cache.set) as put:
+            self.verify(certs)
+        self.assertEqual(put.call_args.args[2], google.CERTS_MAX_TTL)
+
+    def test_no_max_age_or_no_store_is_not_cached(self):
+        for header in ("", "public", "no-store, max-age=300", "no-cache, max-age=300"):
+            with self.subTest(header=header):
+                cache.clear()
+                certs = CountingCerts(cache_control=header)
+                self.verify(certs)
+                self.verify(certs)
+                self.assertEqual(certs.fetches, 2)
+
+    def test_a_rotated_key_is_refetched_not_refused(self):
+        certs = CountingCerts()
+        # The cache holds an older key set, without the kid this token uses.
+        stale = json.dumps({"old-kid": next(iter(certs.keys.values()))}).encode()
+        cache.set(CERTS_KEY, stale, 3600)
+        claims_ = self.verify(certs)
+        self.assertEqual(claims_["email"], "alice@example.com")
+        self.assertEqual(certs.fetches, 1)
+
+    def test_a_bad_token_still_fails_closed(self):
+        certs = CountingCerts()
+        self.verify(certs)
+        with certs.patch(), self.assertRaises(google.GoogleSignInError):
+            google.verify_id_token(id_token(aud="someone-else"))
+        # Once from cache, then one fresh attempt: no loop.
+        self.assertEqual(certs.fetches, 2)
+
+    def test_a_failed_fetch_is_not_cached(self):
+        failing = mock.Mock(
+            return_value=mock.Mock(status=500, data=b"", headers={"Cache-Control": "max-age=300"})
+        )
+        with mock.patch("accounts.google._transport", return_value=failing):
+            with self.assertRaises(google.GoogleSignInError):
+                google.verify_id_token(id_token())
+        self.assertIsNone(cache.get(CERTS_KEY))
 
 
 @with_google
