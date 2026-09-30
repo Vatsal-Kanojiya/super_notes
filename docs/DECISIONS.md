@@ -303,6 +303,131 @@ than it would ever catch a bug.
 **Reverse it if:** anything but `services.py` ever writes notes in production; then make it
 unique so the invariant is enforced by the database.
 
+## Phase 3a — chunker and embedding providers
+
+### D33. Chunk sizes in characters: target 1600, max 2000, overlap 200
+
+**Decided:** `CHUNK_TARGET_CHARS=1600`, `CHUNK_MAX_CHARS=2000`, `CHUNK_OVERLAP_CHARS=200`, taking
+~4 characters per token: ~400 / ~500 / ~50 tokens, inside the plan's 300–500. No chunk's `text` is
+longer than the max.
+
+**Alternatives:** count real tokens with a tokenizer (tiktoken, or the vendor's count endpoint).
+
+**Why:** a tokenizer is a new dependency and differs per provider; the sizes only need to be
+roughly right. Both models accept far more (8192 and 2048 tokens), so an underestimate costs
+nothing but a slightly larger chunk.
+
+**Reverse it if:** the eval (Phase 4) shows recall moving with chunk size, or notes are mostly in a
+script where 4 chars/token is far off (CJK); tune the settings first, add a tokenizer only if that
+is not enough.
+
+### D34. Chunks follow structure; items are atomic; overlap is whole blocks
+
+**Decided:** walk the TipTap tree. A heading starts a section; a chunk never spans two, and overlap
+never crosses one. A list or checklist item's own words are one block (nested items are their own
+blocks); only a single block longer than the max is split, on lines, then sentences, then words,
+then raw length. Overlap carries whole blocks, or a paragraph's last whole sentences, never part of
+an item. Headings with nothing under them become a chunk of their own words.
+
+**Alternatives:** chunk the flat `content_text` with a sliding character window (simpler; splits
+items and ignores headings).
+
+**Why:** the plan requires it (§6.1), and a checklist item cut in half is two wrong facts.
+
+**Reverse it if:** notes turn out to be mostly unstructured walls of text, where structure buys
+nothing.
+
+### D35. `embed_text` carries the title and heading path; the hash covers `embed_text`
+
+**Decided:** `embed_text = "<title> > <heading path>\n\n<text>"`; `content_hash = sha256(embed_text)`.
+`text` stays unprefixed for display.
+
+**Alternatives:** hash only `text`, so a rename does not re-embed.
+
+**Why:** the prefix is part of what is embedded, so a renamed note's old vectors really are stale.
+Reusing them would leave search matching the old title. The cost is re-embedding a whole note on a
+rename, which is rare.
+
+**Reverse it if:** renames turn out to be frequent and expensive; then drop the title from the
+prefix, not the hash.
+
+### D36. `EMBEDDING_DIMENSIONS = 1536`, fixed per deployment; the model id is stored per vector
+
+**Decided:** 1536 for both `text-embedding-3-small` (native) and `gemini-embedding-001` (via
+`outputDimensionality`). The boundary rejects any vector of another size. `embedding_model_id()`
+(`provider/model@dims`) is stored beside each vector so a chunk is re-embedded when it differs,
+even if its hash does not.
+
+**Alternatives:** 768 (smaller index, lower quality); 3072 (Gemini's native size, above pgvector
+HNSW's 2000-dimension limit).
+
+**Why:** the one size both candidate models support at good quality, and under the HNSW limit.
+Fixing it in the migration means changing the model or size later is a migration plus
+`reindex_notes --all` (Phase 3b) — a deliberate, visible operation.
+
+**Reverse it if:** the chosen model does better at another size in the eval; migrate and re-index.
+
+### D37. Both OpenAI and Gemini, over plain `requests`; `EMBEDDING_MODELS` per provider
+
+**Decided:** implement both real providers against the REST APIs with `requests` (already a
+dependency) and fixed timeouts (5 s connect, 30 s read). Settings follow the reference's
+`BILL_SCAN_MODELS`: `EMBEDDING_MODELS = {"openai": …, "gemini": …}` instead of the plan's single
+`EMBEDDING_MODEL`. The Protocol takes a `task` ("document" / "query") so Gemini can use `taskType`.
+`EMBEDDING_BATCH_SIZE = 64`.
+
+**Alternatives:** the openai and google-genai SDKs, as the reference; one provider only (the plan's
+"implement one first, ask").
+
+**Why:** the owner has not chosen yet, and the SDKs would be two new dependencies for one POST each.
+Both are small and mocked-tested, so the choice is a setting. 64 is under Gemini's 100-per-call
+limit.
+
+**Reverse it if:** a provider needs features the REST shape makes awkward (streaming, retries with
+vendor-specific backoff), or the owner wants only one kept; delete the other.
+
+### D38. Transient failures raise `EmbeddingTransientError`, which is not an `EmbeddingError`
+
+**Decided:** 429, 5xx, timeouts and connection errors raise `EmbeddingTransientError` for the
+indexing task's `autoretry_for`. OpenAI's 429 `insufficient_quota` is an `EmbeddingError`: waiting
+does not add credit. The two classes are unrelated, so `except EmbeddingError` never swallows a
+retryable failure. Vendor messages are quoted with request header values redacted.
+
+**Alternatives:** let `requests` exceptions through, as the reference lets SDK exceptions through
+(but an HTTP 429 is not an exception in `requests`); a subclass of `EmbeddingError`.
+
+**Why:** one retryable class at the boundary, independent of vendor. Redaction because OpenAI's 401
+quotes the key it was sent.
+
+**Reverse it if:** a caller needs to treat both alike; catch both explicitly.
+
+### D39. The fake provider is a hashed bag of words
+
+**Decided:** lowercased `\w+` tokens hashed (sha256) to a slot and a ±1 sign, summed, L2-normalised.
+A text whose words all cancel falls back to one slot for the whole text, so no vector is zero.
+
+**Alternatives:** a random unit vector seeded by the text's hash (meaningless similarity).
+
+**Why:** deterministic across machines like the alternative, but texts sharing words score higher,
+so search and eval smoke tests without a key give sensible orderings — useful in CI and a fresh
+clone.
+
+**Reverse it if:** tests start depending on its similarity numbers in ways that break when it is
+tuned; keep assertions to orderings.
+
+### D40. Live provider tests need the key *and* `LIVE_PROVIDER_TESTS=1`
+
+**Decided:** each real provider's single live test is skipped unless its key is set and
+`LIVE_PROVIDER_TESTS=1`. It uses `override_settings` to beat the runner's forced `fake`.
+
+**Alternatives:** the plan's "skipped unless its key is set".
+
+**Why:** `environ.Env.read_env` copies `.env` into `os.environ`, so a key alone would make every
+suite run on a configured machine spend money, which D11 forbids.
+
+**Reverse it if:** keys move out of `.env` (e.g. into the process manager only).
+
+## Phase 4a — evaluation fixtures
+
 ### D41. Eval notes are hand-written TipTap JSON, validated strictly on load
 
 **Decided:** `retrieval/eval/fixtures/notes.json` is the source of truth: 30 TipTap documents
@@ -506,126 +631,3 @@ finding), and stripping "markers" would also eat an innocent `[2024]`. Keeping `
 marker in the text still matches its citation.
 
 **Reverse it if:** users find unlinked numbers confusing; strip them at render time in the client.
-
-## Phase 3a — chunker and embedding providers
-
-### D33. Chunk sizes in characters: target 1600, max 2000, overlap 200
-
-**Decided:** `CHUNK_TARGET_CHARS=1600`, `CHUNK_MAX_CHARS=2000`, `CHUNK_OVERLAP_CHARS=200`, taking
-~4 characters per token: ~400 / ~500 / ~50 tokens, inside the plan's 300–500. No chunk's `text` is
-longer than the max.
-
-**Alternatives:** count real tokens with a tokenizer (tiktoken, or the vendor's count endpoint).
-
-**Why:** a tokenizer is a new dependency and differs per provider; the sizes only need to be
-roughly right. Both models accept far more (8192 and 2048 tokens), so an underestimate costs
-nothing but a slightly larger chunk.
-
-**Reverse it if:** the eval (Phase 4) shows recall moving with chunk size, or notes are mostly in a
-script where 4 chars/token is far off (CJK); tune the settings first, add a tokenizer only if that
-is not enough.
-
-### D34. Chunks follow structure; items are atomic; overlap is whole blocks
-
-**Decided:** walk the TipTap tree. A heading starts a section; a chunk never spans two, and overlap
-never crosses one. A list or checklist item's own words are one block (nested items are their own
-blocks); only a single block longer than the max is split, on lines, then sentences, then words,
-then raw length. Overlap carries whole blocks, or a paragraph's last whole sentences, never part of
-an item. Headings with nothing under them become a chunk of their own words.
-
-**Alternatives:** chunk the flat `content_text` with a sliding character window (simpler; splits
-items and ignores headings).
-
-**Why:** the plan requires it (§6.1), and a checklist item cut in half is two wrong facts.
-
-**Reverse it if:** notes turn out to be mostly unstructured walls of text, where structure buys
-nothing.
-
-### D35. `embed_text` carries the title and heading path; the hash covers `embed_text`
-
-**Decided:** `embed_text = "<title> > <heading path>\n\n<text>"`; `content_hash = sha256(embed_text)`.
-`text` stays unprefixed for display.
-
-**Alternatives:** hash only `text`, so a rename does not re-embed.
-
-**Why:** the prefix is part of what is embedded, so a renamed note's old vectors really are stale.
-Reusing them would leave search matching the old title. The cost is re-embedding a whole note on a
-rename, which is rare.
-
-**Reverse it if:** renames turn out to be frequent and expensive; then drop the title from the
-prefix, not the hash.
-
-### D36. `EMBEDDING_DIMENSIONS = 1536`, fixed per deployment; the model id is stored per vector
-
-**Decided:** 1536 for both `text-embedding-3-small` (native) and `gemini-embedding-001` (via
-`outputDimensionality`). The boundary rejects any vector of another size. `embedding_model_id()`
-(`provider/model@dims`) is stored beside each vector so a chunk is re-embedded when it differs,
-even if its hash does not.
-
-**Alternatives:** 768 (smaller index, lower quality); 3072 (Gemini's native size, above pgvector
-HNSW's 2000-dimension limit).
-
-**Why:** the one size both candidate models support at good quality, and under the HNSW limit.
-Fixing it in the migration means changing the model or size later is a migration plus
-`reindex_notes --all` (Phase 3b) — a deliberate, visible operation.
-
-**Reverse it if:** the chosen model does better at another size in the eval; migrate and re-index.
-
-### D37. Both OpenAI and Gemini, over plain `requests`; `EMBEDDING_MODELS` per provider
-
-**Decided:** implement both real providers against the REST APIs with `requests` (already a
-dependency) and fixed timeouts (5 s connect, 30 s read). Settings follow the reference's
-`BILL_SCAN_MODELS`: `EMBEDDING_MODELS = {"openai": …, "gemini": …}` instead of the plan's single
-`EMBEDDING_MODEL`. The Protocol takes a `task` ("document" / "query") so Gemini can use `taskType`.
-`EMBEDDING_BATCH_SIZE = 64`.
-
-**Alternatives:** the openai and google-genai SDKs, as the reference; one provider only (the plan's
-"implement one first, ask").
-
-**Why:** the owner has not chosen yet, and the SDKs would be two new dependencies for one POST each.
-Both are small and mocked-tested, so the choice is a setting. 64 is under Gemini's 100-per-call
-limit.
-
-**Reverse it if:** a provider needs features the REST shape makes awkward (streaming, retries with
-vendor-specific backoff), or the owner wants only one kept; delete the other.
-
-### D38. Transient failures raise `EmbeddingTransientError`, which is not an `EmbeddingError`
-
-**Decided:** 429, 5xx, timeouts and connection errors raise `EmbeddingTransientError` for the
-indexing task's `autoretry_for`. OpenAI's 429 `insufficient_quota` is an `EmbeddingError`: waiting
-does not add credit. The two classes are unrelated, so `except EmbeddingError` never swallows a
-retryable failure. Vendor messages are quoted with request header values redacted.
-
-**Alternatives:** let `requests` exceptions through, as the reference lets SDK exceptions through
-(but an HTTP 429 is not an exception in `requests`); a subclass of `EmbeddingError`.
-
-**Why:** one retryable class at the boundary, independent of vendor. Redaction because OpenAI's 401
-quotes the key it was sent.
-
-**Reverse it if:** a caller needs to treat both alike; catch both explicitly.
-
-### D39. The fake provider is a hashed bag of words
-
-**Decided:** lowercased `\w+` tokens hashed (sha256) to a slot and a ±1 sign, summed, L2-normalised.
-A text whose words all cancel falls back to one slot for the whole text, so no vector is zero.
-
-**Alternatives:** a random unit vector seeded by the text's hash (meaningless similarity).
-
-**Why:** deterministic across machines like the alternative, but texts sharing words score higher,
-so search and eval smoke tests without a key give sensible orderings — useful in CI and a fresh
-clone.
-
-**Reverse it if:** tests start depending on its similarity numbers in ways that break when it is
-tuned; keep assertions to orderings.
-
-### D40. Live provider tests need the key *and* `LIVE_PROVIDER_TESTS=1`
-
-**Decided:** each real provider's single live test is skipped unless its key is set and
-`LIVE_PROVIDER_TESTS=1`. It uses `override_settings` to beat the runner's forced `fake`.
-
-**Alternatives:** the plan's "skipped unless its key is set".
-
-**Why:** `environ.Env.read_env` copies `.env` into `os.environ`, so a key alone would make every
-suite run on a configured machine spend money, which D11 forbids.
-
-**Reverse it if:** keys move out of `.env` (e.g. into the process manager only).
