@@ -1,8 +1,7 @@
 /**
  * Every request and response shape the client relies on, in one place.
  *
- * Reconciled with `docs/openapi.yml` (search and ask are not in it yet and
- * still follow the plan's contract). Stores and components import their
+ * Reconciled with `docs/openapi.yml`. Stores and components import their
  * types from here and never spell a payload out themselves.
  */
 
@@ -51,12 +50,9 @@ export interface AskUsage {
   resets_at: DateTime
 }
 
-/**
- * `GET me/`. The schema has no ask usage yet; `ask_usage` is what the ask
- * feature will add, so it stays optional.
- */
+/** `GET me/`; the sign-in response's `user` has the same shape. */
 export interface Me extends User {
-  ask_usage?: AskUsage
+  ask_usage: AskUsage
 }
 
 export interface GoogleSignInRequest {
@@ -228,13 +224,13 @@ export interface AskQuery {
   completed_at: DateTime | null
 }
 
-/** `POST ask/` (with an `Idempotency-Key` header) → 202 AskQuery. */
+/** `POST ask/` (with an `Idempotency-Key` header) → 202 AskQuery, or 200 for a replayed key. Question is 1-1000 characters. */
 export interface AskRequest {
   question: string
 }
 
-/** 429 body when the month's asks are used up. */
+/** 429 body when the month's asks are used up (`code: "throttled"` is a plain rate limit, no usage). */
 export interface QuotaExceededBody extends AskUsage {
-  detail?: string
+  detail: string
   code: 'quota_exceeded'
 }

@@ -16,7 +16,6 @@ const current = computed<AskQuery | null>(() => ask.selected)
 // Model output is split into text and citation segments and rendered as
 // text: never v-html (D50).
 const segments = computed(() => (current.value ? splitAnswer(current.value.answer, current.value.citations) : []))
-const overQuota = computed(() => (ask.usage ? ask.usage.used >= ask.usage.limit : false))
 
 async function submit() {
   const text = question.value.trim()
@@ -73,12 +72,13 @@ onMounted(() => {
       </div>
     </form>
 
-    <p v-if="ask.quota" class="notice" role="alert">
-      You have used all {{ ask.quota.limit }} asks for this month. They reset on
-      {{ formatDate(ask.quota.resets_at) }}.
+    <p v-if="ask.errorKind === 'quota'" class="notice" role="alert">
+      {{ ask.error }}
+      <template v-if="ask.usage">They reset on {{ formatDate(ask.usage.resets_at) }}.</template>
     </p>
+    <p v-else-if="ask.errorKind === 'throttled'" class="notice" role="alert">{{ ask.error }}</p>
     <p v-else-if="ask.error" class="error" role="alert">{{ ask.error }}</p>
-    <p v-else-if="overQuota" class="notice small">No asks left this month.</p>
+    <p v-else-if="ask.overQuota" class="notice small">No asks left this month.</p>
 
     <article v-if="current" class="answer" aria-live="polite">
       <p class="answer-question">{{ current.question }}</p>

@@ -10,7 +10,7 @@ import { computed, ref } from 'vue'
 import { ApiError, setAuthLostHandler } from '../api/client'
 import { authApi } from '../api/endpoints'
 import { clearTokens, getAccess, getRefresh, onTokensChangedElsewhere, setTokens } from '../api/tokens'
-import type { Me } from '../api/types'
+import type { AskUsage, Me } from '../api/types'
 import { disableGoogleAutoSelect } from '../lib/gis'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -69,12 +69,11 @@ export const useAuthStore = defineStore('auth', () => {
     const response = await authApi.google(idToken)
     setTokens(response)
     user.value = response.user
-    // The sign-in response carries the user but not the month's ask usage.
-    try {
-      await loadMe()
-    } catch {
-      // Usage is a nicety; the session is already good.
-    }
+  }
+
+  /** Keep the usage line in step without a round trip (e.g. from a 429 body). */
+  function setAskUsage(usage: AskUsage) {
+    if (user.value) user.value = { ...user.value, ask_usage: usage }
   }
 
   async function signOut() {
@@ -91,5 +90,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { user, ready, notice, signedIn, init, loadMe, signIn, signOut }
+  return { user, ready, notice, signedIn, init, loadMe, signIn, signOut, setAskUsage }
 })

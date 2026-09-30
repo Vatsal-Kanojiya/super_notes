@@ -38,10 +38,11 @@ export const useAskStore = defineStore('ask', () => {
   const selectedId = ref<Id | null>(null)
   const submitting = ref(false)
   const error = ref('')
-  /** Set by a 429: the numbers to show until the month resets. */
-  const quota = ref<QuotaExceededBody | null>(null)
+  /** Why the last submit failed, so the panel can style the message. */
+  const errorKind = ref<'' | 'quota' | 'throttled' | 'reused' | 'network' | 'other'>('')
 
-  const usage = computed<AskUsage | null>(() => quota.value ?? auth.user?.ask_usage ?? null)
+  const usage = computed<AskUsage | null>(() => auth.user?.ask_usage ?? null)
+  const overQuota = computed(() => (usage.value ? usage.value.used >= usage.value.limit : false))
   const selected = computed(() => history.value.find((q) => q.id === selectedId.value) ?? null)
 
   // A key for a POST that got no answer, kept for a retry of the same question.
@@ -60,31 +61,53 @@ export const useAskStore = defineStore('ask', () => {
     question = question.trim()
     if (!question || submitting.value) return
     error.value = ''
+    errorKind.value = ''
     submitting.value = true
     const key = unanswered?.question === question ? unanswered.key : uuid4()
     try {
       const query = await askApi.create({ question }, key)
+      // 202 (new) and 200 (a replayed key) are the same to us: an ask to show and, if unfinished, poll.
       unanswered = null
-      quota.value = null
       put(query)
       selectedId.value = query.id
-      // The ask counts once accepted: refresh the usage line.
-      void auth.loadMe().catch(() => undefined)
+      // The ask counts once accepted: refresh the usage line (again when it finishes, as a failure uncounts it).
+      void refreshUsage()
       if (!isFinished(query)) void poll(query.id)
     } catch (e) {
+      // A dropped connection or a 5xx may still have created the ask: retry with the same key.
+      const maybeCreated = e instanceof ApiError && (e.status === 0 || e.status >= 500)
+      unanswered = maybeCreated ? { question, key } : null
       if (e instanceof ApiError && e.status === 0) {
-        unanswered = { question, key }
+        errorKind.value = 'network'
         error.value = 'Could not reach the server. Ask again to retry.'
       } else if (e instanceof ApiError && e.code === 'quota_exceeded') {
-        unanswered = null
-        quota.value = e.body as unknown as QuotaExceededBody
-        error.value = e.detail
+        const body = e.body as unknown as Partial<QuotaExceededBody> | null
+        if (body && typeof body.used === 'number' && typeof body.limit === 'number' && body.resets_at) {
+          auth.setAskUsage({ used: body.used, limit: body.limit, resets_at: body.resets_at })
+        }
+        errorKind.value = 'quota'
+        error.value = body?.limit ? `You have used all ${body.limit} asks for this month.` : 'You have used all your asks for this month.'
+      } else if (e instanceof ApiError && e.code === 'throttled') {
+        errorKind.value = 'throttled'
+        error.value = 'You are asking too fast. Wait a moment and try again.'
+      } else if (e instanceof ApiError && e.code === 'idempotency_key_reused') {
+        errorKind.value = 'reused'
+        error.value = 'That request clashed with an earlier one. Ask again to send it as a new question.'
       } else {
-        unanswered = null
+        errorKind.value = 'other'
         error.value = errorMessage(e)
       }
     } finally {
       submitting.value = false
+    }
+  }
+
+  /** Re-read usage from `me/` (failed asks are not counted, so it can go down). */
+  async function refreshUsage() {
+    try {
+      await auth.loadMe()
+    } catch {
+      // The usage line is a nicety; keep what we have.
     }
   }
 
@@ -93,30 +116,32 @@ export const useAskStore = defineStore('ask', () => {
     if (polling.has(id)) return
     polling.add(id)
     try {
-      await pollLoop(id)
+      if (await pollLoop(id)) await refreshUsage()
     } finally {
       polling.delete(id)
     }
   }
 
-  async function pollLoop(id: Id) {
+  /** Resolves true if the query finished (so usage may have changed). */
+  async function pollLoop(id: Id): Promise<boolean> {
     const started = epoch
     const deadline = Date.now() + POLL_GIVE_UP_MS
     let delay = POLL_FIRST_MS
     while (Date.now() < deadline) {
       await sleep(delay)
-      if (started !== epoch) return
+      if (started !== epoch) return false
       try {
         const query = await askApi.get(id)
-        if (started !== epoch) return
+        if (started !== epoch) return false
         put(query)
-        if (isFinished(query)) return
+        if (isFinished(query)) return true
       } catch (e) {
-        // A 404 means it is gone; anything else (offline) is worth retrying.
-        if (e instanceof ApiError && e.status === 404) return
+        // Gone (404) or signed out (401/403): stop. Anything else (offline, a 429) is worth retrying.
+        if (e instanceof ApiError && [401, 403, 404].includes(e.status)) return false
       }
       delay = Math.min(POLL_MAX_MS, delay * POLL_FACTOR)
     }
+    return false
   }
 
   async function loadHistory(more = false) {
@@ -144,7 +169,7 @@ export const useAskStore = defineStore('ask', () => {
     historyLoaded.value = false
     selectedId.value = null
     error.value = ''
-    quota.value = null
+    errorKind.value = ''
     unanswered = null
   }
 
@@ -156,8 +181,9 @@ export const useAskStore = defineStore('ask', () => {
     selectedId,
     submitting,
     error,
-    quota,
+    errorKind,
     usage,
+    overQuota,
     submit,
     loadHistory,
     select,
