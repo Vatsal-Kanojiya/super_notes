@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    # master is the released line; v2 is V2's integration branch (D77).
+    branches: [master, v2]
   pull_request:
 
 jobs:
