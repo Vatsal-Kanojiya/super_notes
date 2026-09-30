@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.test.runner import DiscoverRunner
 
@@ -32,6 +34,8 @@ class FastTestRunner(DiscoverRunner):
 
         app.conf.task_always_eager = True
         app.conf.task_eager_propagates = True
+        # One INFO line per eager task run ("succeeded in 0.01s") is noise here.
+        logging.getLogger("celery.app.trace").setLevel(logging.WARNING)
 
         # Later phases add these settings; set only once they exist.
         for name in ("EMBEDDING_PROVIDER", "CHAT_PROVIDER"):
