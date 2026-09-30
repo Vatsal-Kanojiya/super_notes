@@ -42,7 +42,19 @@ export interface RequestOptions {
   /** Send the bearer token and refresh on 401. Off for sign-in and refresh. */
   auth?: boolean
   signal?: AbortSignal
+  /**
+   * Let the request outlive the page (for a save as the tab closes). Only
+   * honoured when the body fits KEEPALIVE_MAX_BYTES; a larger one is sent as
+   * a normal request, since a browser rejects an oversized keepalive body.
+   */
+  keepalive?: boolean
 }
+
+/**
+ * Browsers cap the bodies of all in-flight keepalive requests together at
+ * 64 KiB. Stay well under it, so one save does not crowd out another.
+ */
+export const KEEPALIVE_MAX_BYTES = 60 * 1024
 
 let onAuthLost: (() => void) | null = null
 
@@ -77,12 +89,16 @@ async function send(path: string, options: RequestOptions, token: string | null)
   const headers: Record<string, string> = { Accept: 'application/json', ...options.headers }
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
   if (token) headers.Authorization = `Bearer ${token}`
+  const body = options.body === undefined ? undefined : JSON.stringify(options.body)
+  const keepalive =
+    options.keepalive === true && body !== undefined && new Blob([body]).size <= KEEPALIVE_MAX_BYTES
   try {
     return await fetch(buildUrl(path, options.query), {
       method: options.method ?? 'GET',
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body,
       signal: options.signal,
+      keepalive,
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error

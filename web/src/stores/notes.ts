@@ -179,8 +179,12 @@ export const useNotesStore = defineStore('notes', () => {
     return note
   }
 
-  async function update(id: Id, body: NoteUpdateRequest): Promise<Note> {
-    const note = await notesApi.update(id, body)
+  async function update(
+    id: Id,
+    body: NoteUpdateRequest,
+    options: { keepalive?: boolean } = {},
+  ): Promise<Note> {
+    const note = await notesApi.update(id, body, options)
     upsert(note)
     return note
   }
