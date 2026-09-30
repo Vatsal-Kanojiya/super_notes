@@ -1,9 +1,9 @@
 """The real chat providers, with requests.post mocked -- no network in tests.
 
 Each provider also has one opt-in live test, skipped unless the vendor's key
-is set. It goes through complete() with CHAT_PROVIDER overridden, so it
-proves the whole boundary against the real API, and asks for a one-word
-answer so a run costs a fraction of a cent.
+is set *and* LIVE_PROVIDER_TESTS=1 (D40). It goes through complete() with
+CHAT_PROVIDER overridden, so it proves the whole boundary against the real
+API, and asks for a one-word answer so a run costs a fraction of a cent.
 """
 
 import os
@@ -29,6 +29,11 @@ def http(status=200, data=None, text=""):
     else:
         response.json.return_value = data
     return response
+
+
+# Real calls spend money, and a key in .env reaches the process environment,
+# so a key alone must not turn them on: LIVE_PROVIDER_TESTS=1 as well (D40).
+LIVE = os.environ.get("LIVE_PROVIDER_TESTS") == "1"
 
 
 class ErrorTranslationMixin:
@@ -322,7 +327,7 @@ LIVE_USER = "Say: ready"
 
 
 class LiveProviderTests(SimpleTestCase):
-    """Real API calls. Opt in by setting the vendor's key (see module docstring)."""
+    """Real API calls. Opt in with LIVE_PROVIDER_TESTS=1 and the vendor's key."""
 
     def ask(self, provider):
         with override_settings(CHAT_PROVIDER=provider, CHAT_MAX_OUTPUT_TOKENS=512):
@@ -332,17 +337,17 @@ class LiveProviderTests(SimpleTestCase):
         self.assertGreater(result.input_tokens, 0)
         self.assertGreater(result.output_tokens, 0)
 
-    @unittest.skipUnless(os.environ.get("ANTHROPIC_API_KEY"), "ANTHROPIC_API_KEY not set")
+    @unittest.skipUnless(LIVE and os.environ.get("ANTHROPIC_API_KEY"), "live Claude test is opt-in")
     def test_claude_live(self):
         self.ask("claude")
 
-    @unittest.skipUnless(os.environ.get("OPENAI_API_KEY"), "OPENAI_API_KEY not set")
+    @unittest.skipUnless(LIVE and os.environ.get("OPENAI_API_KEY"), "live OpenAI test is opt-in")
     def test_openai_live(self):
         self.ask("openai")
 
     @unittest.skipUnless(
-        os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"),
-        "GEMINI_API_KEY not set",
+        LIVE and (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
+        "live Gemini test is opt-in",
     )
     def test_gemini_live(self):
         self.ask("gemini")
