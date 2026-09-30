@@ -1,0 +1,5917 @@
+[
+  {
+    "key": "n01",
+    "type": "text",
+    "title": "Goa trip plan (December)",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Plan for the December Goa trip with Ananya. Booked on 2 October, flights are non-refundable."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Dates"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "Thursday 18 December to Monday 22 December 2025."
+            },
+            {
+              "type": "text",
+              "text": " Leave Pune early on the 18th, back late on the 22nd. Taking leave on Friday the 19th and Monday the 22nd."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Travel"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "IndiGo 6E-6341 Pune → Goa (Mopa, GOX), 06:10 on 18 Dec. Reach the airport by 04:45."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Return 6E-6342 Goa → Pune, 21:05 on 22 Dec."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Mopa is far from the south — book a cab in advance, roughly ₹3,500 to Colva."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Stay"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Four nights at a homestay in Colva, ₹4,200 a night, breakfast included. Host is Mrs. Fernandes; check-in after 1 pm. Paid ₹5,000 advance on UPI, the rest at checkout."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Things to do"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Palolem beach and a kayak ride to Butterfly beach"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Old Goa churches — Basilica of Bom Jesus on the Saturday morning"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Dinner at Martin's Corner one night (book a table, it's Christmas week)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Rent a scooter for two days, ₹400/day, keep the licence handy"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Budget"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Rough total for two: flights ₹14,800, stay ₹16,800, food ₹10,000, scooter and cabs ₹6,000. "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "About ₹48,000."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n02",
+    "type": "text",
+    "title": "Goa trip plan (February, college gang)",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Second Goa trip of the season — this time with the college gang (Kabir, Sneha, Aditya, Meera). Pooja from the group handles the money on Splitwise."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Dates"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "Thursday 12 February to Monday 16 February 2026."
+            },
+            {
+              "type": "text",
+              "text": " Aditya can only join from the 13th. Taking two days of leave (13th and 16th)."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Travel"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Driving down from Pune in Kabir's Innova via the Amboli ghat. Start at 5 am on the 12th, about 9–10 hours with stops."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Fuel and tolls split five ways, roughly ₹2,000 each."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Aditya takes the Friday evening flight into Dabolim."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Stay"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "A villa in Anjuna with a pool, ₹18,000 a night for the whole group, 4 nights. Booked through Airbnb. Checkout is at 11 am on the 16th, so the drive back starts right after."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Plan"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Friday: Anjuna flea market is Wednesdays only, so skip — do Chapora fort at sunset instead"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Saturday: Arpora night market, Baga for dinner"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Sunday: lazy pool day, then Thalassa in Siolim (book ahead)"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "To do before leaving: service the car? (it's Kabir's car, ask him), pack the speaker, carry cash for the markets."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n03",
+    "type": "text",
+    "title": "Project Atlas — invoice reconciliation service",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 1
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Overview"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Atlas replaces the nightly spreadsheet reconciliation that the finance team does by hand. It pulls invoices from the ERP, matches them against bank statement lines, and flags what doesn't match. The finance ops team (Neha's team, 6 people) spends about 3 days every month-end on this today; the goal is to bring that under half a day."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "I'm the tech lead. Team: Rohan (backend), Farah (backend), Tushar (frontend, 50%), Divya (QA). PM is Karan. Stakeholder on the finance side is Neha Joshi."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Scope for v1"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Import invoices from the ERP's export API every night (only the India entity for v1)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Import bank statements from HDFC and ICICI as MT940 files dropped on SFTP"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Matching rules: exact amount + reference number first, then amount + date within 3 days, then fuzzy on vendor name"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "A review screen where finance ops approve or reject suggested matches"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "An audit trail of who approved what — the auditors asked for this explicitly"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Out of scope for v1: multi-currency, the Singapore entity, automatic posting back to the ERP. We only suggest; a person approves."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Architecture"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Django + DRF service with Postgres, Celery workers for the imports and the matching run. Matching is a batch job, not real time: finance wants a stable list in the morning, not one that shifts while they work. Each run is stored with its inputs so we can replay it when someone disputes a match."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "The MT940 parser is the part I trust least. Both banks bend the format: HDFC puts the UTR in field 86, ICICI sometimes splits it across two lines. We keep raw lines alongside parsed ones so we can re-parse after a fix without asking the bank for the files again."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Idempotency: every import is keyed by (bank, statement date, file hash). Re-dropping the same file is a no-op. We learned this the hard way on the previous project where a retried job doubled a month of entries."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Timeline"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Sprint 1–2 (Aug):"
+                    },
+                    {
+                      "type": "text",
+                      "text": " ERP import, data model, MT940 parser for HDFC"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Sprint 3 (early Sep):"
+                    },
+                    {
+                      "type": "text",
+                      "text": " matching engine v1 (exact + date window), ICICI parser"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Sprint 4 (late Sep):"
+                    },
+                    {
+                      "type": "text",
+                      "text": " review screen, audit trail"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Internal beta with finance ops: 20 October 2025"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Parallel run"
+                    },
+                    {
+                      "type": "text",
+                      "text": " with the spreadsheet process for the October month-end close"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Go-live: 17 November 2025"
+                    },
+                    {
+                      "type": "text",
+                      "text": ", after one clean parallel month"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Hard constraint: nothing goes live during the month-end close window (last 3 working days + first 5 working days of the month). Neha was very firm on this."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Risks"
+            }
+          ]
+        },
+        {
+          "type": "orderedList",
+          "attrs": {
+            "start": 1
+          },
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Bank file formats."
+                    },
+                    {
+                      "type": "text",
+                      "text": " ICICI has changed their MT940 layout twice this year without notice. Mitigation: keep raw lines, alert on parse failures, a fixture file per bank per variant in the tests."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "ERP API rate limits."
+                    },
+                    {
+                      "type": "text",
+                      "text": " The export API allows 100 requests a minute and the full invoice pull is ~40k invoices. Mitigation: incremental pulls by modified date, backfill on weekends."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Trust."
+                    },
+                    {
+                      "type": "text",
+                      "text": " If the first week's matches are wrong, finance will go back to the spreadsheet and never return. Mitigation: start with exact matches only in the beta; turn on fuzzy matching after they've seen it be right."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Tushar is at 50%"
+                    },
+                    {
+                      "type": "text",
+                      "text": " and the review screen is the thing finance actually sees. If his other project slips, the screen slips. Raised with Karan; fallback is Farah picks up the screen in Sprint 4."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Auditor requirements"
+                    },
+                    {
+                      "type": "text",
+                      "text": " for the audit trail aren't written down anywhere. Need a 30-min call with the internal audit team before Sprint 4 starts."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Open questions"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Do partial payments (one invoice paid in two transfers) count as a match? Finance says yes, but only if both land in the same month."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Who owns the SFTP credentials rotation — us or the infra team?"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Retention: how long do we keep the raw bank files? Legal says 8 years for financial records."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Metrics"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Baseline from August: 3,100 bank lines, 2,650 auto-matchable by the rules on paper. Target: 85% of lines matched automatically with under 1% wrong matches found in review. Time spent by finance ops at month-end: from ~3 days to under 4 hours."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n04",
+    "type": "text",
+    "title": "Atlas weekly sync — 8 September",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Attendees: me, Rohan, Farah, Tushar, Divya, Karan. Neha joined for the last 15 minutes."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 3
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Updates"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Rohan: HDFC MT940 parser done, 42 fixture files pass. ICICI parser started."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Farah: matching engine handles exact matches; date-window matching in review."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Tushar: review screen wireframes shared, waiting on Neha's feedback."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Divya: test plan drafted; needs a sample month of real (masked) data."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 3
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Decisions"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Date window for matching is "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "3 calendar days"
+                    },
+                    {
+                      "type": "text",
+                      "text": ", not working days (Neha agreed)."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Beta will run exact matching only; fuzzy matching stays behind a flag."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 3
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Action items"
+            }
+          ]
+        },
+        {
+          "type": "taskList",
+          "content": [
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Rohan — get the ICICI sample files from treasury by Wednesday"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Farah — write up the date-window edge cases (month boundaries)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Me — book the call with internal audit about the audit trail"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Karan — confirm whether Tushar stays at 50% through October"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n05",
+    "type": "text",
+    "title": "Atlas weekly sync — 15 September",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Attendees: me, Rohan, Farah, Tushar, Divya, Karan."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 3
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Updates"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Rohan: ICICI parser works on 3 of the 4 sample files; the fourth splits the UTR across two lines."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Farah: date-window matching merged. Month-boundary cases handled."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Tushar: Neha liked the wireframes; wants a bulk-approve button."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Divya: masked August data received from finance, 3,100 lines."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 3
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Decisions"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Bulk approve"
+                    },
+                    {
+                      "type": "text",
+                      "text": " goes into v1 but capped at 50 rows at a time, and every row still gets its own audit entry."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Internal beta date stays at 20 October. Go-live stays 17 November."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Tushar stays at 50%; Farah pairs on the review screen from next sprint."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 3
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Action items"
+            }
+          ]
+        },
+        {
+          "type": "taskList",
+          "content": [
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Rohan — handle the split-UTR case and add it as a fixture"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Tushar + Farah — bulk approve with the 50-row cap"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Divya — run the August data through the engine and report the match rate"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Me — write up the audit-trail requirements from Friday's call"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n06",
+    "type": "checklist",
+    "title": "Groceries — week of 8 September",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "taskList",
+          "content": [
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Atta 5 kg"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Toor dal 1 kg"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Milk (Amul Taaza) × 6"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Curd"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Onions 2 kg, tomatoes 1 kg"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Bananas"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Basmati rice"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Eggs (12)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Dishwasher tablets"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n07",
+    "type": "checklist",
+    "title": "Groceries — week of 15 September",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "taskList",
+          "content": [
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Milk (Amul Taaza) × 6"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Paneer 400 g — for the palak paneer on Saturday"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Spinach, 2 bunches"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Onions 2 kg, tomatoes 1 kg"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Whole urad dal and rajma for the dal makhani"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Butter and fresh cream"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Bread"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Coffee beans — Blue Tokai, Attikan estate"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Surf Excel"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n08",
+    "type": "checklist",
+    "title": "Packing list — Goa February trip",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "For the road trip with the gang, 12–16 Feb."
+            }
+          ]
+        },
+        {
+          "type": "taskList",
+          "content": [
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Sunscreen SPF 50"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Swimwear (2)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Sunglasses"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Power bank and charging cables"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Bluetooth speaker"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Flip-flops"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Medicines: ORS, Crocin, Avomine for the ghat"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Cash — ₹5,000 for the night markets"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Driving licence and a photocopy of the Aadhaar"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Light jacket for the drive at 5 am"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Mosquito repellent"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n09",
+    "type": "text",
+    "title": "Dal makhani (Mummy's recipe)",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Mummy ka tarika — slow and patient. Serves 4."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 3
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Ingredients"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "1 cup sabut urad (whole black gram), 1/4 cup rajma — raat bhar bhigo ke rakhna (soak overnight)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "2 tbsp butter + 2 tbsp ghee, 1/4 cup fresh cream"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "1 onion, 3 tomatoes pureed, 1 tbsp ginger-garlic paste"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Kashmiri lal mirch, garam masala, kasuri methi, salt"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 3
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Method"
+            }
+          ]
+        },
+        {
+          "type": "orderedList",
+          "attrs": {
+            "start": 1
+          },
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Pressure cook the soaked dal and rajma with salt for 5–6 whistles, then 20 minutes on low. It should be completely soft, mash kar sako."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Ghee mein onion golden hone tak bhuno, then ginger-garlic paste, then the tomato puree. Cook till the oil separates."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Add the spices, then the dal. Simmer on the lowest flame for at least 45 minutes, stirring and mashing a little. Paani add karte rehna."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Finish with butter, cream and crushed kasuri methi."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Tip from Mummy: for the dhaba taste, put a hot coal in a small katori of ghee on top and cover for 2 minutes (dhungar)."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n10",
+    "type": "text",
+    "title": "Masala chai",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "1 cup water, 1 cup milk, 2 tsp CTC tea, 2 crushed elaichi, a small piece of adrak, sugar to taste — boil the water with the spices first, then tea, then milk, boil twice."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n11",
+    "type": "text",
+    "title": "Doctor visit — Dr. Kulkarni, 3 September",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Went to Dr. Kulkarni (general physician, Aundh clinic) for the tiredness and the leg cramps."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 3
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Blood test results"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Vitamin D: "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "14 ng/mL"
+                    },
+                    {
+                      "type": "text",
+                      "text": " (deficient; normal is 30–100)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "B12: 210 pg/mL — low-normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "TSH: 3.1, normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "HbA1c: 5.4%, fine"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 3
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "What she said"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Vitamin D3 60,000 IU sachet "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "once a week for 8 weeks"
+                    },
+                    {
+                      "type": "text",
+                      "text": ", with milk after lunch, then once a month"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "B12 tablets (Methylcobalamin 1500 mcg) daily for 3 months"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Morning sunlight 15–20 minutes, arms uncovered"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Cramps should go once the vitamin D is up; if not, check calcium and magnesium"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Follow-up blood test after 3 months — early December. Fee ₹800."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n12",
+    "type": "text",
+    "title": "Medicines schedule",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Keep this updated whenever something changes."
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Uprise-D3 60K"
+                    },
+                    {
+                      "type": "text",
+                      "text": " — every Sunday after lunch, till 26 October (8 weeks), then first Sunday of the month"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Methylcobalamin 1500"
+                    },
+                    {
+                      "type": "text",
+                      "text": " — daily after breakfast, till early December"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Montair LC"
+                    },
+                    {
+                      "type": "text",
+                      "text": " — only when the allergy flares up, at night"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Papa's BP medicine (Telma 40) — refill every month from Apollo, the prescription is in the drawer"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n13",
+    "type": "text",
+    "title": "Monthly fixed expenses",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Everything that goes out every month, so I don't forget one."
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Rent: "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "₹28,000"
+                    },
+                    {
+                      "type": "text",
+                      "text": " to Mr. Deshpande, by the 5th, bank transfer. Agreement renews in April 2026 (5% hike agreed)."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Society maintenance: ₹3,200, paid quarterly (₹9,600)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Electricity (MSEDCL): ~₹1,800, more in summer with the AC"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Internet (ACT Fibernet): ₹1,049"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Cook (Sunita tai): ₹6,000; maid: ₹3,500"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Car EMI: ₹14,200 till August 2027"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Total ≈ ₹57,700 before SIPs and subscriptions."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n14",
+    "type": "text",
+    "title": "Subscriptions",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Review every January — cancel what I haven't used in 3 months."
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Netflix standard — ₹499/month"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "JioHotstar (for cricket) — ₹1,499/year, renews in March"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Spotify family — ₹179/month, shared with Riya"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "YouTube Premium — ₹129/month. Probably cancel."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "iCloud 200 GB — ₹219/month"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Kindle Unlimited — ₹169/month, cancelled in August"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Gym — ₹18,000/year, renews 1 January"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n15",
+    "type": "text",
+    "title": "Book notes — Atomic Habits",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "James Clear. Read in July."
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "1% better every day"
+                    },
+                    {
+                      "type": "text",
+                      "text": " compounds: 1.01^365 ≈ 37. Small habits look useless in the short run."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Focus on systems, not goals. Winners and losers have the same goals."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Identity-based habits: 'I'm a person who doesn't miss workouts' beats 'I want to lose 5 kg'."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Four laws: make it obvious, attractive, easy, satisfying. Invert them to break a bad habit."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Two-minute rule: scale a new habit down to something that takes two minutes."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Never miss twice."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n16",
+    "type": "text",
+    "title": "Book notes — Deep Work",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Cal Newport. Took a long time to finish, but it changed how I plan my days."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "The core idea"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Deep work is professional activity done in distraction-free concentration that pushes your cognitive abilities to their limit. It creates new value, improves your skill, and is hard to replicate. The ability to do it is becoming rare at exactly the time it's becoming valuable — so the few who cultivate it will thrive."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "His formula: high-quality work produced = time spent × intensity of focus. Attention residue is the killer: when you switch from task A to task B, part of your attention stays on A. Checking email 'for a second' costs far more than a second."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Shallow work"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Shallow work is non-cognitively demanding, logistical work, often done while distracted — email, meetings, Slack, status updates. It doesn't create much new value and anyone could do it. Newport's point is not that it's useless, but that it expands to fill the day if you let it. He suggests asking: how long would it take to train a smart graduate with no experience in my field to do this task? If the answer is a few weeks, it's shallow."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "He recommends budgeting shallow work explicitly: agree with your manager on a percentage (he suggests 30–50% for most knowledge workers) and hold to it."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Four rules"
+            }
+          ]
+        },
+        {
+          "type": "orderedList",
+          "attrs": {
+            "start": 1
+          },
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Work deeply."
+                    },
+                    {
+                      "type": "text",
+                      "text": " Choose a depth philosophy — monastic, bimodal, rhythmic or journalistic. Rhythmic (same time every day) is the realistic one for me."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Embrace boredom."
+                    },
+                    {
+                      "type": "text",
+                      "text": " Don't reach for the phone the moment you're idle; otherwise the brain can't concentrate when you need it to. Schedule internet time rather than scheduling offline time."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Quit social media"
+                    },
+                    {
+                      "type": "text",
+                      "text": " — or at least apply the craftsman approach: keep a tool only if its benefits substantially outweigh its costs for the things that matter most."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Drain the shallows."
+                    },
+                    {
+                      "type": "text",
+                      "text": " Schedule every minute of the workday in blocks. End the day with a shutdown ritual: review tasks, plan tomorrow, say 'shutdown complete'."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "What I'm trying"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "9:30–12:00 is a no-meetings, no-Slack block three days a week. Blocked on the calendar as 'Atlas design'."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Slack notifications off; check at 12, 3 and 5."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "A shutdown ritual at 6:30 — write tomorrow's top 3 in this app."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Phone in the other room while reading at night."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "\"Clarity about what matters provides clarity about what does not.\""
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n17",
+    "type": "text",
+    "title": "Home repairs",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Bathroom"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "The washbasin faucet in the master bathroom kept dripping all night. Plumber Ramesh (from the society's list, 98xxxxxx12) came on 6 September, replaced the cartridge — Jaquar part, ₹850 — plus ₹350 labour. "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "Total ₹1,200."
+            },
+            {
+              "type": "text",
+              "text": " He says the flush valve will need replacing within a year too."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Kitchen"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Chimney suction is weak. Filters cleaned in August; if it's still bad, call Elica service (warranty till March 2026)."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Electrical"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Bedroom fan regulator buzzes at speed 3 — electrician Sunil to replace with a Havells one"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Balcony light: the holder is loose, not the bulb"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Painting"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Seepage patch on the living room wall near the window came back after the monsoon. Asian Paints quoted ₹14,000 for waterproofing + repaint of that wall. Wait till November when it's dry."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n18",
+    "type": "text",
+    "title": "Car service log — Honda City",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "MH-12 registration, bought July 2022. Service every "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "10,000 km or 12 months"
+            },
+            {
+              "type": "text",
+              "text": ", whichever first, at Honda Wadia on Baner road."
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Jul 2023 — 9,800 km — oil + filter, ₹6,400"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Jun 2024 — 19,600 km — oil, air filter, brake pads front, ₹11,900"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Jun 2025 — 28,900 km — oil, cabin filter, wheel alignment, ₹8,700"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Next service due June 2026 or at 38,900 km. Insurance (ICICI Lombard) renews 14 July; PUC valid till January 2026."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n19",
+    "type": "text",
+    "title": "Gift ideas",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Mom:"
+                    },
+                    {
+                      "type": "text",
+                      "text": " a Kindle Paperwhite — she keeps saying the phone screen hurts her eyes. Or a silk saree from the Paithani shop in Yeola."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Papa:"
+                    },
+                    {
+                      "type": "text",
+                      "text": " a good pair of walking shoes (size 9, he likes Asics)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Riya:"
+                    },
+                    {
+                      "type": "text",
+                      "text": " the Le Creuset mug set she saved on Instagram; or a pottery workshop for two at Kalakar in Koregaon Park"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Kabir:"
+                    },
+                    {
+                      "type": "text",
+                      "text": " a mechanical keyboard — he's been talking about Keychron"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Neha (farewell, from the team):"
+                    },
+                    {
+                      "type": "text",
+                      "text": " a personalised planner"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n20",
+    "type": "text",
+    "title": "Learning Django — notes",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Things I keep having to look up. Mostly from the docs and from the Atlas codebase."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "ORM"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "select_related"
+                    },
+                    {
+                      "type": "text",
+                      "text": " for foreign keys and one-to-one (a SQL join); "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "prefetch_related"
+                    },
+                    {
+                      "type": "text",
+                      "text": " for many-to-many and reverse FKs (a second query)."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "only()"
+                    },
+                    {
+                      "type": "text",
+                      "text": " / "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "defer()"
+                    },
+                    {
+                      "type": "text",
+                      "text": " to skip big columns — but touching a deferred field later fires a query per row."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "F()"
+                    },
+                    {
+                      "type": "text",
+                      "text": " expressions update in the database without a read: "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "Counter.objects.filter(pk=1).update(n=F('n') + 1)"
+                    },
+                    {
+                      "type": "text",
+                      "text": "."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "exists()"
+                    },
+                    {
+                      "type": "text",
+                      "text": " is cheaper than "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "count()"
+                    },
+                    {
+                      "type": "text",
+                      "text": " when you only need a yes/no."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "bulk_create"
+                    },
+                    {
+                      "type": "text",
+                      "text": " doesn't call "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "save()"
+                    },
+                    {
+                      "type": "text",
+                      "text": " or send signals."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Transactions and locking"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "transaction.atomic()"
+            },
+            {
+              "type": "text",
+              "text": " wraps a block in a transaction; nested blocks become savepoints. "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "`select_for_update()`"
+            },
+            {
+              "type": "text",
+              "text": " locks the selected rows until the transaction ends — it must be evaluated inside "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "atomic()"
+            },
+            {
+              "type": "text",
+              "text": ", otherwise Django raises TransactionManagementError. Use "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "nowait=True"
+            },
+            {
+              "type": "text",
+              "text": " to fail immediately instead of waiting, or "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "skip_locked=True"
+            },
+            {
+              "type": "text",
+              "text": " for job-queue style workers."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "transaction.on_commit(fn)"
+            },
+            {
+              "type": "text",
+              "text": " runs fn only after the outer transaction commits. This is the right place to enqueue a Celery task, otherwise the worker can pick up the job before the row exists. In tests, "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "TestCase"
+            },
+            {
+              "type": "text",
+              "text": " never commits, so use "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "self.captureOnCommitCallbacks(execute=True)"
+            },
+            {
+              "type": "text",
+              "text": "."
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": "python"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "with transaction.atomic():\n    user = User.objects.select_for_update().get(pk=user_id)\n    user.notes_revision += 1\n    user.save(update_fields=[\"notes_revision\"])\n    transaction.on_commit(lambda: index_note.delay(note.id))"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Migrations"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Never edit a migration that has been applied anywhere shared; add a new one."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Data migrations: use "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "apps.get_model()"
+                    },
+                    {
+                      "type": "text",
+                      "text": ", never import the model directly — the historical model is what you get."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "makemigrations --check --dry-run"
+                    },
+                    {
+                      "type": "text",
+                      "text": " in CI catches a forgotten migration."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Adding a non-null column to a big table: add it nullable, backfill, then set NOT NULL — three migrations."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "RunSQL"
+                    },
+                    {
+                      "type": "text",
+                      "text": " for Postgres extensions ("
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "CREATE EXTENSION vector"
+                    },
+                    {
+                      "type": "text",
+                      "text": "), with a reverse SQL."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Signals"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Avoid them for business logic: they hide control flow and don't fire on "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "update()"
+            },
+            {
+              "type": "text",
+              "text": " or "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "bulk_create()"
+            },
+            {
+              "type": "text",
+              "text": ". Call a service function explicitly instead. They're fine for decoupled things like cache invalidation."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Testing"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "TestCase"
+                    },
+                    {
+                      "type": "text",
+                      "text": " wraps each test in a transaction and rolls back — fast. "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "TransactionTestCase"
+                    },
+                    {
+                      "type": "text",
+                      "text": " truncates tables — slow, but needed for testing real commits and concurrency with threads."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "SimpleTestCase"
+                    },
+                    {
+                      "type": "text",
+                      "text": " for anything that doesn't touch the database; it raises if a query sneaks in."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "setUpTestData"
+                    },
+                    {
+                      "type": "text",
+                      "text": " runs once per class; objects are deep-copied per test since Django 3.2."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "assertNumQueries"
+                    },
+                    {
+                      "type": "text",
+                      "text": " to pin the query count of a view."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "DRF"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Filter the queryset by "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "request.user"
+                    },
+                    {
+                      "type": "text",
+                      "text": " in "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "get_queryset()"
+                    },
+                    {
+                      "type": "text",
+                      "text": "; then another user's id is a 404 for free."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Serializer "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "validate_<field>"
+                    },
+                    {
+                      "type": "text",
+                      "text": " for one field, "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "validate()"
+                    },
+                    {
+                      "type": "text",
+                      "text": " for cross-field rules."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Cursor pagination needs a unique, unchanging ordering field."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Throttle scopes: "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "ScopedRateThrottle"
+                    },
+                    {
+                      "type": "text",
+                      "text": " + "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "throttle_scope"
+                    },
+                    {
+                      "type": "text",
+                      "text": " on the view."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n21",
+    "type": "text",
+    "title": "Learning Postgres — notes",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Indexes"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "B-tree is the default and covers =, <, >, BETWEEN, ORDER BY. Column order in a composite index matters: (owner_id, created_at) serves 'WHERE owner_id = ? ORDER BY created_at' but not the reverse."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "GIN for arrays, JSONB and full-text search (tsvector). Slower to update, fast to search."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Partial indexes: "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "CREATE INDEX ... WHERE deleted_at IS NULL"
+                    },
+                    {
+                      "type": "text",
+                      "text": " — small and exactly what the hot query needs."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "CREATE INDEX CONCURRENTLY"
+                    },
+                    {
+                      "type": "text",
+                      "text": " on big tables in production so writes aren't blocked. Can't run inside a transaction."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "HNSW (pgvector) for approximate nearest-neighbour search on embeddings: build is slow, queries are fast; "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "ef_search"
+                    },
+                    {
+                      "type": "text",
+                      "text": " trades recall for speed."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Full-text search"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "A document becomes a "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "tsvector"
+            },
+            {
+              "type": "text",
+              "text": " (normalised lexemes with positions) via "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "to_tsvector('english', text)"
+            },
+            {
+              "type": "text",
+              "text": "; a query becomes a "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "tsquery"
+            },
+            {
+              "type": "text",
+              "text": " via "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "plainto_tsquery"
+            },
+            {
+              "type": "text",
+              "text": " or "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "websearch_to_tsquery"
+            },
+            {
+              "type": "text",
+              "text": " (which understands quotes and minus signs, like a search box). Match with "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "@@"
+            },
+            {
+              "type": "text",
+              "text": "."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "Ranking:"
+            },
+            {
+              "type": "text",
+              "text": " "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "ts_rank"
+            },
+            {
+              "type": "text",
+              "text": " scores by how often the query lexemes appear; "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "ts_rank_cd"
+            },
+            {
+              "type": "text",
+              "text": " (cover density) also rewards the matching lexemes being close together. Both can take a normalisation flag to stop long documents winning just by being long — flag 32 divides by rank+1 so scores fall in 0–1. Weights A–D (via "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "setweight"
+            },
+            {
+              "type": "text",
+              "text": ") let a title match count more than a body match."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "The 'english' config stems words (running → run) and drops stop words; the 'simple' config does neither, which is better for names, codes and mixed-language text like Hinglish. Store a generated tsvector column with a GIN index rather than computing it per query."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "EXPLAIN"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "EXPLAIN (ANALYZE, BUFFERS)"
+                    },
+                    {
+                      "type": "text",
+                      "text": " runs the query and shows real timings and pages read."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Seq Scan on a big table with a selective WHERE = missing or unusable index."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Rows estimated vs actual wildly off → run ANALYZE, or the statistics target is too low."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Nested Loop with a big outer side is the classic slow plan."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "VACUUM and bloat"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "MVCC means an UPDATE writes a new row version; the old one is dead until VACUUM reclaims it. Autovacuum usually keeps up, but a table updated on every keystroke (autosave!) can bloat. Watch "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "n_dead_tup"
+            },
+            {
+              "type": "text",
+              "text": " in "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "pg_stat_user_tables"
+            },
+            {
+              "type": "text",
+              "text": ". Long-running transactions block cleanup — an idle-in-transaction connection is the usual culprit."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Locks"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "SELECT ... FOR UPDATE"
+            },
+            {
+              "type": "text",
+              "text": " takes a row lock; other writers of that row wait. "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "FOR UPDATE SKIP LOCKED"
+            },
+            {
+              "type": "text",
+              "text": " is the building block of a job queue. Advisory locks ("
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ],
+              "text": "pg_advisory_xact_lock"
+            },
+            {
+              "type": "text",
+              "text": ") lock an arbitrary number, handy for 'only one reindex per user at a time'. Deadlocks: always lock rows in the same order."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Handy queries"
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": "sql"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "-- biggest tables\nSELECT relname, pg_size_pretty(pg_total_relation_size(relid))\nFROM pg_catalog.pg_statio_user_tables\nORDER BY pg_total_relation_size(relid) DESC LIMIT 10;\n\n-- what is running right now\nSELECT pid, state, now() - query_start AS age, query\nFROM pg_stat_activity WHERE state <> 'idle' ORDER BY age DESC;"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n22",
+    "type": "text",
+    "title": "Birthdays",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Mummy — 14 March"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Papa — 2 August"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Riya — 9 November"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Kabir — 27 June"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Dadi — 21 January (call early, she sleeps by 9)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Sneha — 30 December"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Aarav (Didi's son) — 5 May, he'll be 7 next year"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n23",
+    "type": "text",
+    "title": "Society parking sticker",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Submit the RC copy and the filled form to the society office by Friday to get the new parking sticker."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n24",
+    "type": "checklist",
+    "title": "Weekend ke kaam",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Is weekend pe yeh sab karna hai, no excuses."
+            }
+          ]
+        },
+        {
+          "type": "taskList",
+          "content": [
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Dhobi ko kapde dene hain"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Sabzi mandi se sabzi lena — Saturday subah"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Car wash karwana"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Mummy ko video call"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Electricity bill bharna (MSEDCL)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Balcony ke plants ko repot karna"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Almirah saaf karna, old clothes donate"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n25",
+    "type": "text",
+    "title": "Investments and tax",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "SIPs"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Parag Parikh Flexi Cap — "
+                    },
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "₹10,000/month"
+                    },
+                    {
+                      "type": "text",
+                      "text": ", on the 7th"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "UTI Nifty 50 index fund — ₹5,000/month, on the 7th"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Total SIP: ₹15,000 a month. Step up by 10% every April."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Tax (80C and others)"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "PPF: ₹1.5 lakh a year, deposit before 5 April to get the full year's interest"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "ELSS: none — PPF + EPF already fill 80C"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "80D: health insurance for parents, ₹32,000 premium"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Check whether the new regime is better this year — ask CA Mehta in January"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Emergency fund"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Six months of expenses (~₹3.5 lakh) in a sweep-in FD. Don't touch."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n26",
+    "type": "text",
+    "title": "Team offsite — Lonavala",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Offsite for the platform team, 24–25 October. Budget approved by Karan: ₹4,500 per head, 14 people."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Venue"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Della Resorts was over budget. Going with a smaller place near Tiger Point — 7 rooms on twin sharing, conference room with a projector, lunch and dinner included. Bus from the office at 8 am on the 24th."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Agenda"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Day 1 morning: what went well / badly this year, no slides"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Day 1 afternoon: roadmap for Q1 — Atlas phase 2, the on-call rota"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Day 1 evening: bonfire, Farah is doing the playlist"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Day 2: short trek to Rajmachi view point, back by 4 pm"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Ask everyone about food preferences — at least three vegetarians and one Jain."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n27",
+    "type": "text",
+    "title": "Workout plan",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "4 days a week at Gold's Gym, 7 am. Trainer is Vikram."
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Monday — Push:"
+                    },
+                    {
+                      "type": "text",
+                      "text": " bench press 4×8, overhead press 3×10, dips, triceps pushdowns"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Tuesday — Pull:"
+                    },
+                    {
+                      "type": "text",
+                      "text": " deadlift 3×5, lat pulldown 4×10, seated row, face pulls"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Wednesday — Legs:"
+                    },
+                    {
+                      "type": "text",
+                      "text": " squats 4×8, Romanian deadlift 3×10, leg press, walking lunges, calf raises"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "bold"
+                        }
+                      ],
+                      "text": "Friday — Full body + 20 min incline walk"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Goal: squat 80 kg by December. Current 65 kg."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n28",
+    "type": "checklist",
+    "title": "Diwali prep",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Diwali is on 20 October. Parents arrive from Nagpur on the 17th."
+            }
+          ]
+        },
+        {
+          "type": "taskList",
+          "content": [
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Deep clean the house — book Urban Company for the 15th"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Buy diyas and a new rangoli stencil"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Order sweets from Chitale — kaju katli 1 kg, bakarwadi"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Gifts for the building staff (watchman, sweeper, driver): envelopes ₹1,000 each"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Fairy lights for the balcony — last year's set is dead"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Book the pandit for Lakshmi puja, around 7 pm"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "New kurta for Papa"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n29",
+    "type": "checklist",
+    "title": "New work laptop setup",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "MacBook from IT arrived Monday. Old laptop goes back by the 30th."
+            }
+          ]
+        },
+        {
+          "type": "taskList",
+          "content": [
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Sign in to Okta and enrol the YubiKey"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Install Homebrew"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Install Docker Desktop (needs the licence key from IT)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Python 3.12 via pyenv, then pipx"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Postgres 16 and pgAdmin"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Copy SSH keys — generate new ones instead, add to GitHub"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "VS Code settings sync"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "VPN profile from the IT portal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Slack and Zoom"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "n30",
+    "type": "text",
+    "title": "Watchlist",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Panchayat season 4"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Shogun"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The Bear season 3 — Riya says it's slow but worth it"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Laapataa Ladies (again, with Mummy)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Oppenheimer — never finished it"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
