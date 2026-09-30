@@ -104,6 +104,22 @@ migrations: `NoteChunk` and indexing are Phase 3b.
 **Unsure:** real-key behaviour of both providers (Gemini's 100-per-batch limit, response shape);
 chunk sizes until the Phase 4 eval measures them.
 
+### Phase 3 — indexing
+
+**Built:** `retrieval.NoteChunk` (HNSW cosine, `(owner, note)` and a GIN full-text index from
+`chunk_search_vector()`), `retrieval/indexing.py` (`index_note`, `deindex_note`), `index_note_task`
+(retry on transient, drop on permanent), the on-commit hook in `_after_write` with
+`INDEX_DEBOUNCE_SECONDS`, `reindex_notes`, `index_status`, a read-only admin, tests at 100% of
+`retrieval/`. D61-D65.
+
+**What went wrong / notes:** the plan reuses chunks "by hash"; repeated paragraphs share a hash, so
+matching is first-come in ordinal order and one embedding serves all copies. A duplicate delivery can
+change rows between the first read and the write, so rows are re-read under the lock.
+
+**Left:** nothing for phase 3; search over the chunks is phase 4.
+**Unsure:** whether 20 s is the right debounce; a real worker and Redis were not run here (tests are
+eager), so the countdown is checked only by asserting the `apply_async` call.
+
 ### Phase 4a — evaluation fixtures
 
 **Built:** `retrieval/eval/`: 30 TipTap fixture notes and 31 labelled questions (eight kinds,

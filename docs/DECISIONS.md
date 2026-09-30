@@ -576,6 +576,80 @@ suite run on a configured machine spend money, which D11 forbids.
 
 **Reverse it if:** keys move out of `.env` (e.g. into the process manager only).
 
+## Phase 3b — indexing
+
+### D61. Indexing is debounced by a countdown, not by coalescing
+
+**Decided:** every write enqueues `index_note_task(note_id, version)` on commit with
+`countdown=INDEX_DEBOUNCE_SECONDS` (20). A tombstone is enqueued with no countdown.
+
+**Alternatives:** coalesce in Redis (one pending key per note, reset on each write); index
+synchronously in the request.
+
+**Why:** the plan's design, and it needs no state beyond the task itself. Autosave enqueues a task per
+write; all but the last find `note.version` moved on and return before embedding. The cost is a few
+cheap no-op tasks. Deletes are not debounced because de-indexing is free and should be prompt.
+
+**Reverse it if:** the no-op tasks crowd the queue; then coalesce with a key per note.
+
+### D62. Chunks are reused by `(content_hash, embedding_model)`, matched in ordinal order
+
+**Decided:** a stored chunk is reused when its hash and model id match a new chunk; its row is
+updated (ordinal, text, heading path, note version) and keeps its vector. Identical chunks in one
+note (repeated paragraphs) are matched to existing rows first-come in ordinal order, and embedded once
+when new. Leftover rows are deleted.
+
+**Alternatives:** delete and recreate every chunk, embedding only the new hashes (simpler, churns
+the HNSW index); key reuse by ordinal (an insert at the top would re-embed everything).
+
+**Why:** a one-word edit re-embeds one chunk, and reordering sections re-embeds none. The model id is
+part of the key so a model change re-embeds everything without a separate flag (D36).
+
+**Reverse it if:** row updates prove slower than delete and insert for large notes.
+
+### D63. Embed outside the transaction, then lock the note and re-check its version
+
+**Decided:** the provider call happens with no lock held. The write then takes `select_for_update`
+on the note row and aborts silently if its version is no longer the task's. Existing rows are read
+again under that lock; vectors from the earlier read fill any row that vanished meanwhile.
+
+**Alternatives:** embed inside the transaction (holds a lock and a connection for seconds of network);
+no re-check (a slow task could overwrite newer chunks with older text).
+
+**Why:** `acks_late` means duplicate and overlapping deliveries are normal. Locking the note row
+serialises them, and the version check makes the newest task the only one that writes.
+
+**Reverse it if:** never the lock-free embedding; the re-check could go if tasks were serialised per note.
+
+### D64. The chunk full-text index covers `heading_path` and `text`
+
+**Decided:** `chunk_search_vector()` is `SearchVector("heading_path", "text", config="english")`,
+defined once in `retrieval/search_vector.py` and used by both the GIN index and (phase 4) the query.
+
+**Alternatives:** text only; include the note title too.
+
+**Why:** a chunk under "Risks" that never says "risks" should still match it, as it does for the
+vector search, whose `embed_text` carries the path. The title is left out: it is the note's, it would
+make every chunk of a note match a title word, and note-level search already covers it.
+
+**Reverse it if:** the evaluation shows heading matches hurting keyword precision; drop the column
+from the expression and migrate the index.
+
+### D65. A permanent embedding error is logged and dropped; `index_status` shows the gap
+
+**Decided:** `EmbeddingError` in the task is logged with its traceback and not retried or raised.
+`EmbeddingTransientError` retries with backoff (max 5). The note keeps its old chunks.
+
+**Alternatives:** raise (Celery records a failure, and with `acks_late` a worker crash loop is
+possible); store a per-note "index failed" flag.
+
+**Why:** retrying a bad key or a wrong-sized vector cannot succeed. The note stays searchable at its
+previous version, and `index_status` reports it as behind; `reindex_notes` retries after the fix.
+
+**Reverse it if:** silent staleness bites; add the flag and surface it.
+
+---
+
 ## Phase 4a — evaluation fixtures
 
 ### D41. Eval notes are hand-written TipTap JSON, validated strictly on load

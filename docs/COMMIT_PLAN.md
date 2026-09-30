@@ -12,7 +12,7 @@
 | 0 — scaffold | `phase-0-scaffold` | ✅ Built, tagged |
 | 1 — auth | `phase-1-auth` | ✅ Built |
 | 2 — notes and sync | `phase-2-notes` | ✅ Built |
-| 3 — chunking and indexing | `phase-3-indexing` | 🟡 3a built (chunker, embedding providers); indexing left |
+| 3 — chunking and indexing | `phase-3-indexing` | ✅ Built |
 | 4 — retrieval and evaluation | `phase-4-retrieval` | 🟡 4a built (fixtures, metrics); search and `eval_retrieval` left |
 | 5 — ask | `phase-5-ask` | 🟡 5a built (chat providers, prompt, citations); model, task, quota, API left |
 | 6 — web client | `phase-6-web` | 🟡 6a built against the contract; not yet run against the real API |

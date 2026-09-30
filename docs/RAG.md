@@ -132,7 +132,42 @@ dimension mismatch. One live test per provider runs only with the key **and**
 
 ## Indexing
 
-*To be written with `NoteChunk` and `index_note` (Phase 3b).*
+Every note write (`notes/services.py`, through `_after_write`) enqueues
+`index_note_task(note_id, version)` **on commit**, so a worker never looks for an uncommitted row and a
+rolled-back write is never indexed.
+
+**Debounce (D61).** The task runs `INDEX_DEBOUNCE_SECONDS` (20) later. Autosave writes every few
+seconds; each write enqueues a task for its own version, and all but the last find the note has moved
+on and exit before embedding anything. A delete is enqueued with no delay and removes the chunks.
+
+**Idempotency (D63).** The task may run twice (`acks_late`) or overlap with another. `index_note`
+loads the note and exits if it is missing, deleted (after removing its chunks) or at another version
+than the task's. It then chunks, embeds what is needed with **no lock held**, and writes in one
+transaction that first locks the note row and re-checks the version. If the note moved on meanwhile,
+nothing is written and the newer task does the work.
+
+**Reuse (D62).** A stored chunk whose `content_hash` and `embedding_model` match a new chunk keeps its
+vector; only its ordinal, text, heading path and `note_version` are updated. Only new hashes are
+embedded, in one `embed_texts` call that the boundary splits into batches. One changed paragraph
+costs one embedding; reordering sections costs none.
+
+**Model change.** `embedding_model_id()` is stored per chunk, so after changing the provider or
+model every chunk counts as new and is re-embedded by the next index of its note. Run
+`reindex_notes --all` to do that for every note; `index_status` counts chunks from another model. A
+change of `EMBEDDING_DIMENSIONS` also needs a migration (D36).
+
+**Failures (D65).** A transient provider error retries with backoff, up to 5 times. A permanent one is
+logged and dropped; the note keeps its old chunks and shows up as behind in `index_status`.
+
+**Commands.**
+
+- `reindex_notes --user EMAIL | --all [--sync]` queues an index task per live note (`--sync` indexes
+  inline and prints how many succeeded and failed). Safe to repeat: unchanged chunks are reused.
+- `index_status` prints live notes, how many have no chunks, chunks behind the note's version or
+  from another embedding model, and orphan chunks of deleted notes.
+
+**Keyword index (D64).** `NoteChunk` has a GIN index on `chunk_search_vector()`
+(`retrieval/search_vector.py`: heading path and text, `english`), which phase 4's query imports.
 
 ## Retrieval
 
