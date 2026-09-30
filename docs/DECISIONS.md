@@ -978,6 +978,96 @@ marker in the text still matches its citation.
 
 **Reverse it if:** users find unlinked numbers confusing; strip them at render time in the client.
 
+## Phase 5 — ask
+
+### D73. The quota is counted from `AskQuery` rows, under the user's row lock
+
+**Decided:** `create_ask` locks the user's row (`select_for_update`), then counts this calendar
+month's (Asia/Kolkata) `AskQuery` rows whose status is not `failed`, and creates the new row only if
+the count is under `ASK_QUOTAS[plan]` — all in one transaction. The plan is read from the locked
+row. `me/` reports the same count as `ask_usage`.
+
+**Alternatives:** a counter column on `User` (or in Redis) incremented per ask; counting without a
+lock; a unique "slot number" per user and month.
+
+**Why:** the rows already record every ask, so a separate counter is a second source of truth that
+has to be decremented when an ask fails and can drift. The lock is D5's pattern and for the same
+reason: a check followed by a write is only safe if nobody can check in between. Without it, two
+asks at the edge both count `limit − 1` and both pass; a test forces exactly that interleaving with
+the lock removed, and shows the limit breached. The count is one indexed query on
+`(user, created_at)`.
+
+**Reverse it if:** asks become frequent enough per user that serialising them on one row hurts
+(they are one at a time by nature today), or quotas need other units (tokens, cost).
+
+### D74. The relevance floor passes a hit on cosine similarity or on any keyword match
+
+**Decided:** `is_relevant(hits)` is true if any hit's `similarity` is at least
+`ASK_RELEVANCE_FLOOR`, or any hit was matched by the keyword leg (`keyword_rank` is not null).
+Otherwise the task stores `ASK_NO_ANSWER_TEXT` as a done answer with no provider call. The fused
+RRF `score` is never compared (D69). A floor-answered ask counts against the quota.
+
+**Alternatives:** similarity only (keyword-only hits count as below the floor); a second threshold
+on `ts_rank`; requiring both.
+
+**Why:** the two mistakes cost different amounts. Calling the model when the notes are irrelevant
+costs one cheap call, and the prompt already makes the model say the notes don't cover it.
+Skipping the call when they are relevant tells the user their notes say nothing when they do.
+A keyword hit means words of the question appear in the note (stemmed, stopwords dropped), which
+is exactly where embeddings are weakest: codes, names, rare terms. `ts_rank` is no better
+calibrated than RRF, so a threshold on it would be a guess. The consequence: the floor
+short-circuits only when no chunk shares a single content word with the question and none is
+close by meaning. The floor value itself stays 0.0 until the real-provider eval sets it (D58).
+
+**Reverse it if:** the eval shows keyword-only hits on no-answer questions are common and costly;
+then require a minimum similarity even for keyword hits, or a minimum share of matched words.
+
+### D75. Idempotency: one key, one question, one ask; a replay is 200, a reuse is 422
+
+**Decided:** `POST ask/` requires an `Idempotency-Key` header of 1–100 characters from
+`[A-Za-z0-9_-]` (a UUID fits); missing is 400 `idempotency_key_required`, malformed is 400
+`idempotency_key_invalid`. Keys are unique per user (a DB constraint). A new key → 202 with the
+pending ask. The same key and the same question (after trimming) → 200 with the existing ask,
+whatever its status, counted once and not re-enqueued, even if the quota has filled since. The same
+key with a different question → 422 `idempotency_key_reused`. The lookup happens under the user
+lock, before the quota check.
+
+**Alternatives:** 202 for a replay too; returning the old ask for a different question; keying on
+a hash of the question; letting a failed ask's key retry it.
+
+**Why:** a replay is the retry of one request, so it must return what the first returned and must
+not cost a second ask — including when the retry arrives after the month filled up. 200 tells the
+client "nothing new was started" while the body is the same shape it already handles. A different
+question under the same key is a client bug; answering it with the old ask would show an answer to
+a question not asked. A failed ask stays failed under its key: retrying is a new request, with a
+new key, and costs nothing because failed asks don't count. The narrow character set keeps keys
+safe in logs and URLs.
+
+**Reverse it if:** clients need to retry a failed ask under the same key; then reset the row to
+pending on replay of a failed one.
+
+### D76. Every way out of the task ends in done or failed, handled in the task body
+
+**Decided:** `answer_ask` handles its expected failures where they happen (`ChatError` and
+`EmbeddingError` → failed with a fixed user-facing message; the vendor's message goes only to the
+log). Around that, the task body catches a transient error on the last allowed attempt
+(`request.retries >= max_retries`) and marks the ask failed ("busy") instead of re-raising, and
+catches anything else (the soft time limit, a bug), marks the ask failed and re-raises. The claim
+(pending/running → running) and the final write are conditional updates, so a duplicate run
+(`acks_late`) never overwrites a finished ask; a `running` ask is taken up again, since that is
+what a redelivery after a crash looks like.
+
+**Alternatives:** `Task.on_failure`; a periodic sweeper as the only safety net.
+
+**Why:** an ask left `running` would be polled forever and, never failing, would count against the
+quota. `on_failure` would work on a worker, but with eager Celery and `task_eager_propagates` (the
+test runner) it is never called and retries raise rather than re-run, so the behaviour could not be
+tested. In the body it behaves and is tested the same both ways.
+
+**Reverse it if:** the tests stop running Celery eagerly; `on_failure` is then testable and keeps
+the task body shorter. Not covered either way: a worker killed at the hard time limit runs no code
+at all (BACKLOG, the stuck-ask sweeper).
+
 ## Phase 6a — web client first pass
 
 ### D46. No router in the web client: a view store instead

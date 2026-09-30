@@ -18,9 +18,13 @@ Things that came up and were left for a decision. Each names what it is waiting 
 - **Real embedding and chat providers** — waiting on which keys the owner has (OpenAI, Gemini or
   Claude). The fake providers carry the build until then; the registry takes a new one without
   touching callers.
-- **Relevance floor value and score** (D58) — `ASK_RELEVANCE_FLOOR` is 0.0 (only an empty
-  retrieval short-circuits). Waiting on Phase 4's `search()` score shape and the eval numbers:
-  the floor should compare the vector leg's cosine similarity, not the fused RRF score.
+- **Relevance floor value** (D58, D74) — the floor now compares the vector leg's cosine
+  similarity, and any keyword match passes it; its value is still 0.0. Waiting on the
+  real-provider `eval_retrieval` run: set it from the no-answer vs answerable similarity lines.
+- **Sweeper for stuck asks** (D76) — an ask whose worker was killed at the hard time limit (or
+  whose message was lost) stays `running`: polled forever, and counted against the quota. A
+  periodic task that fails asks `running` for longer than `CELERY_TASK_TIME_LIMIT` plus the retry
+  span would close it.
 
 - **Localised no-answer text** — `ASK_NO_ANSWER_TEXT` is fixed English while model answers follow
   the question's language. V1 accepts it.

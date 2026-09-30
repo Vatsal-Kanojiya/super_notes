@@ -223,3 +223,25 @@ order again.
 push at each phase tag; providers stay modular — boundary function, settings-selected registry,
 one adapter per vendor — with fake providers until keys are set.
 
+### Phase 5 — ask
+
+**Built:** `AskQuery` (unique `(user, idempotency_key)`, read-only admin); `assistant/quota.py`
+(Kolkata calendar month, non-failed rows); `create_ask` (user lock → key lookup → count → create →
+enqueue on commit); the `answer_ask` task (hybrid search, relevance floor, prompt, provider,
+citations, retries, every exit done or failed); `POST/GET ask/`, `GET ask/<id>/`;
+`me/` `ask_usage`. The Ask draft merged into `RAG.md` "Asking" and deleted. D73–D76.
+
+**What went wrong / notes:**
+
+- With eager Celery and `task_eager_propagates`, `on_failure` never runs and a retry raises
+  instead of re-running. Failure handling moved into the task body (D76); the retry tests call
+  `apply()` directly (`throw=False`, or starting at the last retry).
+- The quota-edge test forces the race with the lock removed (both threads held after counting) to
+  show it would catch a missing lock.
+- `me/`'s shape grew `ask_usage`, and so did the sign-in response's `user` (same serializer); two
+  accounts tests updated.
+- The test runner now sets `celery.app.trace` to WARNING: one INFO line per eager task was noise.
+
+**Left:** `ASK_RELEVANCE_FLOOR`'s value (real-provider eval), the stuck-ask sweeper (BACKLOG).
+**Unsure:** 200 rather than 202 for a replayed key (D75); letting any keyword match pass the floor
+(D74) until the eval says otherwise.
