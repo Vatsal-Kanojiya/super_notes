@@ -10,7 +10,7 @@ django-cors-headers==4.9.0
 # The OpenAPI schema, generated from the serializers.
 drf-spectacular==0.30.0
 psycopg[binary]==3.2.10
-celery==5.5.3
+celery==5.6.3
 redis==5.2.1
 # Verifies Google ID tokens (accounts/google.py). Its transport needs requests.
 google-auth==2.58.0
