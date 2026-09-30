@@ -59,11 +59,48 @@ python manage.py createsuperuser   # for /admin/
 # 6. Run: three terminals
 python manage.py runserver
 celery -A config worker -l info
-cd web && npm install && npm run dev      # from phase 6
+cd web && npm install && npm run dev      # cp web/.env.example web/.env.local first
 ```
 
 API docs: <http://localhost:8000/api/v1/docs/> · Schema: `/api/v1/schema/` · Health:
 `/api/v1/health/`.
+
+## API at a glance
+
+All under `/api/v1/`, `Authorization: Bearer <access>`, errors as `{"detail", "code"}`.
+
+| Area | Endpoints |
+|---|---|
+| Auth | `POST auth/google/` `{id_token}`, `POST auth/refresh/`, `POST auth/logout/`, `GET me/` (plan and this month's ask usage), `GET auth/devices/`, `DELETE auth/devices/<id>/` |
+| Notes | `GET/POST notes/`, `GET/PATCH/DELETE notes/<id>/` (PATCH needs `version`; stale → `409 version_conflict`), `GET notes/changes/?after=<revision>` |
+| Search | `GET search/?q=&k=` — hybrid (vector + keyword, RRF), your notes only |
+| Ask | `POST ask/` with an `Idempotency-Key` header → `202`, then poll `GET ask/<id>/`; `GET ask/` for history; over quota → `429 quota_exceeded` |
+
+## Turning on the real services
+
+Everything runs on deterministic **fake** AI providers until you configure real ones, and Google
+sign-in is off until a client id is set.
+
+1. **Google sign-in.** In Google Cloud Console create an OAuth *web* client, add
+   `http://localhost:5173` as an authorised JavaScript origin, then set its id in both
+   `GOOGLE_OAUTH_CLIENT_IDS` (`.env`) and `VITE_GOOGLE_CLIENT_ID` (`web/.env.local`). The Android
+   client id is added to the same backend list in phase 7.
+2. **AI providers** (`.env`). Pick one embedding and one chat provider; each reads its vendor's
+   own key variable:
+
+   ```bash
+   EMBEDDING_PROVIDER=openai        # or gemini            (fake by default)
+   CHAT_PROVIDER=claude             # or openai, gemini    (fake by default)
+   OPENAI_API_KEY=...  GEMINI_API_KEY=...  ANTHROPIC_API_KEY=...
+   ```
+
+   Changing the embedding provider or model means re-embedding:
+   `python manage.py reindex_notes --all`, then `python manage.py index_status` to watch it.
+3. **Measure, then set the relevance floor.** `python manage.py eval_retrieval --k 5 --by-kind`
+   prints recall@5 and MRR for vector, keyword and hybrid search, and the top similarity of the
+   questions that have no answer. Record the numbers in `docs/RAG.md` and set
+   `ASK_RELEVANCE_FLOOR` between the no-answer and the answerable similarities (it is `0.0`
+   until then, so only an empty search skips the model).
 
 ## Tests
 
@@ -76,15 +113,33 @@ python manage.py spectacular --file docs/openapi.yml --validate --fail-on-warn
 ```
 
 The suite needs no API keys and no running worker: Celery runs eagerly and the embedding and chat
-providers are the deterministic `fake` ones (`config/test_runner.py`).
+providers are the deterministic `fake` ones (`config/test_runner.py`). The few tests that call a
+real vendor run only with `LIVE_PROVIDER_TESTS=1` *and* that vendor's key set.
+
+The web client type-checks and builds with `cd web && npm run build` (CI does the same).
+
+## Retrieval evaluation
+
+30 fixture notes and 31 labelled questions (`retrieval/eval/fixtures/`), scored per note.
+
+| Provider | Mode | recall@5 | MRR |
+|---|---|---|---|
+| fake (smoke test, not a quality measure) | vector | 0.625 | 0.587 |
+| | keyword | 0.839 | 0.744 |
+| | hybrid | 0.804 | 0.703 |
+| real provider | all | pending an API key | |
 
 ## Docs
 
 | File | What |
 |---|---|
+| `docs/architecture.html` | Open in a browser: component map, workflows, data model |
+| `docs/RAG.md` | Chunking, indexing, retrieval, asking, evaluation, known limits |
+| `docs/openapi.yml` | The API contract (CI fails if it drifts from the code) |
 | `docs/CONVENTIONS.md` | What was carried over from the reference, and why |
 | `docs/COMMIT_PLAN.md` | Phases and their status |
 | `docs/DECISIONS.md` | Every judgement call, with the alternative |
 | `docs/BUILD_LOG.md` | What each phase took and what went wrong |
 | `docs/BACKLOG.md` | Out of scope, and parked questions |
+| `docs/research/memory-tools.html` | supermemory and codebase-memory-mcp, and what they mean here |
 | `SECURITY.md` | Reporting, and dependency-fix time frames |

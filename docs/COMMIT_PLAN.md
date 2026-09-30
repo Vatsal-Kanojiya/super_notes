@@ -9,14 +9,14 @@
 
 | Phase | Tag | Status |
 |---|---|---|
-| 0 — scaffold | `phase-0-scaffold` | ✅ Built, tagged |
+| 0 — scaffold | `phase-0-scaffold` | ✅ Built |
 | 1 — auth | `phase-1-auth` | ✅ Built |
 | 2 — notes and sync | `phase-2-notes` | ✅ Built |
 | 3 — chunking and indexing | `phase-3-indexing` | ✅ Built |
 | 4 — retrieval and evaluation | `phase-4-retrieval` | ✅ Built (real-provider numbers pending a key) |
 | 5 — ask | `phase-5-ask` | ✅ Built (relevance floor value pending the real-provider eval) |
-| 6 — web client | `phase-6-web` | 🟡 6a built against the contract; not yet run against the real API |
-| 7 — Android | `phase-7-android` | ⏳ |
+| 6 — web client | `phase-6-web` | ✅ Built; checked in a browser against the real API (Google sign-in pending a client id) |
+| 7 — Android | `phase-7-android` | ⏳ Not started: needs the Android client id, the app's SHA-1 and an SDK |
 
 ## Every phase ends with
 

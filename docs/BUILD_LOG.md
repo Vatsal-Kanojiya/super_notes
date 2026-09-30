@@ -180,6 +180,29 @@ Docs in `docs/RAG_ASK_DRAFT.md` (to merge into `RAG.md`). D53–D60.
 **Unsure:** the relevance floor's score scale (D58); whether live tests should need an extra
 opt-in flag besides the key (BACKLOG).
 
+### Phase 5 — ask
+
+**Built:** `AskQuery` (unique `(user, idempotency_key)`, read-only admin); `assistant/quota.py`
+(Kolkata calendar month, non-failed rows); `create_ask` (user lock → key lookup → count → create →
+enqueue on commit); the `answer_ask` task (hybrid search, relevance floor, prompt, provider,
+citations, retries, every exit done or failed); `POST/GET ask/`, `GET ask/<id>/`;
+`me/` `ask_usage`. The Ask draft merged into `RAG.md` "Asking" and deleted. D73–D76.
+
+**What went wrong / notes:**
+
+- With eager Celery and `task_eager_propagates`, `on_failure` never runs and a retry raises
+  instead of re-running. Failure handling moved into the task body (D76); the retry tests call
+  `apply()` directly (`throw=False`, or starting at the last retry).
+- The quota-edge test forces the race with the lock removed (both threads held after counting) to
+  show it would catch a missing lock.
+- `me/`'s shape grew `ask_usage`, and so did the sign-in response's `user` (same serializer); two
+  accounts tests updated.
+- The test runner now sets `celery.app.trace` to WARNING: one INFO line per eager task was noise.
+
+**Left:** `ASK_RELEVANCE_FLOOR`'s value (real-provider eval), the stuck-ask sweeper (BACKLOG).
+**Unsure:** 200 rather than 202 for a replayed key (D75); letting any keyword match pass the floor
+(D74) until the eval says otherwise.
+
 ### Phase 6a — web client first pass
 
 **Built:** `web/`, a Vue 3 + Vite + TypeScript client with Pinia and TipTap: Google sign-in (GIS
@@ -207,6 +230,26 @@ and a chip opened its note; the next ask got the quota message.
 "contract reconciliation" — in particular device sign-out's method, the ask status values, and
 whether `changes` tombstones carry `deleted_at`.
 
+### Phase 6 — web client against the real API
+
+**Built:** the first pass (6a) was written against the plan's contract; 6b and 6c reconciled
+`web/src/api/types.ts` with `docs/openapi.yml` and ran the client in headless Chrome against the
+real backend and a real Celery worker. Checked: notes list, create, autosave with `version`, the
+conflict prompt ("keep mine"), checklists, delete, sync through `changes`, keyword search,
+devices, and Ask end to end — a cited answer, the chip opening its note, usage, the quota and
+throttle messages, and the fixed no-answer text.
+
+**Went wrong:** nothing in the client beyond type drift. Two real fixes came out of it: a 429 or
+5xx on token refresh used to sign the user out (now only a 400/401 does), and the sign-in call made
+a needless `me/` request once `user` carried `ask_usage`.
+
+**Left:** Google sign-in was never exercised (no client id); tokens were minted in the Django
+shell. The no-answer branch only fires for a user whose notes share no word with the question
+while `ASK_RELEVANCE_FLOOR` is 0.0 — expected until the real-provider evaluation (D58, D74).
+
+**Unsure:** tokens in localStorage (D47) is the standing trade-off to revisit before a public
+launch.
+
 ### Integration — merging the parallel slices (2026-10-01)
 
 Phases 1, 2 and the first halves of 3–6 were built by parallel agents in separate worktrees, then
@@ -222,26 +265,3 @@ order again.
 **Owner decisions (2026-10-01):** keyword search stays English (D24); device limit stays 2 (D6);
 push at each phase tag; providers stay modular — boundary function, settings-selected registry,
 one adapter per vendor — with fake providers until keys are set.
-
-### Phase 5 — ask
-
-**Built:** `AskQuery` (unique `(user, idempotency_key)`, read-only admin); `assistant/quota.py`
-(Kolkata calendar month, non-failed rows); `create_ask` (user lock → key lookup → count → create →
-enqueue on commit); the `answer_ask` task (hybrid search, relevance floor, prompt, provider,
-citations, retries, every exit done or failed); `POST/GET ask/`, `GET ask/<id>/`;
-`me/` `ask_usage`. The Ask draft merged into `RAG.md` "Asking" and deleted. D73–D76.
-
-**What went wrong / notes:**
-
-- With eager Celery and `task_eager_propagates`, `on_failure` never runs and a retry raises
-  instead of re-running. Failure handling moved into the task body (D76); the retry tests call
-  `apply()` directly (`throw=False`, or starting at the last retry).
-- The quota-edge test forces the race with the lock removed (both threads held after counting) to
-  show it would catch a missing lock.
-- `me/`'s shape grew `ask_usage`, and so did the sign-in response's `user` (same serializer); two
-  accounts tests updated.
-- The test runner now sets `celery.app.trace` to WARNING: one INFO line per eager task was noise.
-
-**Left:** `ASK_RELEVANCE_FLOOR`'s value (real-provider eval), the stuck-ask sweeper (BACKLOG).
-**Unsure:** 200 rather than 202 for a replayed key (D75); letting any keyword match pass the floor
-(D74) until the eval says otherwise.
