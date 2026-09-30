@@ -632,6 +632,8 @@ marker in the text still matches its citation.
 
 **Reverse it if:** users find unlinked numbers confusing; strip them at render time in the client.
 
+## Phase 6a — web client first pass
+
 ### D46. No router in the web client: a view store instead
 
 **Decided:** `web/src/stores/view.ts` holds the screen (`list` | `note` | `ask`), the open note's
