@@ -11,7 +11,7 @@ django-cors-headers==4.9.0
 drf-spectacular==0.30.0
 psycopg[binary]==3.2.10
 celery==5.5.3
-redis==5.2.1
+redis==8.1.0
 # Verifies Google ID tokens (accounts/google.py). Its transport needs requests.
 google-auth==2.58.0
 requests==2.34.2
