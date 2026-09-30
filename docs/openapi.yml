@@ -33,6 +33,191 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthDown'
           description: ''
+  /api/v1/notes/:
+    get:
+      operationId: notes_list
+      description: Deleted notes are left out. `q` is a keyword search over the title
+        and body (whole words and their stems; quotes, `or` and `-word` work). Results
+        stay in newest-first order, not by relevance. Follow `next` for more.
+      summary: List notes, newest first
+      parameters:
+      - name: cursor
+        required: false
+        in: query
+        description: The pagination cursor value.
+        schema:
+          type: string
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: 1-100, default 25.
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Keywords.
+      - in: query
+        name: type
+        schema:
+          type: string
+          enum:
+          - checklist
+          - text
+      tags:
+      - Notes
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNoteList'
+          description: ''
+    post:
+      operationId: notes_create
+      summary: Create a note
+      tags:
+      - Notes
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/NoteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/NoteRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+          description: ''
+  /api/v1/notes/{id}/:
+    get:
+      operationId: notes_retrieve
+      summary: Get a note
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Notes
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+          description: ''
+    patch:
+      operationId: notes_partial_update
+      description: 'Send the `version` you loaded, plus the fields you changed. If
+        the note has moved on since, nothing is written and you get `409` with the
+        current copy: merge, or resend with its version.'
+      summary: Change a note
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Notes
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedNoteUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedNoteUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedNoteUpdateRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteConflict'
+          description: Someone else saved first.
+    delete:
+      operationId: notes_destroy
+      description: 'A soft delete: other devices see it as a tombstone in `changes`.'
+      summary: Delete a note
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Notes
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/notes/changes/:
+    get:
+      operationId: notes_changes_retrieve
+      description: 'Every note written after revision `after`, deleted ones included
+        as tombstones (no title or content, `deleted_at` set), oldest write first.
+        Store `latest_revision` and send it as `after` next time. If `has_more` is
+        true, call again straight away with it: the batch was cut at `limit`. A first
+        sync sends `after=0`.'
+      summary: What changed since a revision
+      parameters:
+      - in: query
+        name: after
+        schema:
+          type: integer
+        description: 'Default 0: everything.'
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 1-1000, default 500.
+      tags:
+      - Notes
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteChanges'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: ''
 components:
   schemas:
     Health:
@@ -49,3 +234,179 @@ components:
           type: string
       required:
       - status
+    Message:
+      type: object
+      description: 'A plain answer: what happened, and a stable code a client can
+        branch on.'
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+      required:
+      - code
+      - detail
+    Note:
+      type: object
+      description: A live note, as every endpoint returns it.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        title:
+          type: string
+          maxLength: 500
+        content: {}
+        content_text:
+          type: string
+          readOnly: true
+        version:
+          type: integer
+          readOnly: true
+        revision:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - content_text
+      - created_at
+      - deleted_at
+      - id
+      - revision
+      - updated_at
+      - version
+    NoteChange:
+      oneOf:
+      - $ref: '#/components/schemas/Note'
+      - $ref: '#/components/schemas/NoteTombstone'
+    NoteChanges:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/NoteChange'
+        latest_revision:
+          type: integer
+        has_more:
+          type: boolean
+      required:
+      - has_more
+      - latest_revision
+      - results
+    NoteConflict:
+      type: object
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+        current:
+          $ref: '#/components/schemas/Note'
+      required:
+      - code
+      - current
+      - detail
+    NoteRequest:
+      type: object
+      description: A live note, as every endpoint returns it.
+      properties:
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        title:
+          type: string
+          maxLength: 500
+        content: {}
+    NoteTombstone:
+      type: object
+      description: 'A deleted note in ``changes``: enough to drop it, none of its
+        content.'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        type:
+          allOf:
+          - $ref: '#/components/schemas/TypeEnum'
+          readOnly: true
+        version:
+          type: integer
+          readOnly: true
+        revision:
+          type: integer
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - deleted_at
+      - id
+      - revision
+      - type
+      - updated_at
+      - version
+    PaginatedNoteList:
+      type: object
+      required:
+      - results
+      properties:
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cD00ODY%3D"
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cj0xJnA9NDg3
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Note'
+    PatchedNoteUpdateRequest:
+      type: object
+      description: 'PATCH: the version the client edited, plus whatever it changed.'
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: The version you loaded. A newer one on the server is a 409.
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        title:
+          type: string
+          maxLength: 500
+        content: {}
+    TypeEnum:
+      enum:
+      - text
+      - checklist
+      type: string
+      description: |-
+        * `text` - Text
+        * `checklist` - Checklist
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
