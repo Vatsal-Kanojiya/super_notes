@@ -265,3 +265,7 @@ order again.
 **Owner decisions (2026-10-01):** keyword search stays English (D24); device limit stays 2 (D6);
 push at each phase tag; providers stay modular — boundary function, settings-selected registry,
 one adapter per vendor — with fake providers until keys are set.
+
+### V2 — multi-turn eval fixtures
+
+`retrieval/eval/fixtures/conversations.json`: 17 follow-up cases (pronoun, ellipsis, topic shift, refinement, near-duplicate, no-answer) over the existing 30 notes, each with a hand-written standalone rewrite; loader validation and tests added, the raw-vs-condensed comparison waits for phase 1's command.
