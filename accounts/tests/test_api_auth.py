@@ -4,6 +4,7 @@ Google's side is faked by fake_google.py: real tokens, really verified, with
 our certificate served in place of Google's. No network.
 """
 
+import logging
 import time
 from unittest import mock
 
@@ -298,9 +299,11 @@ CLEANSED = SafeExceptionReporterFilter.cleansed_substitute
 
 def _raise(callable_):
     # Not assertRaises(): its context manager clears the traceback, which is
-    # exactly the frame chain this needs.
+    # exactly the frame chain this needs. The expected 500 is kept out of
+    # the test output.
     try:
-        callable_()
+        with mock.patch.object(logging.getLogger("django.request"), "disabled", True):
+            callable_()
     except RuntimeError as exc:
         return exc
     raise AssertionError("expected a RuntimeError")
