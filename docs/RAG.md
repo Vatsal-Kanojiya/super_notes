@@ -499,6 +499,30 @@ Run `python manage.py eval_retrieval --k 5 --by-kind --provider openai` (or `gem
 set, fill this table and the per-kind breakdown, and set `ASK_RELEVANCE_FLOOR` from the similarity
 lines (D58).
 
+### Multi-turn evaluation (V2)
+
+`retrieval/eval/fixtures/conversations.json` holds 17 conversations over the same 30 notes (no new
+notes). Each is `{id, kind, turns, standalone}`: `turns` is two or more `{question, relevant?}`,
+and the **last turn is the one scored**, against its `relevant` note keys. Earlier turns only give
+context (they may carry their own labels). `standalone` is a human-written rewrite of the last turn
+that needs no context: the target a condenser should approach, and an upper bound, since
+retrieval with it shows what perfect condensing would buy. Recall@k and MRR apply per scored turn,
+unchanged.
+
+| Kind | What the follow-up does |
+|---|---|
+| `pronoun` | "When is it due next?": the subject is only in an earlier turn |
+| `ellipsis` | "And the February one?": the sentence is cut short |
+| `topic_shift` | Changes topic entirely; condensing must *not* drag the old context in |
+| `refinement` | "Only the unchecked ones.": narrows the previous answer |
+| `near_duplicate` | Picks one of two near-duplicate notes (the Goa trips, the Atlas syncs, the groceries) |
+| `no_answer` | Has no answer in the notes (`relevant: []`) |
+
+The loader (`load_conversations`) checks unique ids, known note keys, at least two turns, a labelled
+last turn, a non-empty `standalone`, and `no_answer` exactly when the last `relevant` is empty. The
+raw vs condensed vs standalone comparison arrives with phase 1's `eval_retrieval --conversations`
+command; until then the fixtures are only loaded and validated.
+
 ## Known limits
 
 *Filled as phases land.* So far:
