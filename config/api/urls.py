@@ -18,6 +18,8 @@ v1 = [
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="api:v1:schema"), name="docs"),
     path("", include("notes.api.urls")),
+
+    path("", include("accounts.api")),
 ]
 
 urlpatterns = [path("v1/", include((v1, "v1")))]
