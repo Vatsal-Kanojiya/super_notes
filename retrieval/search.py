@@ -3,7 +3,7 @@
 Two legs, each one SQL query scoped to the owner in its WHERE clause:
 
 * **vector** -- the query's embedding against the HNSW cosine index;
-* **keyword** -- ``websearch_to_tsquery`` against the GIN index, through
+* **keyword** -- any of the query's words (OR, D72) against the GIN index, through
   ``chunk_search_vector()`` so the query's expression is the indexed one.
 
 Their ranked lists are merged by reciprocal rank fusion (``fuse``), capped
@@ -16,7 +16,10 @@ everything else searches in "hybrid".
 """
 
 import logging
+import re
 from dataclasses import dataclass
+from functools import reduce
+from operator import or_
 
 from django.conf import settings
 from django.contrib.postgres.search import SearchQuery, SearchRank
@@ -170,7 +173,9 @@ def keyword_queryset(user, query):
     index is on that exact expression and is used only by a query that
     builds the same one.
     """
-    tsquery = SearchQuery(query, config=SEARCH_CONFIG, search_type="websearch")
+    tsquery = any_word_query(query)
+    if tsquery is None:
+        return NoteChunk.objects.none().values_list("pk", "note_id")
     return (
         _live_chunks(user)
         .alias(search=chunk_search_vector())
@@ -179,6 +184,33 @@ def keyword_queryset(user, query):
         .order_by("-rank", "pk")
         .values_list("pk", "note_id", "rank")
     )
+
+
+# Letters and digits in any script; everything else separates words.
+_WORD = re.compile(r"\w+")
+MAX_QUERY_WORDS = 32
+
+
+def any_word_query(query):
+    """A tsquery matching chunks that contain *any* of the query's words (D72).
+
+    Search here is asked questions, not keywords. ``websearch_to_tsquery``
+    ANDs every word, so "how often should I take vitamin D" matches only a
+    chunk containing all of them -- almost never -- and the keyword leg sat
+    near-silent (recall@5 0.18 on the evaluation set). OR-ing the words and
+    letting ``ts_rank`` put chunks matching more of them first is what a
+    keyword leg of hybrid retrieval is for; the vector leg and the fusion
+    decide the final order.
+
+    Each word is its own plain ``SearchQuery``, OR-ed together, so no
+    tsquery syntax from the user ever reaches Postgres. Stopwords become
+    empty queries that match nothing. The notes list's ``?q=`` keeps
+    ``websearch`` AND semantics: there, a person types a few keywords.
+    """
+    words = list(dict.fromkeys(w.lower() for w in _WORD.findall(query)))[:MAX_QUERY_WORDS]
+    if not words:
+        return None
+    return reduce(or_, (SearchQuery(w, config=SEARCH_CONFIG) for w in words))
 
 
 def _hits(user, top, similarity, keyword_rank):

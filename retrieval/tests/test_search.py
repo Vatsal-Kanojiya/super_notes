@@ -88,6 +88,25 @@ class SearchTests(TestCase):
                 hits = search(self.alice, "renew passport trip", mode=mode)
                 self.assertEqual({hit.note_id for hit in hits}, {mine.pk})
 
+    def test_keyword_matches_any_word_of_a_question(self):
+        # A question rarely shares *every* word with the note that answers
+        # it; any shared word is enough for the keyword leg (D72).
+        target = write(self.alice, "Car", ("Service", "Honda City service every 10000 km"))
+        hits = search(self.alice, "How often does the Honda need oil?", mode="keyword")
+        self.assertEqual([hit.note_id for hit in hits], [target.pk])
+
+    def test_keyword_ranks_chunks_matching_more_words_first(self):
+        one = write(self.alice, "A", ("", "passport office"))
+        both = write(self.alice, "B", ("", "passport renewal office form"))
+        hits = search(self.alice, "passport renewal form", mode="keyword")
+        self.assertEqual([hit.note_id for hit in hits], [both.pk, one.pk])
+
+    def test_query_syntax_and_stopwords_are_harmless(self):
+        write(self.alice, "Passport", ("Renewal", "renew the passport"))
+        for query in ["& | ! : * ( )", "the and of", "'); DROP TABLE notes; --"]:
+            with self.subTest(query=query):
+                self.assertEqual(search(self.alice, query, mode="keyword"), [])
+
     def test_a_user_with_no_notes_gets_nothing_from_anyone(self):
         write(self.bob, "Passport", ("Renewal", "renew the passport"))
         for mode in MODES:

@@ -832,6 +832,24 @@ while leaving room for other notes. Applying it before the cut means k still mea
 
 **Reverse it if:** the eval's section questions show the answer's section pushed out by the cap.
 
+### D72. The retrieval keyword leg matches any word of the query (OR)
+
+**Decided (by me, from the evaluation):** `retrieval/search.py`'s keyword leg ORs the query's
+words, each as its own plain `SearchQuery`, and ranks by `ts_rank`. The notes list's `?q=` keeps
+`websearch` AND semantics.
+
+**Alternatives:** `websearch_to_tsquery` (every word required), as first built; `plainto` of the
+whole query (also AND).
+
+**Why:** search here is fed whole questions. Requiring every word made the keyword leg almost
+silent: recall@5 0.179 on the evaluation set, 0.839 with OR (fake provider). Matching more words
+still ranks higher, and fusion with the vector leg decides the final order. Building the OR from
+plain per-word queries means no user text is ever parsed as tsquery syntax. The notes list is
+different: a person types two or three keywords and expects all of them.
+
+**Reverse it if:** real-provider evaluation shows OR's noise costs hybrid precision; then try
+requiring at least two words, or weight the legs in RRF.
+
 ## Phase 5a — chat providers and prompt
 
 ### D53. The chat providers call each vendor's HTTP API with `requests`, not its SDK

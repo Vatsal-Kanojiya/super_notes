@@ -190,8 +190,9 @@ notes with no `deleted_at`, as a `WHERE` clause, never a Python filter afterward
   candidates, and pgvector 0.6 applies the owner filter after the index scan (D68). For a user
   whose chunks are a small share of the table Postgres instead scans that user's rows by the owner
   index and sorts them exactly, which is cheaper and loses nothing.
-- **Keyword:** `websearch_to_tsquery('english', q)` against `chunk_search_vector()` (heading path
-  and text), the expression the GIN index is built on, ranked by `ts_rank`. Tests EXPLAIN both
+- **Keyword:** any of the query's words (each a plain `SearchQuery`, OR-ed; D72) against
+  `chunk_search_vector()` (heading path and text), the expression the GIN index is built on,
+  ranked by `ts_rank`, so chunks matching more of the words come first. Tests EXPLAIN both
   queries and check each index is reachable.
 
 **Fusion (D66).** Reciprocal rank fusion: each chunk scores Σ 1/(60 + rank) over the lists it
@@ -322,8 +323,8 @@ show the pipeline runs end to end.
 | Mode | recall@5 | MRR |
 |---|---|---|
 | vector | 0.625 | 0.587 |
-| keyword | 0.179 | 0.179 |
-| hybrid | 0.661 | 0.622 |
+| keyword | 0.839 | 0.744 |
+| hybrid | 0.804 | 0.703 |
 
 No-answer top similarity (fake): 0.166, 0.144, 0.369; answerable: min 0.170, median 0.328. The
 fake cannot separate them, as expected.
@@ -347,10 +348,9 @@ lines (D58).
 - Token counts are approximated by characters (D33). Scripts that pack more or fewer characters per
   token (CJK, code) make chunks proportionally smaller or larger in tokens.
 - The sentence splitter knows `.`, `!` and `?` only; "e.g. this" splits after "e.g.".
-- The keyword leg uses `websearch_to_tsquery`, which ANDs every word: a whole question ("How often
-  does the Honda City need a service?") matches only chunks containing all of its non-stopwords.
-  That is why keyword-only recall is low in the smoke run (0.179). An OR of the query's lexemes
-  scored 0.875 keyword / 0.804 hybrid in a throwaway experiment with the fake provider; whether to
-  switch should be decided on the real-provider numbers.
+- The keyword leg ORs the question's words (D72). It was `websearch_to_tsquery` (every word
+  required) at first, which left keyword-only recall@5 at 0.179 on the smoke run; OR-ing raised it
+  to 0.839. With the fake provider, keyword beats hybrid (0.839 vs 0.804) because the fake
+  vectors are weak; the real-provider run is what decides whether RRF's weighting needs tuning.
 - pgvector 0.6 filters by owner after the HNSW scan (D68). `ef_search` = 200 leaves room, but an
   owner who is a middling share of a very large table can get fewer than 50 vector candidates.
