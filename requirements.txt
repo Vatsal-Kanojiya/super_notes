@@ -2,7 +2,7 @@
 # No new dependency without asking (SUPER_NOTES_V1_PLAN.md §3).
 
 Django==5.2.17
-django-environ==0.12.0
+django-environ==0.14.0
 djangorestframework==3.17.2
 # Bearer tokens with rotation and a blacklist (token_blacklist app).
 djangorestframework-simplejwt==5.5.1
