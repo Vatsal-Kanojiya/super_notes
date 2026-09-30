@@ -473,3 +473,24 @@ ASK_EXCERPT_MAX_CHARS = env.int("ASK_EXCERPT_MAX_CHARS", default=12000)
 CHUNK_TARGET_CHARS = env.int("CHUNK_TARGET_CHARS", default=1600)
 CHUNK_MAX_CHARS = env.int("CHUNK_MAX_CHARS", default=2000)
 CHUNK_OVERLAP_CHARS = env.int("CHUNK_OVERLAP_CHARS", default=200)
+
+
+# Embeddings (retrieval/embeddings/, DECISIONS D36-D39)
+#
+# "fake" needs no key and no network, so a fresh clone -- and CI -- indexes
+# and searches with nothing configured; the test runner forces it whatever
+# .env says. Each real provider reads its key from its own env var
+# (OPENAI_API_KEY, GEMINI_API_KEY), never an EMBEDDING_* setting: a key is
+# a secret, not app configuration.
+EMBEDDING_PROVIDER = env("EMBEDDING_PROVIDER", default="fake")
+EMBEDDING_MODELS = {
+    "openai": env("EMBEDDING_OPENAI_MODEL", default="text-embedding-3-small"),
+    "gemini": env("EMBEDDING_GEMINI_MODEL", default="gemini-embedding-001"),
+}
+# Fixed by the chunk table's vector column: changing it (or the model)
+# means a migration and a full re-index (D36). 1536 because both default
+# models can produce it and pgvector's HNSW index takes at most 2000.
+EMBEDDING_DIMENSIONS = env.int("EMBEDDING_DIMENSIONS", default=1536)
+# Texts per provider call. Under both vendors' per-request limits (Gemini's
+# is the tighter, 100), and small enough that a retried call redoes little.
+EMBEDDING_BATCH_SIZE = env.int("EMBEDDING_BATCH_SIZE", default=64)
