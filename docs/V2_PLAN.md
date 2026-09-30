@@ -34,7 +34,7 @@ master ──●─────────────────────�
 v2 ────────●──────●──────────●──────────●──────────────●
             \    / \        / \        /
              ●──●   ●──●──●    ●──●──●
-        v2/0-foundation  v2/1-conversations  v2/2-streaming …
+        v2-feat/0-foundation  v2-feat/1-conversations …
 ```
 
 - **`master`** is the released V1 line. Only fixes land there from now on (a V1 bug, a security
@@ -43,12 +43,13 @@ v2 ────────●──────●─────────�
 - **`v2`** is V2's integration branch, cut from `master` at `phase-6-web`. It is always green: CI
   runs on every push to it. Nothing is committed on `v2` directly except merges and the
   release-notes/doc updates that close a phase.
-- **Feature branches** `v2/<phase>-<slug>` (e.g. `v2/1-conversations`), cut from the current `v2`.
+- **Feature branches** `v2-feat/<phase>-<slug>` (not `v2/…`: git cannot hold a branch `v2` and
+  branches under `v2/` at once) (e.g. `v2-feat/1-conversations`), cut from the current `v2`.
   One phase per branch; a large phase may split into two or three branches
-  (`v2/1a-conversation-model`, `v2/1b-condense`). Conventional Commits inside, one reviewable idea
+  (`v2-feat/1a-conversation-model`, `v2-feat/1b-condense`). Conventional Commits inside, one reviewable idea
   per commit, as in V1.
 - **Merging:** a branch is merged into `v2` with `git merge --no-ff` only when its checks pass
-  (§9) and it has been reviewed. The merge commit is titled `merge: v2/<branch> — <one line>`.
+  (§9) and it has been reviewed. The merge commit is titled `merge: v2-feat/<branch> — <one line>`.
   `--no-ff` keeps each feature visible as a unit in `git log --graph` and makes reverting a whole
   feature one `git revert -m 1`.
 - **Keeping a branch current:** rebase an *unpushed* feature branch onto `v2`; once pushed, merge
@@ -190,7 +191,7 @@ Each phase lists its branch, what it builds, its decisions, and its acceptance t
 rough; *model* is the sub-agent tier per the working method (Opus for correctness-critical,
 Sonnet for well-specified work).
 
-### Phase 0 — foundation · `v2/0-foundation` · M · Sonnet, Opus for the ledger
+### Phase 0 — foundation · `v2-feat/0-foundation` · M · Sonnet, Opus for the ledger
 
 Backend:
 - **Usage ledger** (`UsageEvent`) and moving the Ask quota onto it (data migration; the quota
@@ -213,7 +214,7 @@ Acceptance: quota behaviour identical to V1 (the V1 quota tests pass unchanged a
 ledger); the sweeper fails a stuck ask and it stops counting; a 5,000-deep JSON body is a 400; a
 too-large cross-origin request shows "too large" in the browser; routes survive a reload.
 
-### Phase 1 — conversations · `v2/1-conversations` · L · Opus
+### Phase 1 — conversations · `v2-feat/1-conversations` · L · Opus
 
 Pipeline for a turn in a conversation:
 1. **Condense** (turn 2 onward): the chat provider rewrites the follow-up into a standalone
@@ -252,7 +253,7 @@ rule in tests); turns are strictly sequential; conversation isolation (another u
 quota counts turns, not condense calls (or both, per open question 1); deleting a conversation
 hides its turns from history but keeps quota accounting intact.
 
-### Phase 2 — streaming · `v2/2-streaming` · L · Opus
+### Phase 2 — streaming · `v2-feat/2-streaming` · L · Opus
 
 - **Provider layer:** the Protocol gains an optional `stream(system, user)` yielding text deltas
   and finally a `ChatResult` (usage). Claude, OpenAI and Gemini adapters implement it over
@@ -274,7 +275,7 @@ Acceptance: first delta within ~1 s of the provider's first token (manual check 
 a dropped connection resumes from the row's partial text; another user's stream → 404; the
 polling path still passes all V1 tests; a provider without streaming still answers.
 
-### Phase 3 — user memory · `v2/3-memory` · M · Opus for extraction rules
+### Phase 3 — user memory · `v2-feat/3-memory` · M · Opus for extraction rules
 
 - **Extraction** after each done turn (Celery, `memory_extract` usage event): the chat provider
   gets the question, the answer and the user's existing similar facts (vector search over
@@ -297,7 +298,7 @@ a contradiction supersedes the old fact; injected instructions in a note never b
 extraction calls (mock asserts); facts are owner-scoped in SQL; deleting a fact removes it from
 future prompts.
 
-### Phase 4 — format my note · `v2/4-format` · S · Sonnet
+### Phase 4 — format my note · `v2-feat/4-format` · S · Sonnet
 
 - `POST notes/<id>/format/` with `Idempotency-Key` → `202` `FormatJob`; poll
   `GET format-jobs/<id>/`. The task sends the note's TipTap JSON with a versioned prompt
@@ -312,7 +313,7 @@ future prompts.
 Acceptance: a messy note becomes structured and passes the guardrail; a result that drops a
 paragraph or invents a date is refused; applying on a stale version conflicts; usage recorded.
 
-### Phase 5 — reminders and calendar · `v2/5-reminders` · L · Opus for delivery, Sonnet for the calendar UI
+### Phase 5 — reminders and calendar · `v2-feat/5-reminders` · L · Opus for delivery, Sonnet for the calendar UI
 
 - **API:** `POST notes/<id>/reminders/`, `PATCH/DELETE reminders/<id>/`,
   `GET reminders/?from=&to=` (calendar range, expands recurrences within the range, capped).
@@ -336,7 +337,7 @@ with threads); a deleted note cancels its reminders; recurrence advances correct
 change in a DST timezone (test with `Europe/London`); calendar range queries are owner-scoped;
 dead push subscriptions are removed.
 
-### Phase 6 — attachments and summaries · `v2/6-attachments` · L · Opus for upload security
+### Phase 6 — attachments and summaries · `v2-feat/6-attachments` · L · Opus for upload security
 
 - **Upload:** `POST notes/<id>/attachments/` (multipart), limits per file (e.g. 10 MB) and per
   user; type from magic bytes (JPEG, PNG, WebP, PDF only); stored under a random name outside
@@ -357,7 +358,7 @@ Acceptance: a renamed `.exe` with a `.pdf` extension is refused by magic bytes; 
 attachment id → 404 on metadata and file; a PDF's text is searchable and citable; an image's text
 (fake extractor) is searchable; quotas and sizes enforced; deleting removes file and chunks.
 
-### Phase 7 — mobile catch-up · `v2/7-mobile` · M · Sonnet
+### Phase 7 — mobile catch-up · `v2-feat/7-mobile` · M · Sonnet
 
 Only if V1's Phase 7 (Android) has landed: native notifications for reminders (Capacitor local
 notifications + FCM for delivery when the app is closed — a dependency decision at that time),
@@ -438,14 +439,14 @@ only, never names or content).
 
 | Order | Branch | Depends on | Can run in parallel with |
 |---|---|---|---|
-| 1 | `v2/0-foundation` | — | — |
-| 2 | `v2/1-conversations` | 0 | `v2/4-format` |
-| 3 | `v2/2-streaming` | 1 | `v2/5-reminders` |
-| 4 | `v2/3-memory` | 1 | `v2/5-reminders`, `v2/6-attachments` |
-| — | `v2/4-format` | 0 | 1, 2, 3 |
-| — | `v2/5-reminders` | 0 | 2, 3, 6 |
-| — | `v2/6-attachments` | 0 | 3, 5 |
-| last | `v2/7-mobile` | V1 Phase 7, 5 | — |
+| 1 | `v2-feat/0-foundation` | — | — |
+| 2 | `v2-feat/1-conversations` | 0 | `v2-feat/4-format` |
+| 3 | `v2-feat/2-streaming` | 1 | `v2-feat/5-reminders` |
+| 4 | `v2-feat/3-memory` | 1 | `v2-feat/5-reminders`, `v2-feat/6-attachments` |
+| — | `v2-feat/4-format` | 0 | 1, 2, 3 |
+| — | `v2-feat/5-reminders` | 0 | 2, 3, 6 |
+| — | `v2-feat/6-attachments` | 0 | 3, 5 |
+| last | `v2-feat/7-mobile` | V1 Phase 7, 5 | — |
 
 Parallel branches touch different apps (`assistant` vs `notes`), so merges stay small; shared
 files (`config/settings.py`, `config/api/urls.py`) take additive blocks only, as in V1.

@@ -1167,7 +1167,7 @@ is a project of its own.
 
 **Decided (by the owner, 2026-10-01):** `master` stays the released V1 line and takes fixes only.
 `v2`, cut from `master` at `phase-6-web`, is V2's integration branch. Each phase is built on a
-`v2/<phase>-<slug>` branch and merged into `v2` with `--no-ff` after review and green checks, then
+`v2-feat/<phase>-<slug>` branch and merged into `v2` with `--no-ff` after review and green checks, then
 tagged `v2-phase-N-<name>`. Fixes on `master` are merged into `v2` the same day. At release, `v2`
 is merged into `master` and tagged `v2.0.0`. Full workflow: `docs/V2_PLAN.md` §1.
 
