@@ -169,3 +169,20 @@ and a chip opened its note; the next ask got the quota message.
 **Left:** everything in BACKLOG under "Web:". **Unsure:** the API assumptions listed there as
 "contract reconciliation" — in particular device sign-out's method, the ask status values, and
 whether `changes` tombstones carry `deleted_at`.
+
+### Integration — merging the parallel slices (2026-10-01)
+
+Phases 1, 2 and the first halves of 3–6 were built by parallel agents in separate worktrees, then
+rebased onto `master` one at a time. A usage limit stopped four of them mid-work; each was resumed
+and finished before merging. Conflicts were all additive (settings blocks, URL mounts, the docs),
+resolved by keeping both sides and putting DECISIONS and this log back in phase order.
+
+**Tags:** because phase 2 merged before phase 1, the history is not phase-ordered.
+`phase-1-auth` and `phase-2-notes` both point at the first commit where both are complete, so
+`git diff phase-0-scaffold phase-2-notes` shows the two together. From phase 3 on, phases land in
+order again.
+
+**Owner decisions (2026-10-01):** keyword search stays English (D24); device limit stays 2 (D6);
+push at each phase tag; providers stay modular — boundary function, settings-selected registry,
+one adapter per vendor — with fake providers until keys are set.
+
