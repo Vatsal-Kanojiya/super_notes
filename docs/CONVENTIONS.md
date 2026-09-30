@@ -65,6 +65,8 @@ Mirrored for embeddings (`retrieval/embeddings/`) and chat (`assistant/chat/`):
   sign-in is matched on Google's `sub` first, then email.
 - `issue_tokens(user)` returns `{access, refresh, user}`; refresh rotates and blacklists; logout
   blacklists one refresh token. `@sensitive_variables()` on every view holding a token.
+- **Changed:** an email already linked to a different `sub` is refused (D13); refresh locks the
+  old token's row so a racing replay gets 401 (D20).
 - Google-only: no passwords, no email verification, no MFA (Google's own MFA covers the account).
 
 ## 6. Security posture: ASVS Level 2, as in the reference
@@ -75,7 +77,7 @@ The owner asked for the reference's Level 2 posture (D6). Carried over:
 |---|---|
 | Security event trail (`SecurityEvent`, `audit.record`, never raises, never secrets, retention purge) | `accounts/audit.py` |
 | Rate limits on sign-in by address, keyed through `TRUSTED_PROXY_COUNT` | `accounts/ratelimit.py` |
-| Signed-in device limit (`MAX_SIGNED_IN_DEVICES`, default 2): a further sign-in ends the oldest | `accounts/devices.py` |
+| Signed-in device limit (`MAX_SIGNED_IN_DEVICES`, default 2): a further sign-in ends the least recently used. **Changed:** refresh-token chains only (D17), `DELETE auth/devices/<id>/`, a `device` claim marks the caller (D18) | `accounts/devices.py` |
 | CSP, HSTS, `__Host-` cookies, nosniff, request ids, 413 before parsing | `config/` |
 | Sensitive variables scrubbed from error reports | views holding tokens |
 | Dependency SLA (7/14/30/90 days) and Dependabot | `SECURITY.md`, `.github/dependabot.yml` |

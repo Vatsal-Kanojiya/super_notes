@@ -724,3 +724,153 @@ copy arriving through sync replaces the editor's content only when nothing is un
 is a project of its own.
 
 **Reverse it if:** conflicts turn out to be common in use (a phone and a laptop open at once).
+
+## Phase 1 — auth
+
+### D13. An email already linked to a different Google `sub` is refused
+
+**Decided:** `find_or_create_user` matches on `google_sub` first, then on email. If the email
+matches an account whose `google_sub` is set to a *different* value, the sign-in is refused
+(`google_failed`, recorded as `google_login_failed` with `reason: sub_mismatch`).
+
+**Alternatives:** re-link the account to the new `sub`; create a second account (impossible:
+email is unique).
+
+**Why:** `sub` is Google's stable account id; an email is not. The same address on a new `sub`
+means a different Google account now holds it (a Workspace admin deleted a user and re-created
+the address). Re-linking would hand the old holder's notes to the new one.
+
+**Reverse it if:** real people hit it. The fix for one account is to clear its `google_sub` in a
+shell (it is read-only in the admin on purpose).
+
+### D14. The audience list goes straight to google-auth; tests verify real signatures offline
+
+**Decided:** `verify_oauth2_token(..., audience=list(GOOGLE_OAUTH_CLIENT_IDS))`. google-auth 2.58
+accepts a list and requires `aud` to be one of its entries (`google/auth/jwt.py`, `decode`), so no
+second `aud` check is written by hand. `iss` and `email_verified is True` are checked on top. The
+fetch of Google's certificates gets a 10-second timeout (the transport's default is 120).
+Tests sign tokens with a throwaway RSA key and replace only the certificate transport
+(`accounts/tests/fake_google.py`), rather than mocking `verify_oauth2_token` as the reference does.
+
+**Alternatives:** verify with no audience and compare `aud` ourselves; mock the verifier.
+
+**Why:** the list is the library's own contract, and a real signature check in the tests proves
+that a wrong audience, an expired token and a tampered signature are refused *by the code that
+runs in production*, not by a mock returning what the test told it to.
+
+**Reverse it if:** a google-auth upgrade drops list support; the test for the Android audience
+fails first.
+
+### D15. Profile and email follow Google on every sign-in
+
+**Decided:** name and avatar are refreshed from the claims at every sign-in (written only when
+changed). When a `sub` match arrives with a different email, the account's email follows it,
+unless another account already holds that address (then the old one is kept). Names are cut to
+150 characters; an avatar URL longer than 500 is dropped, not cut.
+
+**Alternatives:** set them once at sign-up.
+
+**Why:** Google is the only source of these fields in V1; there is no profile editing.
+
+**Reverse it if:** users get a way to edit their name here; then stop overwriting it.
+
+### D16. What the event trail records, and what it does not
+
+**Decided:** `google_login_succeeded`, `google_login_failed` (with a fixed `reason` word:
+`invalid_token`, `bad_issuer`, `email_unverified`, `missing_claims`, `inactive`, `sub_mismatch`,
+`conflict`), `signed_up`, `logged_out`, `device_signed_out` (`reason: limit | user`) and
+`login_blocked`. **No `tokens_refreshed`.** A failed sign-in stores the email only once Google has
+vouched for it. The snapshot column is `email` (the reference's `username`; there is no username).
+
+**Alternatives:** record every refresh.
+
+**Why:** a refresh happens every 30 minutes per device; recording it would bury the events that
+matter, and `SignedInDevice.last_seen_at` already says when a device was last used. The reason
+word is never shown to the client (which always gets one generic refusal) but tells a reviewer
+what happened.
+
+**Reverse it if:** you need a per-refresh history for an investigation.
+
+### D17. A device is a refresh-token chain only; signed out with `DELETE`
+
+**Decided:** `SignedInDevice` has no `kind` or `session_key`: the only session in this project is
+the admin's. Signing one out is `DELETE auth/devices/<id>/` (the reference: `POST
+…/<id>/sign-out/`).
+
+**Alternatives:** keep the reference's model and verb.
+
+**Why:** unused columns invite code paths nobody tests; `DELETE` on the device resource is the
+plain REST reading of "remove this device".
+
+**Reverse it if:** web sessions for users ever come back.
+
+### D18. Tokens carry the device id, so a request knows which device it is
+
+**Decided:** `issue_tokens` puts the `SignedInDevice` id in a `device` claim. simplejwt copies it
+into every access token and keeps it through rotation. The devices list marks `current: true`
+for the caller's own device.
+
+**Alternatives:** the reference's answer: an API device cannot tell which one it is.
+
+**Why:** a client needs "this device" to show the list sensibly (and to warn before signing
+itself out). The claim is an id the caller can already see in the list, so nothing leaks.
+
+**Reverse it if:** never needed; it costs one small claim.
+
+### D19. A signed-out device's access token lives out its 30 minutes
+
+**Decided:** ending a device (limit or `DELETE`) and logging out blacklist the refresh token.
+The access token beside it keeps working until it expires (`JWT_ACCESS_MINUTES`, default 30).
+
+**Alternatives:** check on every request that the access token's `device` still exists (one
+indexed query per request).
+
+**Why:** as the reference: stateless access tokens are the point of JWT, and 30 minutes bounds
+the exposure. The `device` claim (D18) makes the stricter check a small change — parked in
+BACKLOG.md.
+
+**Reverse it if:** immediate sign-out becomes a requirement.
+
+### D20. A refresh locks the old token's row
+
+**Decided:** `RefreshView` runs in a transaction and `select_for_update`s the presented token's
+`OutstandingToken` row before simplejwt checks the blacklist.
+
+**Alternatives:** trust simplejwt as it is.
+
+**Why:** without it, two requests with the same refresh token both pass the blacklist check
+before either writes to it, and both get a live chain — the replay rotation exists to stop, and
+it also let the second chain count as a new device and push out a real one. A
+`TransactionTestCase` with two threads shows `[200, 200]` without the lock and `[200, 401]` with it.
+
+**Reverse it if:** simplejwt makes rotation atomic itself.
+
+### D21. Rate limits: failed Google sign-ins per address, plus the `auth` throttle
+
+**Decided:** `ratelimit.py` keeps only the per-address cap on *failed* Google sign-ins (50 per 15
+minutes, the reference's `login-ip` numbers); a blocked attempt is a 429 `rate_limited` and a
+`login_blocked` event; a success does not clear the count. `auth/google/`, `auth/refresh/` and
+`auth/logout/` share DRF's `auth` scope (30/hour by default, per address for these
+unauthenticated views).
+
+**Alternatives:** the reference's per-username and per-account caps (there is no username or
+password); leaving refresh out of the `auth` scope.
+
+**Why:** before verification only the address is known. Refresh is in the scope because it is the
+other endpoint that accepts a bearer credential from anyone; at one refresh per device per 30
+minutes, 30/hour leaves room for a household behind one address.
+
+**Reverse it if:** a NAT'd office hits 30/hour; raise `API_AUTH_THROTTLE`.
+
+### D22. Expired tokens are flushed daily
+
+**Decided:** a beat task runs simplejwt's `flushexpiredtokens` daily, beside the security-event
+purge.
+
+**Alternatives:** none in the reference, where the table just grows.
+
+**Why:** rotation leaves one `OutstandingToken` row per refresh (about 50 a day per active
+device). An expired token is refused on its `exp` alone, so the row proves nothing, and
+`devices.prune` treats a missing token as dead.
+
+**Reverse it if:** you want token history for investigations; keep them and archive instead.

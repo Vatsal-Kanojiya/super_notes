@@ -66,3 +66,12 @@ Things that came up and were left for a decision. Each names what it is waiting 
 - **Web: dark-mode toggle** — the theme follows the system only.
 - **Web: API contract reconciliation** — `web/src/api/types.ts` was written from the plan, not the
   generated schema. Reconcile it with `docs/openapi.yml` once the backend phases merge.
+
+- **Immediate sign-out of a device** — a signed-out device's access token works until it
+  expires (up to 30 minutes, D19). The `device` claim (D18) makes a per-request "does this device
+  still exist" check a small change, at one indexed query per request. Waiting on whether 30
+  minutes is acceptable.
+- **Caching Google's signing keys** — every sign-in fetches Google's certificates (as in the
+  reference). Fine at V1's sign-in rate; honouring their `Cache-Control` would save a round trip.
+- **Account deletion** — not in V1's scope. `SecurityEvent.user` is `SET_NULL` so the trail
+  survives it, but nothing blanks the `email` snapshot yet (the reference does).

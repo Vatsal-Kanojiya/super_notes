@@ -144,3 +144,28 @@ and a chip opened its note; the next ask got the quota message.
 **Left:** everything in BACKLOG under "Web:". **Unsure:** the API assumptions listed there as
 "contract reconciliation" — in particular device sign-out's method, the ask status values, and
 whether `changes` tombstones carry `deleted_at`.
+
+### Phase 1 — auth
+
+**Built:** Google sign-in with a list of audiences (`accounts/google.py`), matched on `sub` then
+email; `auth/google/`, `auth/refresh/` (rotate + blacklist), `auth/logout/`, `me/`
+(`accounts/api.py`). The reference's security layer, Google-only: the `SecurityEvent` trail with
+a read-only admin and a daily retention purge, the per-address cap on failed sign-ins plus the
+DRF `auth` throttle, and the two-device limit with `GET auth/devices/` and
+`DELETE auth/devices/<id>/`. Decisions D13–D22. `accounts/` at 100% coverage.
+
+**What went wrong / notes:**
+
+- simplejwt lets two requests with the same refresh token both rotate it (both pass the
+  blacklist check before either writes). Found while wiring the device limit, where it also let a
+  replayed token push a real device out. Closed with a row lock (D20) and a threaded test that
+  fails without it.
+- simplejwt's refresh looks the user up with a bare `.get()`: a token outliving its account was a
+  500. Now a 401.
+- Tests verify really signed tokens against a throwaway certificate instead of mocking the
+  verifier (D14), so the audience-list and expiry checks are the library's own.
+
+**Left:** nothing in the phase. Ask usage on `me/` is phase 5 (a comment marks the place).
+
+**Unsure:** whether 30/hour on the `auth` scope is enough once web and Android both refresh from
+one home address (D21); whether refusing a re-used email on a new `sub` (D13) will bite anyone.
