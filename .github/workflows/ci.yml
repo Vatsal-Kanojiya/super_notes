@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # Postgres with pgvector, from its image. This is CI's only container;
+    # nothing local needs Docker (README.md, "Native setup").
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: super_notes
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      SECRET_KEY: ci-only-not-a-real-secret-4c1e9a7f02b85d3e61a09c7b4f28e5d1a3c60b97f8e2d451
+      DEBUG: "False"
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/super_notes
+      # Tests run with DEBUG off so production behaviour is exercised, but
+      # the SSL redirect would turn every test request into a 301. The
+      # deploy-checks job keeps the real setting honest (reference D2).
+      SECURE_SSL_REDIRECT: "False"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Check for missing migrations
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Django system checks
+        run: python manage.py check
+
+      - name: OpenAPI schema is current
+        run: |
+          python manage.py spectacular --file /tmp/schema.yml --validate --fail-on-warn
+          diff -u docs/openapi.yml /tmp/schema.yml
+
+      - name: Tests with coverage
+        run: |
+          coverage run manage.py test
+          coverage report
+
+  deploy-checks:
+    runs-on: ubuntu-latest
+
+    env:
+      SECRET_KEY: ci-only-not-a-real-secret-4c1e9a7f02b85d3e61a09c7b4f28e5d1a3c60b97f8e2d451
+      DEBUG: "False"
+      ALLOWED_HOSTS: example.com
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/super_notes
+      # The check only reads the backend's name; nothing needs to listen.
+      CACHE_URL: rediscache://127.0.0.1:6379/2
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Production readiness audit
+        run: python manage.py check --deploy --fail-level WARNING

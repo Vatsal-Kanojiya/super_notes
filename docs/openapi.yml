@@ -1,0 +1,51 @@
+openapi: 3.0.3
+info:
+  title: Super Notes API
+  version: 1.0.0
+  description: 'Notes that sync across devices, and answers to questions about them
+    with citations. Sign in with `POST /api/v1/auth/google/` and send `Authorization:
+    Bearer <access>`.'
+paths:
+  /api/v1/health/:
+    get:
+      operationId: health_retrieve
+      description: |-
+        Whether the app is up and can reach its database.
+
+        For an uptime monitor, or a client deciding whether to show "we are
+        down". Unauthenticated and unthrottled: a monitor polling once a minute
+        would otherwise use up the anonymous rate on its own.
+      summary: Health check
+      tags:
+      - Health
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthDown'
+          description: ''
+components:
+  schemas:
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+      - status
+    HealthDown:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+      - status
