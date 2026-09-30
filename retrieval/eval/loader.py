@@ -23,7 +23,7 @@ QUESTIONS_FILE = FIXTURES_DIR / "questions.json"
 
 NOTE_TYPES = frozenset({"text", "checklist"})
 
-# What a question tests; see docs/RAG_EVAL_DRAFT.md for each one.
+# What a question tests; docs/RAG.md "Evaluation" describes each one.
 QUESTION_KINDS = frozenset(
     {
         "keyword",  # shares rare words with the note: keyword search should find it
