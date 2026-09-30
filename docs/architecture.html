@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Super Notes Architecture</title>
+<style>
+:root{--bg:#fafaf8;--fg:#1c1c1a;--muted:#62625c;--card:#fff;--line:#dcdcd4;--accent:#2a5bd7;--built:#1a7f4b;--wip:#b26a00;--plan:#6b6b9a;--code:#f0efe8}
+@media (prefers-color-scheme:dark){:root{--bg:#141416;--fg:#e8e8e3;--muted:#9a9a93;--card:#1d1d20;--line:#34343a;--accent:#7ea3ff;--built:#4cc38a;--wip:#e6a23c;--plan:#a5a5d8;--code:#26262b}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:0 16px 64px}
+header{padding:32px 0 8px}
+h1{font-size:2rem;margin:0 0 4px}
+h2{font-size:1.4rem;margin:2.4rem 0 .6rem;padding-top:.6rem;border-top:1px solid var(--line);scroll-margin-top:64px}
+h3{font-size:1.05rem;margin:1.6rem 0 .4rem}
+p,li{max-width:75ch}
+.sub{color:var(--muted);margin:0}
+nav{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);margin:0 -16px;padding:8px 16px;overflow-x:auto;white-space:nowrap}
+nav a{color:var(--muted);text-decoration:none;font-size:.85rem;margin-right:14px}
+nav a:hover{color:var(--accent)}
+code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.88em}
+table{border-collapse:collapse;width:100%;font-size:.92rem;margin:.6rem 0}
+.tbl{overflow-x:auto}
+th,td{text-align:left;border:1px solid var(--line);padding:6px 9px;vertical-align:top}
+th{background:var(--code)}
+.tag{display:inline-block;font-size:.72rem;font-weight:600;border-radius:99px;padding:1px 8px;border:1px solid currentColor;white-space:nowrap}
+.built{color:var(--built)}.wip{color:var(--wip)}.plan{color:var(--plan)}
+.diagram{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin:.8rem 0;overflow-x:auto}
+.diagram .mermaid{min-width:560px;text-align:center}
+.note{background:var(--card);border-left:4px solid var(--accent);padding:8px 14px;margin:1rem 0;border-radius:0 6px 6px 0}
+pre{background:var(--code);padding:10px 12px;border-radius:6px;overflow-x:auto;font-size:.85rem}
+.legend span{margin-right:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>Super Notes: how it fits together</h1>
+<p class="sub">An architecture and workflow guide for the owner. Django 5.2, DRF, Celery, Postgres with pgvector, a Vue web client.</p>
+</header>
+<nav>
+<a href="#what">What it is</a><a href="#code">Code map</a><a href="#providers">Providers</a><a href="#flows">Workflows</a><a href="#security">Security</a><a href="#data">Data model</a><a href="#run">Run locally</a>
+</nav>
+
+<h2 id="what">1. What it is</h2>
+<p>Super Notes keeps your notes in sync across your devices. It also has "Ask your notes". You type a question. The app finds the relevant parts of your notes and has an AI model answer from them. The answer carries citations. Each citation links back to the note it came from.</p>
+<p>Notes are stored as TipTap documents (JSON). A background worker cuts each note into chunks and turns each chunk into a vector. Search mixes keyword search and vector search, and always filters by owner in SQL.</p>
+
+<div class="diagram"><div class="mermaid">
+flowchart LR
+  web["Vue web client<br/>(wired up, not yet run against the API)"] -->|"HTTPS + Bearer JWT"| api
+  android["Android app<br/>(Capacitor, planned)"] -->|"HTTPS + Bearer JWT"| api
+  api["Django + DRF API<br/>/api/v1/"] --> pg[("Postgres 16<br/>+ pgvector")]
+  api -->|"enqueue on commit"| redis[("Redis")]
+  redis --> worker["Celery worker"]
+  worker --> pg
+  worker --> emb["Embedding provider<br/>(fake / OpenAI / Gemini)"]
+  worker --> chat["Chat provider<br/>(fake / Claude / Gemini / OpenAI)"]
+  api -->|"verify ID token"| google["Google"]
+  api -.->|"query embedding (planned)"| emb
+</div></div>
+
+<h3>Built and planned</h3>
+<p>Status comes from <code>docs/COMMIT_PLAN.md</code>.</p>
+<div class="tbl"><table>
+<tr><th>Phase</th><th>What</th><th>Status</th></tr>
+<tr><td>0</td><td>Scaffold: settings, custom User, pgvector migration, health, schema and docs</td><td><span class="tag built">built</span></td></tr>
+<tr><td>1</td><td>Auth: Google sign-in, JWT, devices, security events</td><td><span class="tag built">built</span></td></tr>
+<tr><td>2</td><td>Notes and sync: CRUD, version conflicts, revision-based changes, keyword search</td><td><span class="tag built">built</span></td></tr>
+<tr><td>3</td><td>Chunking and indexing. Chunker and embedding providers exist. The indexer and its task are being built right now.</td><td><span class="tag wip">in progress</span></td></tr>
+<tr><td>4</td><td>Hybrid search (vector + full-text, RRF), <code>search/</code>, <code>eval_retrieval</code>. Eval fixtures and metrics exist.</td><td><span class="tag plan">search planned</span></td></tr>
+<tr><td>5</td><td>Ask. Chat providers, prompt and citation parsing exist. The AskQuery model, task, quota and API are planned.</td><td><span class="tag plan">endpoint planned</span></td></tr>
+<tr><td>6</td><td>Web client. Built against the API contract. Not yet run against the real API.</td><td><span class="tag plan">wiring planned</span></td></tr>
+<tr><td>7</td><td>Android via Capacitor</td><td><span class="tag plan">planned</span></td></tr>
+</table></div>
+<p>In the diagrams below, steps marked "planned" do not exist yet.</p>
+
+<h2 id="code">2. Code map</h2>
+<div class="tbl"><table>
+<tr><th>Path</th><th>Owns</th></tr>
+<tr><td><code>config/</code></td><td>Settings (env-driven), Celery app, URLs, exception handler, pagination, security headers and middleware.</td></tr>
+<tr><td><code>config/api/</code></td><td>The versioned API mount. <code>urls.py</code> puts everything under <code>/api/v1/</code>: health, schema, docs, then each app's routes.</td></tr>
+<tr><td><code>accounts/</code></td><td>The custom <code>User</code>, Google sign-in (<code>google.py</code>), token endpoints (<code>api.py</code>), device limit (<code>devices.py</code>), <code>SecurityEvent</code> trail (<code>audit.py</code>), sign-in rate limit (<code>ratelimit.py</code>).</td></tr>
+<tr><td><code>notes/</code></td><td>The <code>Note</code> model, content handling, and <code>services.py</code>, the only place that writes notes. <code>api/</code> has the viewset, including <code>changes/</code> for sync. Keyword search is here.</td></tr>
+<tr><td><code>retrieval/</code></td><td>Chunking (<code>chunking.py</code>), embedding boundary and providers (<code>embeddings/</code>), <code>NoteChunk</code>, indexing and its Celery task, search vector expression, eval fixtures (<code>eval/</code>).</td></tr>
+<tr><td><code>assistant/</code></td><td>The "Ask" side: chat boundary and providers (<code>chat/</code>), the prompt loader and <code>prompts/ask.md</code>, citation parsing. The <code>AskQuery</code> model and task come later.</td></tr>
+<tr><td><code>web/</code></td><td>Vue 3 + TipTap client. <code>src/api/</code> is a fetch wrapper with token refresh. <code>src/stores/</code> holds auth, notes, ask and view state. <code>src/components/</code> has sign-in, list, editor, devices and the Ask panel.</td></tr>
+<tr><td><code>docs/</code></td><td>Plan, decisions, build log, backlog, RAG notes, this page.</td></tr>
+</table></div>
+
+<h2 id="providers">3. The provider layering</h2>
+<p>Embeddings and chat both use the same four-layer shape. The rest of the app never sees a vendor.</p>
+<div class="diagram"><div class="mermaid">
+flowchart TB
+  app["App code<br/>indexer, search, ask task"] --> boundary
+  boundary["Boundary function<br/>embed_texts / embed_query  |  complete<br/>plain args in, plain result out, checked"] --> registry
+  registry["Registry<br/>name to import-path string<br/>chosen by EMBEDDING_PROVIDER / CHAT_PROVIDER<br/>imported lazily"] --> adapters
+  adapters["Adapters<br/>fake | openai | gemini | claude (chat only)"] --> vendor["Vendor HTTP API"]
+</div></div>
+<ul>
+<li><strong>Boundary.</strong> <code>retrieval/embeddings/__init__.py</code> and <code>assistant/chat/__init__.py</code>. They normalise input and output. The embedding boundary refuses blank text, batches calls, and checks every vector is finite and the right size. The chat boundary returns a plain <code>ChatResult</code>. No vendor type or HTTP detail crosses it.</li>
+<li><strong>Errors.</strong> Two kinds. A permanent error means give up. A transient error (429, 5xx, timeout) means Celery retries with backoff.</li>
+<li><strong>Registry.</strong> A dict of names to dotted path strings, resolved with <code>import_string</code> only when chosen. A broken adapter cannot stop the others loading. An unknown name raises the permanent error.</li>
+<li><strong>Adapters.</strong> <code>fake</code> is the default. It needs no network or key, so tests and local runs work. Real adapters use plain <code>requests</code>. API keys come from environment variables, never from app settings.</li>
+<li><strong>Stored model id.</strong> Each vector is saved with the embedding model id, so the indexer knows when a stored vector belongs to an old model.</li>
+</ul>
+<div class="note"><strong>Add a vendor:</strong> write one adapter file in <code>providers/</code> that implements the base protocol, then add one line to that registry's dict. Set <code>EMBEDDING_PROVIDER</code> or <code>CHAT_PROVIDER</code> to its name, add its model name to the models setting, and put its key in the environment.</div>
+
+<h2 id="flows">4. Workflows</h2>
+
+<h3>4a. Sign in with Google, refresh, logout</h3>
+<p>Endpoints: <code>auth/google/</code>, <code>auth/refresh/</code>, <code>auth/logout/</code>. Any sign-in failure returns one generic error, so nothing leaks about why.</p>
+<div class="diagram"><div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant A as API
+  participant G as Google certs
+  participant DB as Postgres
+  C->>A: POST auth/google/ (ID token)
+  A->>G: verify signature, expiry
+  Note over A: audience is in our client-id list<br/>iss is accounts.google.com<br/>email_verified is true
+  A->>DB: find user by Google sub, then by email
+  alt none found
+    A->>DB: create user
+  end
+  A->>DB: register device (refresh token chain)
+  Note over A,DB: limit is 2. A third sign-in signs the oldest out<br/>(blacklist its refresh token, log event)
+  A-->>C: access + refresh JWT, profile
+  C->>A: POST auth/refresh/ (refresh token)
+  A->>DB: blacklist old refresh, issue new pair, update device row
+  A-->>C: new pair (old refresh is now dead)
+  C->>A: POST auth/logout/ (refresh token)
+  A->>DB: blacklist token, drop device row
+  A-->>C: 204, this device is signed out
+</div></div>
+<p>Access tokens last 30 minutes by default. Refresh tokens last 14 days and rotate on every use. A device signed out by the limit can still use its current access token until it expires, but it cannot refresh.</p>
+
+<h3>4b. Edit a note</h3>
+<div class="diagram"><div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant A as API (notes/services.py)
+  participant DB as Postgres
+  participant Q as Redis / Celery
+  C->>A: PATCH notes/id (changes + version)
+  A->>DB: begin transaction, lock the owner's User row
+  A->>DB: revision = notes_revision + 1
+  A->>DB: re-read the note
+  alt version differs
+    A-->>C: 409 with the server copy (rolled back, no revision gap)
+  else version matches
+    A->>DB: version + 1, revision = new, save (content_text derived)
+    A->>Q: on_commit: index_note_task(note, version), countdown 20 s
+    A-->>C: 200 updated note
+  end
+</div></div>
+<p>The owner-row lock makes revisions come out in commit order. The version check happens after the lock, so two saves with the same version cannot both win. The indexing task is enqueued only after commit, so a worker never looks for a row that is not visible and a rolled-back write is never indexed. Deletes make a tombstone and enqueue with no delay.</p>
+
+<h3>4c. Sync between devices</h3>
+<div class="diagram"><div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as Device
+  participant A as API
+  participant DB as Postgres
+  C->>A: GET notes/changes/?after=rev
+  A->>DB: read the ceiling first (User.notes_revision)
+  A->>DB: notes with rev less than or equal to ceiling and greater than after, ordered by revision, limit+1
+  A-->>C: results (live notes and tombstones), latest_revision, has_more
+  Note over C: store latest_revision, repeat while has_more is true
+</div></div>
+<p>Reading the ceiling first is the trick. Everything at or below it is already committed, so the list is complete. A note written twice appears once, at its newest revision. A deleted note arrives as a tombstone so the device can remove it.</p>
+
+<h3>4d. Indexing a note</h3>
+<p><span class="tag wip">in progress</span> The chunker and embedding providers are built. The indexer and task are being built now.</p>
+<div class="diagram"><div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant W as Celery worker
+  participant DB as Postgres
+  participant E as Embedding provider
+  W->>DB: load note
+  alt note deleted
+    W->>DB: delete its chunks (de-index)
+  else version is not the requested one
+    Note over W: stop, a newer task will handle it
+  else
+    Note over W: chunk the TipTap tree by headings and list items<br/>hash each chunk's embed text
+    W->>DB: fetch stored vectors (same model id) by content hash
+    W->>E: embed only the chunks with a new hash (no lock held)
+    E-->>W: vectors
+    W->>DB: lock note row, re-check version
+    alt version changed while embedding
+      Note over W: write nothing
+    else same
+      W->>DB: atomic swap: update, create, delete chunks
+    end
+  end
+</div></div>
+<p>Chunks target about 1600 characters with a little overlap, and never cross a heading. The embedded text starts with the title and heading path, so "move it to Friday" still knows its note. The job is safe to run twice. Permanent errors are logged and dropped. Transient errors retry with backoff.</p>
+
+<h3>4e. Ask your notes</h3>
+<p><span class="tag plan">planned</span> The endpoint, model, task and quota are not built. The prompt, citation parsing and chat providers are.</p>
+<div class="diagram"><div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant A as API
+  participant DB as Postgres
+  participant T as Celery task
+  participant P as Chat provider
+  C->>A: POST ask/ (question, Idempotency-Key)
+  A->>DB: lock user, check quota
+  A->>DB: create AskQuery (pending)
+  A-->>C: 202 + query id
+  A->>T: enqueue
+  T->>DB: hybrid retrieval: vector + full-text, merged with RRF, owner filter in SQL
+  alt nothing clears the relevance floor
+    T->>DB: store "couldn't find anything" (no LLM call)
+  else
+    T->>T: number excerpts, build prompt with delimited excerpts
+    T->>P: complete(system, user)
+    P-->>T: answer text with [n] markers
+    T->>T: parse [n] to citations, drop invented numbers
+    T->>DB: store answer, citations, token counts
+  end
+  loop poll
+    C->>A: GET ask/id
+    A-->>C: status (and answer + citations when done)
+  end
+  Note over C: render answer, make [n] clickable to the cited note
+</div></div>
+<ul>
+<li>A repeated Idempotency-Key returns the existing query instead of charging quota twice.</li>
+<li>Quotas default to 20 (free) and 500 (premium) asks. The exact window is decided with the model.</li>
+<li>Note text is data. The prompt wraps excerpts in tags and escapes any tag a note tries to close, to blunt prompt injection.</li>
+<li>The stored answer is kept verbatim. Only citations that match a real excerpt become links.</li>
+</ul>
+
+<h2 id="security">5. Security layer</h2>
+<p>The posture is ASVS Level 2, carried over from the expense tracker (decision D6). Google is the only way in, so there are no passwords.</p>
+<div class="tbl"><table>
+<tr><th>Control</th><th>Where</th></tr>
+<tr><td>Google ID token checks: signature, audience list, issuer, expiry, email_verified</td><td><code>accounts/google.py</code></td></tr>
+<tr><td>Short access token, rotating refresh token, blacklist on rotation and logout</td><td><code>SIMPLE_JWT</code> in <code>config/settings.py</code>, <code>accounts/api.py</code></td></tr>
+<tr><td>Two-device limit; oldest signed out; sign out one device</td><td><code>accounts/devices.py</code>, <code>auth/devices/</code></td></tr>
+<tr><td>Security event trail (never stores secrets, has retention purge)</td><td><code>accounts/audit.py</code>, <code>SecurityEvent</code></td></tr>
+<tr><td>Sign-in rate limit by address, proxy-aware</td><td><code>accounts/ratelimit.py</code></td></tr>
+<tr><td>Throttle scopes: user, anon, auth, search, ask</td><td><code>DEFAULT_THROTTLE_RATES</code> in <code>config/settings.py</code></td></tr>
+<tr><td>Ownership enforced in SQL; other users' ids give 404; cross-user tests on each resource</td><td>every app; <code>NoteChunk.owner</code> for search</td></tr>
+<tr><td>CORS allow-list (no wildcard), tokens in a header so no CSRF needed</td><td><code>config/settings.py</code></td></tr>
+<tr><td>CSP, HSTS, nosniff, request ids, 413 before parsing</td><td><code>config/</code></td></tr>
+<tr><td>Notes can only be written through one service; <code>content_text</code> is derived, never accepted from a client</td><td><code>notes/services.py</code>, <code>Note.save()</code></td></tr>
+<tr><td>Prompt injection defence: delimited excerpts, tag escaping</td><td><code>assistant/prompt.py</code></td></tr>
+<tr><td>Vendor errors quoted with API keys redacted; keys only from environment</td><td>provider <code>_common.py</code> / <code>_http.py</code></td></tr>
+<tr><td>Dependency SLA and Dependabot</td><td><code>SECURITY.md</code></td></tr>
+</table></div>
+
+<h2 id="data">6. Data model</h2>
+<div class="diagram"><div class="mermaid">
+erDiagram
+  USER ||--o{ NOTE : owns
+  USER ||--o{ NOTECHUNK : owns
+  NOTE ||--o{ NOTECHUNK : "split into"
+  USER ||--o{ SIGNEDINDEVICE : "signed in on"
+  USER ||--o{ SECURITYEVENT : "has trail"
+  USER ||--o{ ASKQUERY : "asks (planned)"
+  USER {
+    string email "unique, the login key"
+    string google_sub "stable Google id"
+    bigint notes_revision "per-user sync counter"
+  }
+  NOTE {
+    string type "text or checklist"
+    string title
+    json content "TipTap document"
+    text content_text "derived, for search"
+    int version "per note, for conflicts"
+    bigint revision "per user, for sync"
+    datetime deleted_at "tombstone when set"
+  }
+  NOTECHUNK {
+    int ordinal
+    text text "cited excerpt"
+    string heading_path
+    string content_hash "reuse key"
+    vector embedding "pgvector, HNSW index"
+    string embedding_model
+    int note_version
+  }
+  ASKQUERY {
+    text question
+    text answer
+    json citations
+    string status
+    string prompt_version
+  }
+  SIGNEDINDEVICE {
+    string refresh_jti
+    datetime last_seen_at
+    string label
+  }
+  SECURITYEVENT {
+    string event
+    string ip
+    string request_id
+    json detail
+  }
+</div></div>
+<p>The user field names shown are the intent. Check <code>accounts/models.py</code> for exact columns. The AskQuery fields are a sketch. The model is not built. <code>version</code> answers "did this note change since I loaded it". <code>revision</code> answers "what changed since I last synced".</p>
+
+<h2 id="run">7. Run locally</h2>
+<p>Needs Postgres 16 with pgvector, Redis, Python 3.x and Node. Full setup is in <code>README.md</code>.</p>
+<pre>python manage.py migrate                 # also enables pgvector
+python manage.py runserver               # API at :8000, docs at /api/v1/docs/
+celery -A config worker -l info          # background indexing (and ask, later)
+cd web &amp;&amp; npm install &amp;&amp; npm run dev     # Vite dev server, usually :5173
+# set CORS_ALLOWED_ORIGINS=http://localhost:5173 and VITE_API_BASE_URL in env
+python manage.py test                    # the suite</pre>
+<p>Where the docs live, all in <code>docs/</code>: <code>COMMIT_PLAN.md</code> (phases and status), <code>CONVENTIONS.md</code> (rules carried from the expense tracker), <code>DECISIONS.md</code> (each choice and why), <code>RAG.md</code> (chunking, embeddings, and later ask and eval), <code>BUILD_LOG.md</code>, <code>BACKLOG.md</code>. The API contract is at <code>/api/v1/schema/</code>.</p>
+</div>
+
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+mermaid.initialize({startOnLoad:false, securityLevel:"strict", theme: dark ? "dark" : "neutral", sequence:{useMaxWidth:true}, flowchart:{useMaxWidth:true}});
+mermaid.run({querySelector:".mermaid"});
+</script>
+</body>
+</html>
