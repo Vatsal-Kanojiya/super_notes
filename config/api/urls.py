@@ -20,6 +20,7 @@ v1 = [
     path("", include("accounts.api")),
     path("", include("notes.api.urls")),
     path("", include("retrieval.api")),
+    path("", include("assistant.api")),
 ]
 
 urlpatterns = [path("v1/", include((v1, "v1")))]

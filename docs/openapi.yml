@@ -6,6 +6,138 @@ info:
     with citations. Sign in with `POST /api/v1/auth/google/` and send `Authorization:
     Bearer <access>`.'
 paths:
+  /api/v1/ask/:
+    get:
+      operationId: ask_list
+      description: Follow `next` for more.
+      summary: Your asks, newest first
+      parameters:
+      - name: cursor
+        required: false
+        in: query
+        description: The pagination cursor value.
+        schema:
+          type: string
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: 1-100, default 25.
+      tags:
+      - Ask
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAskQueryList'
+          description: ''
+    post:
+      operationId: ask_create
+      description: |-
+        Starts answering and returns at once with the ask `pending` (202): poll `GET ask/<id>/` until `status` is `done` or `failed`. The answer comes from your notes only, with `[n]` markers matching `citations`.
+
+        Send a fresh `Idempotency-Key` per question. Resending one (a retry after a dropped connection) returns the ask it already made, with 200, and does not count again. Reusing it for a different question is a 422.
+
+        Each ask that does not fail counts against the month's quota (see `me/`).
+      summary: Ask your notes a question
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: 1-100 of `A-Z a-z 0-9 - _`; a UUID is ideal.
+        required: true
+      tags:
+      - Ask
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AskCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AskCreateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AskQuery'
+          description: Asked; poll for the answer.
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AskQuery'
+          description: 'A replayed key: that ask.'
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid question, or `idempotency_key_required` / `idempotency_key_invalid`.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`idempotency_key_reused`: the key was used for another question.'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaExceeded'
+          description: '`quota_exceeded` (with usage), or `throttled`.'
+  /api/v1/ask/{id}/:
+    get:
+      operationId: ask_retrieve
+      description: Poll this until `status` is `done` or `failed`; a failed ask has
+        a user-facing `error` and does not count against the quota.
+      summary: Get an ask
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Ask
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AskQuery'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such ask of yours.
   /api/v1/auth/devices/:
     get:
       operationId: auth_devices_list
@@ -478,6 +610,101 @@ paths:
           description: Too many, too recently.
 components:
   schemas:
+    AskCreateRequest:
+      type: object
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 1000
+      required:
+      - question
+    AskQuery:
+      type: object
+      description: |-
+        An ask as the client shows it.
+
+        Not ``retrieved`` or the token counts: they are for debugging and cost,
+        and the scores in ``retrieved`` would invite a client to rank with them.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        question:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        answer:
+          type: string
+          readOnly: true
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Citation'
+          readOnly: true
+          description: 'The notes the answer cites, in first-mention order. Link only
+            these numbers: an `[n]` in the answer with no citation points at nothing.'
+        error:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - answer
+      - citations
+      - completed_at
+      - created_at
+      - error
+      - id
+      - question
+      - status
+    AskUsage:
+      type: object
+      description: This month's asks. Failed asks are not counted.
+      properties:
+        used:
+          type: integer
+        limit:
+          type: integer
+        resets_at:
+          type: string
+          format: date-time
+          description: 'When `used` goes back to 0: the start of next month, Asia/Kolkata.'
+      required:
+      - limit
+      - resets_at
+      - used
+    Citation:
+      type: object
+      properties:
+        n:
+          type: integer
+          description: The `[n]` marker in the answer this cites.
+        note_id:
+          type: integer
+        chunk_id:
+          type: integer
+        title:
+          type: string
+        snippet:
+          type: string
+          description: The cited passage, on one line, cut at a word.
+      required:
+      - chunk_id
+      - n
+      - note_id
+      - snippet
+      - title
     Device:
       type: object
       description: A signed-in device, as the list shows it. Never its token id.
@@ -557,7 +784,13 @@ components:
           type: string
           format: date-time
           readOnly: true
+        ask_usage:
+          allOf:
+          - $ref: '#/components/schemas/AskUsage'
+          readOnly: true
+          description: This month's asks, counted from AskQuery rows (assistant/quota.py).
       required:
+      - ask_usage
       - avatar_url
       - date_joined
       - email
@@ -694,6 +927,25 @@ components:
       - type
       - updated_at
       - version
+    PaginatedAskQueryList:
+      type: object
+      required:
+      - results
+      properties:
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cD00ODY%3D"
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cj0xJnA9NDg3
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AskQuery'
     PaginatedNoteList:
       type: object
       required:
@@ -735,6 +987,29 @@ components:
       description: |-
         * `free` - Free
         * `premium` - Premium
+    QuotaExceeded:
+      type: object
+      description: 'A plain answer: what happened, and a stable code a client can
+        branch on.'
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+        used:
+          type: integer
+        limit:
+          type: integer
+        resets_at:
+          type: string
+          format: date-time
+          description: 'When `used` goes back to 0: the start of next month, Asia/Kolkata.'
+      required:
+      - code
+      - detail
+      - limit
+      - resets_at
+      - used
     RefreshRequest:
       type: object
       properties:
@@ -800,6 +1075,18 @@ components:
       - snippet
       - text
       - title
+    StatusEnum:
+      enum:
+      - pending
+      - running
+      - done
+      - failed
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `running` - Running
+        * `done` - Done
+        * `failed` - Failed
     TokenPair:
       type: object
       properties:

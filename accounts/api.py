@@ -30,6 +30,8 @@ from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from assistant import quota
+from assistant.api import AskUsageSerializer
 from config.api.common import RATE_LIMIT_RESPONSE, MessageSerializer
 
 from . import audit, devices, ratelimit
@@ -47,14 +49,18 @@ AUTH_TAG = ["Account"]
 class MeSerializer(serializers.ModelSerializer):
     """The signed-in account, as a client shows it."""
 
-    # Phase 5 (ask) adds the month's ask usage here -- `ask_usage: {used,
-    # limit, resets_at}` -- counted from AskQuery rows. Not before: there is
-    # nothing to count yet.
+    ask_usage = serializers.SerializerMethodField(
+        help_text="This month's asks, counted from AskQuery rows (assistant/quota.py)."
+    )
 
     class Meta:
         model = User
-        fields = ["id", "email", "name", "avatar_url", "plan", "date_joined"]
+        fields = ["id", "email", "name", "avatar_url", "plan", "date_joined", "ask_usage"]
         read_only_fields = fields
+
+    @extend_schema_field(AskUsageSerializer)
+    def get_ask_usage(self, user):
+        return AskUsageSerializer(quota.usage(user)).data
 
 
 class TokenPairSerializer(serializers.Serializer):
