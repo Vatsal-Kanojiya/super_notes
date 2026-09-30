@@ -154,8 +154,11 @@ async function doRefresh(staleAccess: string | null): Promise<boolean> {
     setTokens(pair)
     return true
   } catch (error) {
-    if (error instanceof ApiError && error.status === 0) throw error
-    return false
+    // The schema refuses a dead refresh token with a 401 (a 400 is tolerated
+    // too). Anything else (network, 429, 5xx) is not a verdict on the
+    // session: keep the tokens and let the caller see the error.
+    if (error instanceof ApiError && (error.status === 400 || error.status === 401)) return false
+    throw error
   }
 }
 
@@ -185,7 +188,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 }
 
 /** The `cursor` query parameter from a DRF `next`/`previous` URL. */
-export function cursorFrom(pageUrl: string | null): string | null {
+export function cursorFrom(pageUrl: string | null | undefined): string | null {
   if (!pageUrl) return null
   try {
     return new URL(pageUrl).searchParams.get('cursor')

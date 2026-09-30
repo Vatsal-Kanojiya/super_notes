@@ -23,7 +23,7 @@ import type {
 export const authApi = {
   google: (idToken: string) =>
     request<SignInResponse>('auth/google/', { method: 'POST', body: { id_token: idToken }, auth: false }),
-  // Logout needs no access token: the refresh token is what it revokes, and
+  // Logout needs no access token (the schema marks it public): the refresh token is what it revokes, and
   // an expired access token must not stop someone from signing out.
   logout: (refresh: string) => request<void>('auth/logout/', { method: 'POST', body: { refresh }, auth: false }),
   me: () => request<Me>('me/'),

@@ -1,10 +1,9 @@
 /**
  * Every request and response shape the client relies on, in one place.
  *
- * Written against the plan's API contract (§7) before the backend's OpenAPI
- * schema existed. When `docs/openapi.yml` lands, this file is the only one
- * that should need reconciling: stores and components import their types
- * from here and never spell a payload out themselves.
+ * Reconciled with `docs/openapi.yml` (search and ask are not in it yet and
+ * still follow the plan's contract). Stores and components import their
+ * types from here and never spell a payload out themselves.
  */
 
 // ---------------------------------------------------------------- common --
@@ -28,8 +27,8 @@ export interface ErrorBody {
 
 /** DRF cursor pagination. `next`/`previous` are full URLs carrying `cursor`. */
 export interface CursorPage<T> {
-  next: string | null
-  previous: string | null
+  next?: string | null
+  previous?: string | null
   results: T[]
 }
 
@@ -52,7 +51,10 @@ export interface AskUsage {
   resets_at: DateTime
 }
 
-/** `GET me/`: the user plus this month's ask usage. */
+/**
+ * `GET me/`. The schema has no ask usage yet; `ask_usage` is what the ask
+ * feature will add, so it stays optional.
+ */
 export interface Me extends User {
   ask_usage?: AskUsage
 }
@@ -66,15 +68,16 @@ export interface TokenPair {
   refresh: string
 }
 
-/** `POST auth/google/`. */
+/** `POST auth/google/`: the pair plus the account (same shape as `me/`). */
 export interface SignInResponse extends TokenPair {
-  user: User
+  user: Me
 }
 
 /** `POST auth/refresh/`: rotation, so a new refresh token comes back every time. */
 export interface RefreshRequest {
   refresh: string
 }
+/** `RefreshedPair` in the schema: the same two fields as a `TokenPair`. */
 export type RefreshResponse = TokenPair
 
 /** `POST auth/logout/` → 204. */
@@ -85,8 +88,7 @@ export interface LogoutRequest {
 /** `GET auth/devices/` → a plain list (not paginated). */
 export interface Device {
   id: Id
-  kind: 'web' | 'api'
-  /** The User-Agent, truncated. Untrusted text: only ever rendered as text. */
+  /** Untrusted text: only ever rendered as text. */
   label: string
   created_at: DateTime
   last_seen_at: DateTime
@@ -120,12 +122,17 @@ export interface Note {
   revision: number
   created_at: DateTime
   updated_at: DateTime
+  /** Always null on a live note (every endpoint except `changes` leaves deleted ones out). */
+  deleted_at: DateTime | null
 }
 
-/** A deleted note, as `changes` reports it. */
+/** A deleted note, as `changes` reports it: no title, content or content_text. */
 export interface Tombstone {
   id: Id
+  type: NoteType
+  version: number
   revision: number
+  updated_at: DateTime
   deleted_at: DateTime
 }
 
@@ -133,6 +140,8 @@ export interface NoteListParams {
   type?: NoteType
   q?: string
   cursor?: string
+  /** 1-100, default 25. */
+  page_size?: number
 }
 
 export interface NoteCreateRequest {
@@ -141,9 +150,11 @@ export interface NoteCreateRequest {
   content: DocNode
 }
 
+/** `PATCH notes/<id>/`: `version` is required, everything else is what changed. */
 export interface NoteUpdateRequest {
   /** The version this edit was made on top of. Stale → 409. */
   version: number
+  type?: NoteType
   title?: string
   content?: DocNode
 }
@@ -155,12 +166,12 @@ export interface VersionConflictBody {
   current: Note
 }
 
-/** `GET notes/changes/?after=<revision>`. */
+/** `GET notes/changes/?after=<revision>&limit=<1-1000>`, oldest write first. */
 export interface ChangesResponse {
   results: (Note | Tombstone)[]
   latest_revision: number
-  /** Present when the server caps a page; the client loops while true. */
-  has_more?: boolean
+  /** True when the batch was cut at `limit`: call again at once with `latest_revision`. */
+  has_more: boolean
 }
 
 export function isTombstone(item: Note | Tombstone): item is Tombstone {
@@ -179,9 +190,18 @@ export interface SearchHit {
   note_id: Id
   chunk_id: Id
   title: string
+  /** The headings above the chunk, "A > B" (may be empty). */
   heading_path: string
+  /** The whole chunk. */
   text: string
+  /** The chunk's start, cut at a word, for a results list. */
+  snippet: string
+  /** Fused rank score: orders hits, says nothing about relevance alone. */
   score: number
+  /** Cosine similarity to the query; null if found by keyword only. */
+  similarity: number | null
+  /** Full-text rank; null if found by meaning only. */
+  keyword_rank: number | null
 }
 
 // ------------------------------------------------------------------- ask --
