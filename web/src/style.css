@@ -378,14 +378,14 @@ textarea {
   justify-content: space-between;
   gap: 8px;
 }
-.title-input {
+input.title-input {
   font-size: 1.4rem;
   font-weight: 700;
   border: none;
   background: transparent;
   padding: 4px 0;
 }
-.title-input:focus-visible {
+input.title-input:focus-visible {
   outline: none;
   border-bottom: 2px solid var(--accent);
 }
