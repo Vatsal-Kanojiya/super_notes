@@ -10,7 +10,7 @@ import hashlib
 from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase, override_settings
 
-from retrieval.chunking import MAX_DEPTH, chunk_note
+from retrieval.chunking import _SENTENCES, MAX_DEPTH, chunk_note
 
 
 def text(value):
@@ -327,6 +327,56 @@ class PackingTests(SimpleTestCase):
 
         self.assertEqual(chunks[-1].text, "c" * 150)
         self.assertTrue(all(len(c.text) <= 160 for c in chunks))
+
+
+class SentenceSplitTests(SimpleTestCase):
+    """Abbreviations and initials are not sentence ends (D82)."""
+
+    def split(self, text):
+        return _SENTENCES.split(text)
+
+    def test_ordinary_sentences_still_split(self):
+        self.assertEqual(self.split("One. Two! Three? Four."), ["One.", "Two!", "Three?", "Four."])
+
+    def test_abbreviations_do_not_split(self):
+        for text in (
+            "Use a tool, e.g. a hammer.",
+            "That is, i.e. the plan.",
+            "Dr. Who arrived.",
+            "Mr. Smith and Mrs. Jones met Ms. Lee.",
+            "Cats vs. dogs is settled.",
+            "It costs approx. five pounds.",
+            "See No. 5 for details.",
+            "Pens, paper, etc. are on the desk.",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.split(text), [text])
+
+    def test_initials_do_not_split(self):
+        self.assertEqual(self.split("Ask J. R. R. Tolkien."), ["Ask J. R. R. Tolkien."])
+
+    def test_a_real_end_after_an_abbreviation_sentence_still_splits(self):
+        self.assertEqual(
+            self.split("Dr. Who left. Mr. Smith stayed."), ["Dr. Who left.", "Mr. Smith stayed."]
+        )
+
+    def test_a_word_merely_ending_like_an_abbreviation_still_splits(self):
+        # "casino." ends in "no." but is not "No."; \b and case keep them apart.
+        self.assertEqual(self.split("It is a casino. Go."), ["It is a casino.", "Go."])
+        self.assertEqual(self.split("The Demo. Go."), ["The Demo.", "Go."])
+
+    def test_long_paragraph_keeps_abbreviations_inside_chunks(self):
+        sentence = "Ask Dr. Who about it, e.g. on Friday."
+        chunks = chunk_note("", doc(para(" ".join([sentence] * 12))), **SMALL)
+        self.assertGreater(len(chunks), 1)
+        for chunk in chunks:
+            self.assertTrue(chunk.text.startswith("Ask Dr. Who"), chunk.text)
+            self.assertTrue(chunk.text.endswith("Friday."), chunk.text)
+
+    def test_output_is_deterministic(self):
+        body = doc(para(" ".join(["Ask Dr. Who, e.g. on Friday."] * 12)))
+        first = chunk_note("", body, **SMALL)
+        self.assertEqual(first, chunk_note("", body, **SMALL))
 
 
 class LongBlockTests(SimpleTestCase):

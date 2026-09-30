@@ -48,7 +48,19 @@ INLINE_TYPES = frozenset({"text", "hardBreak"})
 # sentences, then words. A single word longer than a chunk is cut by
 # length, the only place anything is cut mid-token.
 _LINES = re.compile(r"\n+")
-_SENTENCES = re.compile(r"(?<=[.!?])\s+")
+# A sentence ends at ., ! or ? and whitespace -- unless what precedes is a
+# common abbreviation or a single-letter initial ("e.g. this", "Dr. Who",
+# "J. Smith"), which only *look* like ends (DECISIONS D82). Fixed-width
+# negative lookbehinds, one per abbreviation, since `re` has no
+# variable-width ones. "etc." and "No." can genuinely end a sentence; not
+# splitting there only makes a chunk slightly longer, never wrong.
+_ABBREVIATIONS = ("e.g.", "i.e.", "etc.", "Dr.", "Mr.", "Mrs.", "Ms.", "vs.", "approx.", "No.")
+_SENTENCES = re.compile(
+    r"(?<=[.!?])"
+    + "".join(rf"(?<!\b{re.escape(abbr)})" for abbr in _ABBREVIATIONS)
+    + r"(?<!\b[A-Z]\.)"
+    + r"\s+"
+)
 _WORDS = re.compile(r"\s+")
 _SEPARATORS = ((_LINES, "\n"), (_SENTENCES, " "), (_WORDS, " "))
 
