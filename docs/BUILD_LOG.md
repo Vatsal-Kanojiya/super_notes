@@ -28,3 +28,18 @@ enabled by migration. ruff, coverage, pre-commit, CI with a pgvector service, De
 - CI has not run yet: the first push happens with this phase's tag.
 
 **Left:** nothing in the phase. **Unsure:** coverage bar (D12).
+
+### Phase 4a — evaluation fixtures
+
+**Built:** `retrieval/eval/`: 30 TipTap fixture notes and 31 labelled questions (eight kinds,
+including near-duplicate, multi-note and three no-answer questions), a loader that validates
+both files into frozen dataclasses, and pure recall@k / MRR functions that score note-level
+rankings (D41–D45). Draft "Evaluation" section in `docs/RAG_EVAL_DRAFT.md`, to be merged into
+`docs/RAG.md`. No DB, no models: search is being built in parallel.
+
+**What went wrong / notes:** nothing blocking. The fixtures were written with a throwaway
+generator (not committed; the JSON is the source of truth, D41).
+
+**Left:** `eval_retrieval` (needs search), a per-kind breakdown in its output, and the real
+provider's numbers in the results table. **Unsure:** whether 31 questions are enough to separate
+the modes — one question moves recall by ~3.6 points, so small differences are noise.

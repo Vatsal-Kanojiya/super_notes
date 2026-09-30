@@ -22,3 +22,8 @@ Things that came up and were left for a decision. Each names what it is waiting 
 - **413 without CORS headers** — `MaxUploadSizeMiddleware` runs before `CorsMiddleware`, so a
   cross-origin client sees a network error rather than "too large". Same known gap as the
   reference's roadmap §2.
+- **Eval: per-kind breakdown and noise** — `eval_retrieval` should print recall/MRR per question
+  kind (that is where vector vs keyword differ), and with 28 answerable questions one question is
+  ~3.6 points, so differences under ~5 points should not drive decisions. Waiting on search.
+- **Eval: relevance-floor check** — the three `no_answer` questions should report the top score
+  against the Ask floor once that floor exists (Phase 5).

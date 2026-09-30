@@ -154,3 +154,79 @@ UI is the Vue client, which Vite builds.
 `DEBUG=True`, which alone costs several points on a small codebase. CI runs with `DEBUG=False`.
 
 **Reverse it if:** the suite settles; raise it to 95.
+
+### D41. Eval notes are hand-written TipTap JSON, validated strictly on load
+
+**Decided:** `retrieval/eval/fixtures/notes.json` is the source of truth: 30 TipTap documents
+(StarterKit + TaskList/TaskItem), each with a stable key `n01`...`n30`. The loader
+(`retrieval/eval/loader.py`, not `fixtures.py`, which would shadow the `fixtures/` directory)
+refuses any node type or mark the editor cannot produce, and any other shape fault.
+
+**Alternatives:** plain-text notes; a Python generator committed next to the JSON; Django
+fixtures loaded into the database.
+
+**Why:** the eval should exercise the real chunker on real structure (headings, task items).
+One source of truth avoids a generator and its output drifting. A node the chunker has never
+seen would make the eval measure a bug, not retrieval. Pure JSON keeps the loader DB-free.
+
+**Reverse it if:** the fixture set grows past what is comfortable to edit by hand; then commit a
+generator and check its output in CI.
+
+### D42. Rankings are scored per note, at the rank of the note's best chunk
+
+**Decided:** before scoring, a chunk ranking is collapsed to notes in first-seen order
+(`dedupe_to_notes`). `recall_at_k` and `reciprocal_rank` dedupe their input themselves.
+
+**Alternatives:** score chunks against chunk labels; score the raw chunk list against note labels.
+
+**Why:** questions are labelled with notes, and people see notes. Scoring the raw list would let
+one long note's chunks fill the top k and push every other note out, punishing long notes for
+being long. Chunk-level labels would have to be redone whenever the chunker changes.
+
+**Reverse it if:** the eval needs to judge which *section* was found; then add chunk labels.
+
+### D43. No-answer questions are excluded from recall and MRR, and counted
+
+**Decided:** a question with `relevant: []` is skipped by `evaluate` and reported as
+`no_answer`. The per-question functions raise `ValueError` on it. With no answerable questions,
+the means are `None`, not 0.
+
+**Alternatives:** score a no-answer question 1 when nothing is returned, 0 otherwise.
+
+**Why:** recall is undefined when |R| = 0, and scoring it either way moves the mean for reasons
+unrelated to ranking. Search always returns something, so these questions test the Ask
+relevance floor, which is judged separately.
+
+**Reverse it if:** search itself gains a floor; then report a "correctly empty" rate beside the
+means.
+
+### D44. Multi-relevant recall is a fraction; MRR counts the first hit; means are macro
+
+**Decided:** recall@k = |R ∩ top k| / |R|; reciprocal rank uses the first relevant note only;
+every answerable question weighs the same in the means.
+
+**Alternatives:** binary "any relevant in top k" (hit rate); micro-averaging over relevant notes.
+
+**Why:** the fraction shows a multi-note question half-answered as half. First-hit MRR matches
+what a reader feels ("how far down is the first useful result"). Micro-averaging would let
+multi-note questions count double.
+
+**Reverse it if:** Ask starts depending on getting *all* relevant notes; then add a
+"complete@k" (all of R in top k).
+
+### D45. Question kinds are a closed set, and labels are strict
+
+**Decided:** eight kinds (`keyword`, `paraphrase`, `section`, `near_duplicate`, `checklist`,
+`hinglish`, `multi_note`, `no_answer`), validated against the labels: `no_answer` exactly when
+`relevant` is empty, `multi_note` with two or more notes. A note is relevant only if it
+contains the answer, not if it is on the topic (the dal makhani recipe is not relevant to "did I
+need paneer that week").
+
+**Alternatives:** free-text kinds; graded relevance (0/1/2).
+
+**Why:** per-kind numbers are what show where vector beats keyword and vice versa, so a
+mislabelled kind would misreport exactly that. Binary strict labels are simple and easy to
+review; graded ones would need nDCG and more labelling.
+
+**Reverse it if:** the eval moves to nDCG, or real questions show a need for "partially
+relevant".
