@@ -19,3 +19,9 @@ requests==2.34.2
 pgvector==0.5.0
 # Web push for reminders (D87): VAPID signing and payload encryption.
 pywebpush==2.5.0
+# Text from PDF attachments (notes, phase 6; approved D92).
+pypdf==6.19.0
+# S3-compatible attachment storage in production (approved D85); development
+# and tests use local disk.
+django-storages==1.14.6
+boto3==1.43.106
