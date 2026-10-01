@@ -22,7 +22,7 @@ select = [
 "*/migrations/*" = ["E501", "I001"]
 
 [tool.coverage.run]
-source = ["accounts", "config", "notes", "retrieval", "assistant"]
+source = ["accounts", "config", "notes", "retrieval", "assistant", "limits"]
 omit = [
     "*/migrations/*",
     "*/tests/*",

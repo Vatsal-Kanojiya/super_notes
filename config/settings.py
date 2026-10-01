@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     "notes",
     "retrieval",
     "assistant",
+    "limits",
 ]
 
 # Custom user model from the very first migration (the reference's hard
@@ -566,3 +567,27 @@ SECURITY_EVENT_RETENTION_DAYS = env.int("SECURITY_EVENT_RETENTION_DAYS", default
 # once. A further sign-in signs the least recently used one out
 # (accounts/devices.py). Two covers the web client and the Android app.
 MAX_SIGNED_IN_DEVICES = env.int("MAX_SIGNED_IN_DEVICES", default=2)
+
+
+# Limits (limits/, DECISIONS D84, D91)
+#
+# Every capped resource is a key with a per-user value by plan and a
+# system-wide value, over a period: "month" or "day" (calendar, in
+# TIME_ZONE) or "total". None (or absent) is unlimited. A Limit row in the
+# admin with the same key overrides all of a key's values, so changing one
+# needs no deploy. condense and memory_extract are model calls the user
+# never pays for; only the system caps them.
+LIMIT_DEFAULTS = {
+    "chat_turns": {"user_free": 20, "user_premium": 100, "system": 2000, "period": "month"},
+    "format": {"user_free": 5, "user_premium": 25, "system": 500, "period": "month"},
+    "summary": {"user_free": 2, "user_premium": 10, "system": 200, "period": "month"},
+    "storage_bytes": {
+        "user_free": 1024**3,
+        "user_premium": 1024**3,
+        "system": 20 * 1024**3,
+        "period": "total",
+    },
+    "signups": {"system": 30, "period": "day"},
+    "condense": {"system": 20000, "period": "month"},
+    "memory_extract": {"system": 20000, "period": "month"},
+}
