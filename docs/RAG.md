@@ -4,7 +4,7 @@ How a note becomes something a question can be answered from: chunking, embeddin
 retrieval, asking, and how it is measured. Plan §6. The decisions behind each part are in
 [DECISIONS.md](DECISIONS.md): D33–D40 for the first two sections, D61–D65 for indexing, D66–D72
 for retrieval, D53–D60 and D73–D76 for asking, D41–D45 for the evaluation, D140–D146, D220–D227 and D280–D287 for
-conversations.
+conversations, D340–D349 for attachments.
 
 ---
 
@@ -171,6 +171,38 @@ logged and dropped; the note keeps its old chunks and shows up as behind in `ind
 **Keyword index (D64).** `NoteChunk` has a GIN index on `chunk_search_vector()`
 (`retrieval/search_vector.py`: heading path and text, `english`), which phase 4's query imports.
 
+## Attachments
+
+A note's files (JPEG, PNG, WebP, PDF; D320–D330) are searched with it once their text is read.
+`notes/extraction.py`, the `extract_attachment` task, D340–D349.
+
+**The task.** Each upload enqueues `extract_attachment(id)` on commit. The attachment goes
+`pending → extracting → ready | failed`; every change is a conditional update under the owner's
+lock that stamps the note with a revision, so `notes/changes/` carries it (D346). A duplicate run
+finds nothing to claim or nothing to finish; a redelivered one takes an `extracting` row up again.
+`sweep_stuck_attachments` fails anything still unfinished an hour after upload (D345).
+
+**Reading the text.**
+
+| File | How | Caps |
+|---|---|---|
+| PDF | `pypdf`, page by page, pages joined by form feeds | `ATTACHMENT_PDF_MAX_PAGES` (100), `ATTACHMENT_TEXT_MAX_CHARS` (100,000), each compressed stream at most `ATTACHMENT_PDF_MAX_STREAM_BYTES` (20 MB) inflated |
+| Image | `chat.extract_image_text` — the chat provider's vision call, `prompts/image_text.md` | `ATTACHMENT_IMAGE_TEXT_MAX_BYTES` (5 MB), `ATTACHMENT_IMAGE_TEXT_MAX_OUTPUT_TOKENS` (4,096), one `image_text` use (system-only, 5,000 a month, D344) |
+
+The task's own limits are 120 s soft, 180 s hard. A PDF that needs a password, a damaged one, one
+that trips a cap, a refused or unreadable image: `failed`, with a fixed message in `error`, never
+a crash and never the library's or vendor's text (D340). A file with no text at all is `ready`
+with nothing indexed (D347). NUL and control characters are removed before saving. The text is
+saved on the row before it is embedded, so a retry never reads or pays twice (D349).
+
+**Indexing.** `chunk_text(file_name, text)` (D342): paragraphs (blank lines, page breaks) are the
+blocks, hard-wrapped lines joined, packed and overlapped as a note's are; `embed_text` is the file
+name, a blank line, the text. The chunks are `NoteChunk` rows with `source=attachment` and the
+`attachment` FK (D341), written in the same transaction that marks the attachment `ready`, after
+checking it is still live. `index_note` never touches them, nor they the note's own chunks.
+Deleting the attachment or its note deletes them under the same lock (D346).
+`reindex_notes` re-embeds ready attachments from their stored text after a model change.
+
 ## Retrieval
 
 `retrieval/search.py` — `search(user, query, k=None, *, mode="hybrid") -> list[SearchHit]`, and
@@ -208,7 +240,8 @@ heading paths and texts.
 
 | Field | Meaning |
 |---|---|
-| `chunk_id`, `note_id`, `title`, `heading_path`, `text` | where it is and what it says |
+| `chunk_id`, `note_id`, `title`, `heading_path`, `text` | where it is and what it says (`title` is the note's) |
+| `source`, `attachment_id`, `attachment_name` | `note`, or `attachment` with the file it is from (D348) |
 | `score` | the fused RRF score: orders hits, says nothing about relevance on its own |
 | `similarity` | 1 − cosine distance from the vector leg; `null` if only keyword search found it |
 | `keyword_rank` | `ts_rank` from the keyword leg; `null` if only vector search found it |
@@ -321,7 +354,8 @@ When is the launch?
 ```
 
 Excerpts come first, in retrieval rank order, and the question last. `section` (the chunk's
-heading path) is omitted when empty.
+heading path) is omitted when empty. An excerpt from an attachment's text also carries
+`file="<file name>"` (D348).
 
 **Why delimiters, and how they are protected (D56).** A note is the user's own, but it can hold
 text pasted from a web page or an email — the classic indirect prompt injection. The tags let the
@@ -341,7 +375,9 @@ sent. The task parses citations against `fit_excerpts()`'s output — what the m
 ### Citations
 
 The model writes `[n]` markers; `parse_citations(answer, excerpts)` turns them into the
-`AskQuery.citations` list: `{n, note_id, chunk_id, title, snippet}`.
+`AskQuery.citations` list: `{n, note_id, chunk_id, title, attachment_id, attachment_name,
+snippet}`. The attachment fields name the file a cited excerpt came from, and are null for the
+note's own text (and in citations stored before attachments were searchable) (D348).
 
 - **Forms read (D59):** `[1]`, `[1][2]`, `[1, 2]`, `[1; 2]`, `[1-3]` / `[1–3]`. Ranges expand only
   over existing excerpts. `[^1]`, `[1a]`, `[see above]` and Markdown links are not markers.
@@ -389,7 +425,13 @@ output_tokens`.
   timeouts, dropped connections — is for the task's `autoretry_for`. `ChatError` — bad or missing
   key, unknown model, rejected request, refusal or safety block, an answer cut off by
   `CHAT_MAX_OUTPUT_TOKENS` — fails the ask, which then doesn't count against the quota.
-- **The fake provider** needs no network: it quotes the first sentence of excerpts `[1]` and `[2]`
+- **Images** (D343): `extract_image_text(image_bytes, mime_type)` calls the provider's optional
+`read_image` with the image ahead of a one-line instruction — Claude a base64 `image` block, OpenAI
+an `input_image` data URL, Gemini an `inline_data` part — and parses the answer as `complete` does.
+`[no text]` comes back as "". A provider without `read_image` raises `ImageTextNotSupported`. The
+fake returns a fixed text.
+
+**The fake provider** needs no network: it quotes the first sentence of excerpts `[1]` and `[2]`
   with their markers (or returns `ASK_NO_ANSWER_TEXT` when there are none), and counts tokens as
   characters ÷ 4. End-to-end tests therefore get real, mappable citations. The test runner forces
   it whatever `.env` says (D11).
@@ -679,3 +721,7 @@ retrieval, not conversation handling. These numbers are a smoke test, not a meas
   BACKLOG.
 - pgvector 0.6 filters by owner after the HNSW scan (D68). `ef_search` = 200 leaves room, but an
   owner who is a middling share of a very large table can get fewer than 50 vector candidates.
+- Attachments: scanned PDFs are not OCR'd (no text layer, nothing indexed, D347); images over
+  5 MB are not read (no resizing without Pillow, D343); only the first 100 pages / 100,000
+  characters of a file are searchable (D340). The vision adapters' request shapes are tested
+  against mocks only so far.

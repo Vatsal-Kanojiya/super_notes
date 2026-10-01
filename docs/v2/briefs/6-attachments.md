@@ -38,7 +38,7 @@
   deleting the file on commit, note delete cascading; attachments in `changes`. Tests: a renamed
   `.exe` as `.pdf` refused; another user → 404 on metadata and file; size and quota enforced
   (429); dedup; delete removes the file.
-- [ ] 2. **Extraction and indexing** (Opus) — `extracting → ready|failed` task, `pypdf`, the
+- [x] 2. **Extraction and indexing** (Opus) — `extracting → ready|failed` task, `pypdf`, the
   `extract_image_text` provider method (fake), chunking into `NoteChunk` (`attachment` FK,
   `source`), search and Ask/chat citations naming the attachment, de-indexing on delete; caps on
   extracted text and PDF pages (decompression bombs, encrypted PDFs → failed, not crashed).
