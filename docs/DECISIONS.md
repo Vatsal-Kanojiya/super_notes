@@ -1805,3 +1805,68 @@ the notice directly in the lifecycle store (would bypass those guards).
 launch only when the user is still on the server default `Asia/Kolkata` and the browser's zone
 differs; the page shows the zone but has no picker yet. **Alternative:** a Save button; a timezone
 picker (not asked for, and a long list to get right).
+
+### D140. A conversation turn is an `AskQuery` with `conversation` and `position` (1, 2026-10-01)
+
+**Decided:** `Conversation` (user, title, `summary`, `summary_through`, timestamps, `deleted_at`)
+holds no answers; each turn is an `AskQuery` with a nullable `conversation` FK, a `position` from 1
+and a blank `standalone_question` (filled by sub-task 2). Unique `(conversation, position)`, and a
+check constraint that both are set or neither (a plain `POST ask/`). `AskQuerySerializer` gains
+`conversation` and `position` (null for a plain ask); `standalone_question` is not exposed yet.
+A turn is polled at `GET ask/<id>/`. **Alternative:** a separate Turn model (plan D78 rejects a
+second job model).
+
+### D141. Turns are sequential, checked under the user's row lock (1, 2026-10-01)
+
+**Decided:** `create_turn` takes the same user lock as `create_ask`, then (in order) re-reads the
+conversation (deleted → 404), replays the idempotency key, refuses with `TurnInProgress` (409
+`turn_in_progress`, body names the unfinished `turn`) if any turn is pending/running, then creates
+position `max + 1` and consumes `chat_turns`. A replay comes before the 409, so retrying the turn
+that is running returns it (200). A failed turn does not block the next one. The unique
+`(conversation, position)` is the second guard: without the lock, a race ends in an
+IntegrityError, not a second turn (tested). **Alternative:** a per-conversation row lock (finer,
+but every ask and turn already takes the user lock for the quota, so it would add a lock without
+adding concurrency).
+
+### D142. An idempotency key replays only the same question in the same place (1, 2026-10-01)
+
+**Decided:** keys stay unique per user across asks and turns. A key replays only when both the
+question and the conversation (none, for `POST ask/`) match; a turn's key sent to `POST ask/`, or
+to another conversation, is 422 `idempotency_key_reused` (its text is unchanged: "already used
+for a different question"). **Alternative:** replay by key alone (would hand back a turn of another conversation as if it
+were this request).
+
+### D143. `POST conversations/` takes an optional first question; then it needs a key (1, 2026-10-01)
+
+**Decided:** without `question`, an empty conversation (201, no key, no quota). With one, turn 1
+is asked in the same transaction and `Idempotency-Key` is required; a replay returns the same
+conversation (200). A key that made a plain ask, a later turn, or a turn of a since-deleted
+conversation is 422. A refused first turn (429/503) leaves no conversation. Response is the
+conversation with its turns. **Alternative:** always require a key (an empty conversation costs
+nothing, and a duplicate empty one is harmless).
+
+### D144. The title comes from the first question; a rename does not reorder the list (1, 2026-10-01)
+
+**Decided:** the first turn sets `title` (the question on one line, cut at a word near 80
+characters, with "…") only if the title is still blank, so a rename made before it is kept.
+`updated_at` is moved by each new turn (explicitly, in the same transaction), not by a rename or a
+delete (both use `update()`, skipping `auto_now`). PATCH accepts only `title` (1-200, stripped,
+not blank); PUT is 405. **Alternative:** `auto_now` on every save (a rename would jump to the top).
+
+### D145. Deleting a conversation hides it and its turns everywhere; usage stays (1, 2026-10-01)
+
+**Decided:** soft delete (`deleted_at`) under the user lock, so a turn racing the delete either
+commits first and is hidden or gets a 404. A deleted conversation is 404 on every endpoint, and
+its turns drop out of `GET ask/` and `GET ask/<id>/` (filter `conversation__deleted_at__isnull`,
+a LEFT JOIN that keeps plain asks). Live conversations' turns stay in `GET ask/`. Usage events
+are untouched, so the month's count does not change. A turn already running finishes unseen.
+**Alternative:** keep a deleted conversation's turns visible in `ask/` (contradicts "hides its
+turns from history"); exclude every turn from `ask/` (a breaking change for no gain).
+
+### D146. `GET conversations/` pages by `(-updated_at, -id)` (1, 2026-10-01)
+
+**Decided:** a `CursorPagination` on `-updated_at` with `-id` as tie-break, despite the project
+pager's warning about moving fields. `updated_at` only moves up (a new turn), so paging never
+shows a conversation twice; one that gets a turn mid-paging is missed on that pass and is at the
+top of the next page-one fetch. **Alternative:** `-id` (stable, but not the "recent first" order
+the chat list needs).

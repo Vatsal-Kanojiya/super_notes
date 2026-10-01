@@ -28,7 +28,7 @@
   question's keywords) — documented.
 
 ## Sub-tasks (conductor's checklist)
-- [ ] 1. **Models, services, API** (Opus) — `Conversation` (user, title from the first question,
+- [x] 1. **Models, services, API** (Opus) — `Conversation` (user, title from the first question,
   `summary`, `summary_through`, timestamps, `deleted_at`); AskQuery fields + migration;
   `create_turn(user, conversation, question, idempotency_key)` reusing `create_ask`'s lock, limit
   and idempotency; `POST/GET conversations/`, `GET/PATCH/DELETE conversations/<id>/`,
