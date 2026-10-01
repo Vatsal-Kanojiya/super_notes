@@ -1459,3 +1459,66 @@ time. Replaces V2_PLAN's none/daily/weekly/monthly repeats. Delivered by email +
 
 V1 Phase 7 and V2 Phase 7 (mobile) move after `v2.0.0`; planned in a dedicated session.
 
+## V2 0c — limits
+
+### D98. The system limit is serialised by a transaction-scoped advisory lock per key
+
+**Decided:** `limits.consume` checks the user's limit under the caller's user-row lock, then, only
+when the key has a system limit, takes `pg_advisory_xact_lock(0x4C494D, hashtext(key))` before
+summing everyone's events. The lock is released when the caller's transaction ends. `consume`
+refuses to run outside `transaction.atomic()` (the lock would be released at once). The user check
+comes first, so a user already over their own limit never queues on the global lock.
+
+**Alternatives:** `select_for_update` on the `Limit` row (there is none while a key uses its
+default); a counter row per key and period updated with `F()` (a second source of truth, D73);
+`SERIALIZABLE` isolation (retries everywhere).
+
+**Why:** the advisory lock needs no row to exist and leaves usage counted from one ledger. A test
+forces two threads past the count with the lock removed and the limit is breached; with it, exactly
+the limit passes. The two-key form keeps it out of any other advisory lock's space; a `hashtext`
+collision between two keys only makes them wait for each other.
+
+**Reverse it if:** one key's system checks become a measured bottleneck (every chat turn
+serialises on it for the length of the caller's transaction); then keep a per-period counter row.
+Callers should consume one system-limited key per transaction: two in opposite orders could
+deadlock (Postgres detects it and fails one).
+
+### D99. The admins are mailed on the first refusal per key, period and limit, deduplicated in the cache
+
+**Decided:** when a system limit refuses a request, `consume` does `cache.add` on
+`limits:system-alerted:<key>:<period start>:<limit>` (expiring at the period's end) and, if it
+was new, queues `limits.tasks.mail_system_limit_reached`. A queueing failure deletes the marker so
+the next refusal retries. Raising the limit gives a new marker, so filling the raised limit mails
+again.
+
+**Alternatives:** a marker row in the database (it would roll back with the refused request's
+transaction, so it could never be written on refusal); mailing when the event that fills the limit
+is recorded (misses amounts larger than one unit and a limit lowered below current usage); mailing
+synchronously (SMTP latency while holding the system lock).
+
+**Why:** the refusal is the moment the feature is paused, and the cache is the store that is not
+rolled back with the request. "Once" is best effort: a flushed or evicted cache, or LocMemCache
+across several processes (development only; `check --deploy` warns, `config/checks.py`), can mail twice, which
+is harmless.
+
+**Reverse it if:** duplicate mails become a nuisance; then record the alert from a separate
+connection or a periodic check task.
+
+### D100. Limit rows override every value of a key; `enabled` off means not enforced; deleted accounts keep counting
+
+**Decided:** a `Limit` row replaces all of its key's defaults (not field by field), so a null in the
+row means unlimited. `enabled=False` stops enforcing the key at both levels while still recording
+usage. `Limit.clean` refuses a key absent from `LIMIT_DEFAULTS`; `consume` raises `KeyError` for
+one. `UsageEvent.user` and `.ask` are `SET_NULL`: deleting an account or an ask keeps its usage
+counted for the system. `created_at` is the instant `consume` checked against, so an event made
+across a period boundary lands in the period it was counted in.
+
+**Alternatives:** per-field override (null meaning "use the default", which then cannot express
+"unlimited"); `enabled=False` as a kill switch that refuses everyone; `CASCADE` on the user.
+
+**Why:** what the admin sees in a row is exactly what applies. A kill switch is a different
+product decision, left to the owner. With `CASCADE`, deleting and recreating accounts would reset the
+system count, the abuse D84 guards against.
+
+**Reverse it if:** the owner wants a per-feature kill switch; add a separate flag rather than
+reusing `enabled`. **Needs the owner:** confirm `enabled` off = "not enforced".
