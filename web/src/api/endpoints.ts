@@ -7,6 +7,8 @@ import type {
   AskQuery,
   AskRequest,
   ChangesResponse,
+  Conversation,
+  ConversationDetail,
   CursorPage,
   Device,
   Id,
@@ -68,4 +70,25 @@ export const askApi = {
     request<AskQuery>('ask/', { method: 'POST', body, headers: { 'Idempotency-Key': idempotencyKey } }),
   get: (id: Id) => request<AskQuery>(`ask/${id}/`),
   list: (cursor?: string) => request<CursorPage<AskQuery>>('ask/', { query: { cursor } }),
+}
+
+export const conversationsApi = {
+  list: (cursor?: string) => request<CursorPage<Conversation>>('conversations/', { query: { cursor } }),
+  /** Empty (201), or with a question asked as turn 1 (needs the key; 201, or 200 for a replayed key). */
+  create: (question?: string, idempotencyKey?: string) =>
+    request<ConversationDetail>('conversations/', {
+      method: 'POST',
+      body: question === undefined ? {} : { question },
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+    }),
+  get: (id: Id) => request<ConversationDetail>(`conversations/${id}/`),
+  rename: (id: Id, title: string) => request<Conversation>(`conversations/${id}/`, { method: 'PATCH', body: { title } }),
+  remove: (id: Id) => request<void>(`conversations/${id}/`, { method: 'DELETE' }),
+  /** 202 with the pending turn, 200 for a replayed key, 409 `turn_in_progress` while the last turn runs. */
+  ask: (id: Id, question: string, idempotencyKey: string) =>
+    request<AskQuery>(`conversations/${id}/turns/`, {
+      method: 'POST',
+      body: { question },
+      headers: { 'Idempotency-Key': idempotencyKey },
+    }),
 }
