@@ -3267,3 +3267,99 @@ better).
 schema and needs the web client to show it, which is a product call. A user at the limit sees it
 on the attachment's `error`. **Needs the owner:** whether to list it (and where in the UI).
 **Alternative:** add it to `me/` now (a schema change no client renders).
+
+## D550 — Summaries (6.3)
+
+### D550. A billed failure keeps its use for memory extraction and image reading too (summaries, 2026-10-02)
+
+**Decided:** the rule of D500 now holds everywhere a use is consumed before a call. In
+`memory.extract` (`memory_extract`) and `extraction.image_text` (`image_text`), a
+`chat.BilledChatError` keeps the use and records provider, model and tokens on it
+(`limits.describe_where(..., **exc.cost())`); a plain `ChatError` or a `TransientChatError` still
+refunds (nothing was billed). Tests for each: billed keeps and records; plain refunds.
+**Alternative:** refund every failure (the vendor's bill would go unrecorded and uncapped).
+
+### D551. Summaries get their own job model, `SummaryJob`; the billed rule applies (summaries, 2026-10-02)
+
+**Decided:** `SummaryJob` (note, optional `attachment`, owner, `base_version`, status, the text,
+error code and message, provider/model/prompt version/tokens, `usage_event`, idempotency key
+unique per owner), polled at `GET summary-jobs/<id>/`. Same life as `FormatJob`
+(pending -> running -> done|failed, refunded on failure, sweeper after
+`SUMMARY_STUCK_AFTER_SECONDS`), but it **writes**, through `services.apply_summary`. A failure
+refunds the `summary` use except a billed one (`BilledChatError`, or a reply that is empty / the
+word `EMPTY`): that keeps the use and records the cost. **Alternative:** reuse `FormatJob` with a
+`kind` column (its `proposed_content` JSON, its `format_*` codes and its `base_version` apply
+semantics do not fit, and the two features would share one table's fate).
+
+### D552. A job still running for the same target is returned, not repeated (summaries, 2026-10-02)
+
+**Decided:** after the idempotency lookup, a pending or running job for the same note (or the same
+attachment) is returned (200) instead of consuming another use: a double click, or two devices,
+must not pay twice for one summary. A finished job does not block the next request.
+**Alternative:** one use per POST (an impatient user burns a free month's two summaries).
+
+### D553. A summary is stored without a new note version; stale means `summary_version != version` (summaries, 2026-10-02)
+
+**Decided:** `Note.summary` and `Note.summary_version` (the note `version` it was made from, null
+without a summary). `apply_summary` takes the owner lock, takes the next `notes_revision` and
+writes with a queryset `update` -- so `version`, `updated_at` and `content_text` are untouched and
+a client's PATCH at the version it loaded is not a 409. The API returns `summary`,
+`summary_version` and `summary_stale` (read-only; a client cannot set them). A job made from an
+older version never replaces a newer summary (`apply_summary` returns False; the job fails
+`summary_not_stored`, the call stays counted). **Alternative:** bump `version` (every summary
+would conflict with an open editor).
+
+### D554. A note edited before the call is refused; edited during it is stored, stale (summaries, 2026-10-02)
+
+**Decided:** the task fails a job whose note is no longer at `base_version` before calling the
+model (`summary_note_changed`, refunded, nothing spent). An edit during the call is not a reason
+to throw a paid answer away: it is stored with `summary_version = base_version`, so it shows as
+stale. **Alternative:** drop it after paying (a long note edited while it summarises would never
+get a summary); summarise the live version whatever `base_version` says (the summary would
+claim a version it was not made from).
+
+### D555. The summary is one `source=summary` chunk, replaced whole; attachment summaries are not indexed (summaries, 2026-10-02)
+
+**Decided:** the summary is chunked as plain text (`chunk_text`, heading path `Summary`) and
+written in the same transaction as the note's summary, replacing every earlier `summary` chunk of
+the note (`write_summary_chunks`); `index_note` never touches them, and deleting the note removes
+them. `note_version` on the chunk is `base_version`. An embedding error does not lose a paid
+summary: it is stored without a chunk and logged (no retry: a retry would pay for the model
+again). An attachment's summary is not indexed: the check constraint ties `attachment` to
+`source=attachment`, and its text is already indexed. **Alternative:** fail the job on an
+embedding error (pays and gets nothing); a chunk per attachment summary (a constraint change for
+a duplicate of text already searchable).
+
+### D556. A versioned prompt, `summary-v1`, and a `<document>` the text cannot close (summaries, 2026-10-02)
+
+**Decided:** `notes/prompts/summary.md` (`version: summary-v1`, stored on each job): at most 120
+words, copy facts exactly, nothing added, the document is data (rule 6), `EMPTY` when there is
+nothing. The text goes in `<document title="...">`; `<document` inside it becomes `&lt;document`
+and the title is HTML-escaped. At most `SUMMARY_MAX_INPUT_CHARS` (24,000) of the start is sent (a
+long note or file is summarised from its start, not refused), the reply is limited to
+`SUMMARY_MAX_OUTPUT_TOKENS` (800) and cut to `SUMMARY_MAX_CHARS` (2,000). The fake provider's
+summary is the first two sentences. **Alternative:** refuse long notes like format does (a
+summary is most wanted for the long ones).
+
+### D557. Attachment summaries are user-requested and count under `summary` (summaries, 2026-10-02)
+
+**Decided:** `POST attachments/<id>/summarize/` (a `ready` attachment with text), stored on
+`Attachment.summary`, counted as the owner's `summary` use like a note's. Not made on extraction:
+the brief's "system cost only" option would spend model calls nobody asked for, and the summary
+budget is the owner's to choose how to spend (D91, D344). The note takes a revision, so
+`notes/changes/` sends it again with the attachment's summary. Not `ready` is 400
+`attachment_not_ready`; no text is 400 `nothing_to_summarize`. **Alternative:** summarise on
+extraction as a system cost (the brief's other reading).
+
+### D558. The summary endpoints are throttled by scope `summary`, 30/hour (summaries, 2026-10-02)
+
+**Decided:** `API_SUMMARY_THROTTLE` (default `30/hour`), as format. The limit (2 a month on free)
+is the real cap; the throttle is for a runaway script. **Alternative:** share `format`'s scope.
+
+### D559. Summary job failure codes (summaries, 2026-10-02)
+
+**Decided:** `summary_failed` (the provider refused, billed or not), `summary_busy` (transient,
+retries used up), `summary_unexpected`, `summary_stuck` (sweeper), `summary_empty` (nothing
+came back; billed), `summary_note_changed`, `summary_gone` (note or file deleted),
+`summary_not_stored` (a newer summary exists). Messages are fixed strings, never the vendor's.
+**Alternative:** one generic code (a client could not tell "try again" from "edit happened").

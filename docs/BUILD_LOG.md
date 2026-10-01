@@ -444,3 +444,30 @@ only); streaming web (2.3), memory web (3.3), attachment summaries (6.3) and att
 **Owner to confirm:** the per-user `image_text` values (D520), showing `image_text` in `me/`
 (D529), facts keeping their numbers as `(n)` (D504).
 
+
+### V2 6 — summaries
+
+**Built** (sub-task 6.3, branch `v2-feat/6c-summaries`):
+- **Billed-failure follow-up (D550):** memory extraction and image reading keep the use and record
+  the cost on a `BilledChatError`, refund on a plain `ChatError` (D500's rule; a test each).
+- **Summaries (D551-D559):** `POST notes/<id>/summarize/` and `POST attachments/<id>/summarize/`
+  (an `Idempotency-Key`, 202) make a `SummaryJob`, polled at `GET summary-jobs/<id>/`. The task
+  (`notes/summary.py`, prompt `summary-v1`) consumes the `summary` limit under the owner lock and
+  refunds on failure, except a billed one. A note's summary is `Note.summary` + `summary_version`,
+  written under the owner lock with a new `notes_revision` but no new `version` (a PATCH at the
+  loaded version still works); the API shows `summary_stale` when `summary_version != version`.
+  A `source=summary` chunk is replaced with each new summary, so broad questions find the note.
+  An attachment's summary is stored on the attachment and rides in `notes/changes/`.
+  Sweeper `sweep_stuck_summary_jobs`; setting `SUMMARY_*`; throttle scope `summary`.
+- Migration `notes/0005_summaries`; `docs/openapi.yml` regenerated; 70-odd new tests
+  (`notes/tests/test_summary.py`).
+
+**Went wrong:** nothing notable; the fake provider needed a `<document>` rule so an end-to-end job
+returns something readable.
+
+**Left:** the web client for summaries and attachments (sub-task 6.4); a summary chunk is not
+rebuilt when the embedding model changes (a `reindex` command for it); an attachment summary is
+not searchable on its own (its text already is).
+
+**Unsure / owner to confirm:** attachment summaries count under the user's `summary` limit and are
+not automatic (D557); a long note or file is summarised from its first 24,000 characters (D556).
