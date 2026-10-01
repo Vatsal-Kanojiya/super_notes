@@ -355,6 +355,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Too many, too recently.
+  /api/v1/format-jobs/{id}/:
+    get:
+      operationId: format_jobs_retrieve
+      description: Poll this until `status` is `done` or `failed`; a failed job has
+        an `error_code` and a user-facing `error`, and does not count against the
+        limit.
+      summary: Get a format job
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Format
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormatJob'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such job of yours.
   /api/v1/health/:
     get:
       operationId: health_retrieve
@@ -605,6 +641,83 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/notes/{id}/format/:
+    post:
+      operationId: notes_format_create
+      description: |-
+        Starts restructuring the note (headings, lists, checklists, obvious typos) and returns at once with the job `pending` (202): poll `GET format-jobs/<id>/` until `status` is `done` or `failed`. The note is not changed. A `done` job carries `proposed_content` and the `base_version` it was made from: show it, and on Apply send `PATCH notes/<id>/` with that content and `version = base_version` (a note edited meanwhile is the usual 409).
+
+        A proposal that adds or drops words, numbers or dates is refused: the job fails with `format_changed_content`. A failed job does not count against the month's `format` limit (see `me/`).
+
+        Send a fresh `Idempotency-Key` per request. Resending one (a retry after a dropped connection) returns the job it already made, with 200, and does not count again. Reusing it for another note is a 422.
+      summary: Format a note
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: 1-100 of `A-Z a-z 0-9 - _`; a UUID is ideal.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Format
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormatJob'
+          description: Started; poll for the result.
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormatJob'
+          description: 'A replayed key: that job.'
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`note_empty`, `note_too_long`, `idempotency_key_required`
+            or `idempotency_key_invalid`.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such note of yours.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`idempotency_key_reused`: the key was used for another note.'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormatQuotaExceeded'
+          description: '`quota_exceeded` (with usage), or `throttled`.'
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`system_limit_reached`: this feature is paused for everyone
+            (a system-wide limit). Not the caller''s own quota; try again later.'
   /api/v1/notes/changes/:
     get:
       operationId: notes_changes_retrieve
@@ -876,6 +989,80 @@ components:
       - id
       - label
       - last_seen_at
+    FormatJob:
+      type: object
+      description: A job as the client shows it. Not the provider, model, prompt or
+        tokens.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        note_id:
+          type: integer
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        base_version:
+          type: integer
+          readOnly: true
+        proposed_content:
+          readOnly: true
+          nullable: true
+          description: The restructured document, when `status` is `done`; otherwise
+            null. Show it beside the note and, on Apply, `PATCH` the note with it
+            and `version = base_version`.
+        error_code:
+          type: string
+          readOnly: true
+        error:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - base_version
+      - completed_at
+      - created_at
+      - error
+      - error_code
+      - id
+      - note_id
+      - proposed_content
+      - status
+    FormatQuotaExceeded:
+      type: object
+      description: 'A plain answer: what happened, and a stable code a client can
+        branch on.'
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+        used:
+          type: integer
+        limit:
+          type: integer
+          nullable: true
+          description: 'Null: unlimited.'
+        resets_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - code
+      - detail
+      - limit
+      - resets_at
+      - used
     GoogleLoginRequest:
       type: object
       properties:

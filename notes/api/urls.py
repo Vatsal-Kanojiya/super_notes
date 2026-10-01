@@ -4,11 +4,17 @@ A SimpleRouter: the API root view a DefaultRouter adds would be one more
 page listing endpoints, for no client that needs it.
 """
 
+from django.urls import path
 from rest_framework.routers import SimpleRouter
 
+from .format import FormatCreateView, FormatJobDetailView
 from .views import NoteViewSet
 
 router = SimpleRouter()
 router.register("notes", NoteViewSet, basename="note")
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("notes/<int:pk>/format/", FormatCreateView.as_view(), name="note-format"),
+    path("format-jobs/<int:pk>/", FormatJobDetailView.as_view(), name="format-job-detail"),
+    *router.urls,
+]

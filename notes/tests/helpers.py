@@ -45,3 +45,18 @@ def checklist_doc(*pairs):
 
 def make_user(name="alice"):
     return get_user_model().objects.create_user(email=f"{name}@example.com")
+
+
+def format_limit(free, premium=None, system=None):
+    """LIMIT_DEFAULTS with the ``format`` key set, for override_settings."""
+    from django.conf import settings
+
+    return {
+        **settings.LIMIT_DEFAULTS,
+        "format": {
+            **settings.LIMIT_DEFAULTS["format"],
+            "user_free": free,
+            "user_premium": free if premium is None else premium,
+            "system": settings.LIMIT_DEFAULTS["format"]["system"] if system is None else system,
+        },
+    }

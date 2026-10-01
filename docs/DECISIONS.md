@@ -1805,3 +1805,89 @@ the notice directly in the lifecycle store (would bypass those guards).
 launch only when the user is still on the server default `Asia/Kolkata` and the browser's zone
 differs; the page shows the zone but has no picker yet. **Alternative:** a Save button; a timezone
 picker (not asked for, and a long list to get right).
+
+### D240. A `FormatJob` points at its usage event; `limits` is untouched (4-format, 2026-10-01)
+
+**Decided:** `FormatJob.usage_event` (FK to `limits.UsageEvent`, SET_NULL) is set from what
+`limits.consume(user, "format")` returns. The task refunds with `refund_where(pk=<that event>)` and
+records provider/model/tokens on it with `describe_where`. Nothing in `limits/` changed, so no
+migration there and no clash with the other branches that touch the ledger. The key is `format`
+(the ledger has `key`, not the plan's `kind`). **Alternative:** a `format_job` FK on `UsageEvent`
+plus `"format_job"` in `META_FIELDS` (symmetrical with `ask`, but a `limits` migration that every
+parallel branch adding its own FK would conflict on).
+
+### D241. There is no apply endpoint: apply is `PATCH notes/<id>/` with `version = base_version` (4-format)
+
+**Decided:** as the brief says, the server never writes a note from a job. A stale `base_version`
+is the ordinary `409 version_conflict` of V1; a test covers the whole path (POST, poll, PATCH) and
+the stale case. **Alternative:** `POST format-jobs/<id>/apply/` (a second write path through the
+service, with its own conflict body).
+
+### D242. A failed job has `error_code` and a user-safe `error`; every unusable result is `format_changed_content` (4-format)
+
+**Decided:** `FormatJob.error_code` (for programs) beside `error` (for people). Codes:
+`format_changed_content` (the guardrail refused, which includes output that is not JSON or not a
+document, since the brief says a result failing the validator fails with it), `format_failed`
+(provider refused), `format_busy` (transient errors exhausted), `format_unexpected`,
+`format_stuck` (the sweeper), `format_note_changed`, `format_note_gone`. All are refunded.
+**Alternative:** `error` holding the code only (the client would need the English map).
+
+### D243. The guardrail: words kept >= 0.9, words from the original >= 0.8, numbers identical, no new month/weekday, same ticked count (4-format)
+
+**Decided:** `notes/format_guard.py::check_format`, pure. Words are lower-cased letter runs of
+`content_to_text` with list/quote markers stripped (so a numbered list adds no "1.", "2.").
+(1) Numbers (digit runs with `.,:/-`) must be the same multiset: a changed, added, dropped or
+re-punctuated amount or date fails. (2) No month or weekday name the original lacks (`may` and the
+ambiguous short forms excluded). (3) The number of ticked checklist items is unchanged. (4) Recall
+of the original's distinct words >= `FORMAT_MIN_WORDS_KEPT` (0.9, the brief's example). (5)
+Precision, the share of the result's words found in the original >= `FORMAT_MIN_WORDS_ORIGINAL`
+(0.8), so a heading or a few words may be added but a new paragraph of prose may not. A word
+pair that is a near spelling (difflib >= 0.8, 4+ letters) counts as a typo fix for (4) and (5).
+**Alternative:** recall only, as the brief literally says (lets a model append invented prose to a
+long note); stricter number handling that tolerates `4500` -> `4,500` (refused here: reformatting
+is not worth a risk of changing an amount; the prompt forbids it). Both thresholds are settings
+and need tuning on real notes.
+
+### D244. The task refuses to run on a note that has moved past `base_version`; refunded (4-format)
+
+**Decided:** if `note.version != job.base_version` when the task starts, the job fails with
+`format_note_changed` without a provider call, because an apply at `base_version` would 409 anyway
+and the model would be formatting text the person no longer has. A deleted note fails with
+`format_note_gone`. **Alternative:** format the current content and move `base_version` forward
+(works during typing, but the client's `base_version` changes under it after the 202).
+
+### D245. An empty note or one over `FORMAT_MAX_INPUT_CHARS` (24,000) is a 400 that uses nothing (4-format)
+
+**Decided:** `note_empty` and `note_too_long`, checked under the lock before `consume`. The result
+is the whole document as JSON, so a long note would be cut off at the output ceiling and fail
+after being paid for. **Alternative:** format long notes in chunks (a different feature: chunk
+borders break lists and the guardrail's whole-note comparison).
+
+### D246. `complete()` takes an optional `max_output_tokens`; formats use `FORMAT_MAX_OUTPUT_TOKENS` (16,384) (4-format)
+
+**Decided:** one backward-compatible keyword on `assistant.chat.complete`. `CHAT_MAX_OUTPUT_TOKENS`
+(2,048) suits a few cited sentences, not a rewritten document, and a cut-off answer is a `ChatError`
+(D54). **Alternative:** raise the global ceiling (every ask would be allowed 8x the output).
+
+### D247. The fake provider "formats" by turning a lone first paragraph into a heading (4-format)
+
+**Decided:** for a user message that starts with `<note>`, the fake returns the document as JSON
+with its first paragraph made a level-2 heading when the note has no heading and 2+ blocks;
+otherwise the document unchanged. Deterministic, visible in a poll, and keeps every word so the
+guardrail passes. Tests that are about what a model said mock `complete` with canned output.
+**Alternative:** an identity echo (an end-to-end test could not tell a format happened).
+
+### D248. The note travels as compact JSON in `<note>` tags with `<note` escaped as `<` (4-format)
+
+**Decided:** `notes/format_prompt.py::document_json`. An opening or closing `note` tag inside the
+note's text is written as the JSON escape `<`: identical to a JSON reader, inert as a
+delimiter. Rules live in `notes/prompts/format.md` (`version: format-v1`), stored per job.
+**Alternative:** HTML-escaping the whole JSON (changes every quote and `&` the model must undo).
+
+### D249. Format jobs get their own throttle scope, sweeper and stuck age (4-format)
+
+**Decided:** `POST notes/<id>/format/` uses throttle scope `format` (`API_FORMAT_THROTTLE`,
+30/hour; the limit is the real cap, the throttle stops a runaway script). `sweep_stuck_format_jobs`
+(beat every 5 minutes) fails jobs unfinished after `FORMAT_STUCK_AFTER_SECONDS` (1 hour, the same
+retry budget as asks, D78) and refunds them. Finished jobs and their `proposed_content` are kept
+(no retention purge yet). **Alternative:** share the `ask` throttle scope and `ASK_STUCK_AFTER_SECONDS`.
