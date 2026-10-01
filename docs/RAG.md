@@ -3,7 +3,8 @@
 How a note becomes something a question can be answered from: chunking, embedding, indexing,
 retrieval, asking, and how it is measured. Plan §6. The decisions behind each part are in
 [DECISIONS.md](DECISIONS.md): D33–D40 for the first two sections, D61–D65 for indexing, D66–D72
-for retrieval, D53–D60 and D73–D76 for asking, D41–D45 for the evaluation.
+for retrieval, D53–D60 and D73–D76 for asking, D41–D45 for the evaluation, D140–D146, D220–D227 and D280–D287 for
+conversations.
 
 ---
 
@@ -395,38 +396,6 @@ output_tokens`.
 - **Live tests.** `assistant/tests/test_providers.py` has one per provider, run only when that
   vendor's key is set in the environment (a key in `.env` counts). Each asks for one word.
 
-### Conversation turns (V2, D220-D227)
-
-A turn is an ask (D140) answered by the same task, with two extra steps in
-`assistant/conversation.py`:
-
-1. **Condense** (turn 2 onward, `prompts/condense.md`, `condense-v1`). The follow-up and the
-   newest earlier turns that fit `CHAT_CONDENSE_HISTORY_MAX_CHARS` (2,000) go to the chat provider,
-   capped at `CHAT_CONDENSE_MAX_OUTPUT_TOKENS` (512), which rewrites it to stand alone. The
-   rewrite is stored in `AskQuery.standalone_question` and is what retrieval searches. The call
-   is skipped when a cheap heuristic says the follow-up already stands alone (D221: no pointing
-   word such as "it", "they", "one"; does not open with "and", "only", "what about"…; at least
-   four words; ASCII letters only). It consumes the system-only `condense` limit (user `None`,
-   linked to the turn) and records provider, model and tokens on that event (D222). Any failure
-   -- a refusal, an outage (not retried), the limit reached, an empty reply -- falls back to
-   searching the follow-up as asked; the turn is never failed for it (D226). A turn taken up
-   again reuses its stored rewrite.
-2. **The prompt** (`prompts/chat.md`, `chat-v1`, used from turn 1): ask-v1's rules plus "the
-   conversation so far is context, not a source — cite only excerpts". The user message is the
-   conversation's `<summary>` (if any), then `<history>`: the answered turns after
-   `summary_through`, newest kept within `CHAT_HISTORY_MAX_CHARS` (6,000), whole turns without
-   gaps, the newest always (its answer cut if it alone overflows) (D224). Earlier answers lose
-   their `[n]` markers (D223). Then this turn's `<excerpts>` and the `<question>` as asked.
-   Citations number this turn's excerpts only, parsed exactly as for a plain ask. The history's
-   tags (`history`, `turn`, `answer`, `summary`, `follow_up`) are neutralised like the excerpt
-   tags (D56).
-
-**The fake condenser** (D225): when the user message ends in `<follow_up>`, the fake provider
-replaces the follow-up's first pointing word (`it`, `its`, `them`, `they`, `their`, `this`,
-`that`, `these`, `those`, `one`, `ones`) with the content words of the previous turn's question
-("When is it due next?" after "When did I last service the Honda City?" → "When is last service
-Honda City due next?"), and returns any other follow-up unchanged, as a topic shift should be.
-
 ## Evaluation
 
 Retrieval is measured, not assumed. A fixed set of notes and labelled questions is run through
@@ -500,6 +469,8 @@ right outcome is no chunk above the floor.
 python manage.py eval_retrieval [--k 5] [--provider fake|openai|gemini] [--by-kind]
 ```
 
+(`--conversations` evaluates multi-turn follow-ups instead: see [Conversations](#conversations).)
+
 It creates a throwaway user, the 30 notes (through `notes/services.py`) and their chunks (with
 `index_note`, synchronously) inside one transaction that is always rolled back, so it leaves no
 data and is safe against any database; only the embedding calls cost anything. Each question is
@@ -540,7 +511,84 @@ Run `python manage.py eval_retrieval --k 5 --by-kind --provider openai` (or `gem
 set, fill this table and the per-kind breakdown, and set `ASK_RELEVANCE_FLOOR` from the similarity
 lines (D58).
 
-### Multi-turn evaluation (V2)
+## Conversations
+
+Multi-turn Ask (V2 phase 1): a thread of questions where a follow-up may lean on what came before.
+Decisions D140-D146 (the model and API) and D220-D227 (turns), D280-D287 (folding, the evaluation).
+
+### A turn (D140, D220-D227)
+
+A conversation is a thread of asks (`Conversation`, `AskQuery.conversation` and `position`; turns
+are sequential, D141). A turn goes through the same task as a plain ask, with extra steps in
+`assistant/conversation.py`:
+
+1. **Condense** (turn 2 onward, `prompts/condense.md`, `condense-v1`). The follow-up and the
+   newest earlier turns that fit `CHAT_CONDENSE_HISTORY_MAX_CHARS` (2,000) go to the chat provider,
+   capped at `CHAT_CONDENSE_MAX_OUTPUT_TOKENS` (512), which rewrites it to stand alone. The
+   rewrite is stored in `AskQuery.standalone_question` and is what retrieval searches. The call
+   is skipped when a cheap heuristic says the follow-up already stands alone (D221: no pointing
+   word such as "it", "they", "one"; does not open with "and", "only", "what about"…; at least
+   four words; ASCII letters only). It consumes the system-only `condense` limit (user `None`,
+   linked to the turn) and records provider, model and tokens on that event (D222). Any failure
+   -- a refusal, an outage (not retried), the limit reached, an empty reply -- falls back to
+   searching the follow-up as asked; the turn is never failed for it (D226). A turn taken up
+   again reuses its stored rewrite. (`run_condenser` is the part with no ask and no bookkeeping,
+   which the evaluation calls; `condense` wraps it with the usage event.)
+2. **The prompt** (`prompts/chat.md`, `chat-v1`, used from turn 1): ask-v1's rules plus "the
+   conversation so far is context, not a source — cite only excerpts". The user message is the
+   conversation's `<summary>` (if any), then `<history>`: the answered turns after
+   `summary_through`, newest kept within `CHAT_HISTORY_MAX_CHARS` (6,000), whole turns without
+   gaps, the newest always (its answer cut if it alone overflows) (D224). Earlier answers lose
+   their `[n]` markers (D223). Then this turn's `<excerpts>` and the `<question>` as asked.
+   Citations number this turn's excerpts only, parsed exactly as for a plain ask. The history's
+   tags (`history`, `turn`, `answer`, `summary`, `follow_up`, `fold`) are neutralised like the
+   excerpt tags (D56).
+
+**The fake condenser** (D225): when the user message ends in `<follow_up>`, the fake provider
+replaces the follow-up's first pointing word (`it`, `its`, `them`, `they`, `their`, `this`,
+`that`, `these`, `those`, `one`, `ones`) with the content words of the previous turn's question
+("When is it due next?" after "When did I last service the Honda City?" → "When is last service
+Honda City due next?"), and returns any other follow-up unchanged, as a topic shift should be.
+
+### Folding old turns into a summary (D280-D287)
+
+The history a prompt repeats is capped (`CHAT_HISTORY_MAX_CHARS`, 6,000): beyond it the oldest
+turns would just be dropped. Folding keeps what they said, in `Conversation.summary`, which the
+prompt carries ahead of `<history>`.
+
+- **When.** After a turn is answered (`done`, in the same transaction as the answer), if the done
+  turns after `summary_through` -- the ones the next prompt would repeat -- total more than the
+  budget, the task `fold_history(conversation_id)` is queued on commit. A failed turn, a plain
+  ask, and a turn under budget queue nothing. A broker that is down costs only the fold.
+- **What.** `plan_fold`: the newest turns that fit half the budget stay (the newest always does),
+  the older ones are folded, so the next fold is a few turns away and not the very next turn
+  (D281). One call is sent at most 12,000 characters (each folded answer cut to 2,000); a longer
+  backlog is folded a batch at a time, the task queuing itself again until the history fits (D283).
+- **How.** `prompts/summarize.md` (`summarize-v1`): the old `<summary>` and the turns in `<fold>`
+  go to the chat provider with `CHAT_SUMMARY_MAX_OUTPUT_TOKENS` (1,024), which returns the merged
+  summary in at most 200 words. The reply is cleaned (a "Summary:" label, quotes) and **cut to
+  `CHAT_SUMMARY_MAX_CHARS` (1,500)** whatever the model wrote, at a word with an ellipsis (D285).
+  The summary rides in every later prompt, so it is bounded: at most about 375 tokens.
+- **Limit.** Each call consumes the system-only `summarize_history` limit (5,000 a month by
+  default, `Limit` rows override), user `None`, linked to the last folded turn, with provider,
+  model and tokens recorded (D280). Its own key so a runaway summariser cannot starve `condense`.
+  The limit reached, a provider refusal or outage (refunded: nothing was billed), or an unusable
+  reply (stays counted: the call was made) all leave the conversation unchanged; the next
+  finished turn finds the history still over budget and tries again (D284). Not retried within
+  the task.
+- **Concurrency.** The provider call is made with no transaction and no row lock (it can take a
+  minute, and a new turn's `updated_at` write would wait behind it). The result is written by
+  `UPDATE ... WHERE pk = ? AND summary_through = <what was read>`: of two folds racing on one
+  conversation exactly one writes; the other's result is dropped, since its turns are already
+  folded and folding them twice would duplicate them (D282). Both calls were made, so both stay
+  counted. A fold is not activity: `updated_at` is untouched, and a deleted conversation is not
+  folded. A turn answered while a fold runs reads the summary and `summary_through` together, so
+  its prompt is consistent either way.
+- **The fake summariser** (D286): when the user message holds `<fold>`, the old summary's lines
+  plus one `- <question> -> <first sentence of the answer>` per folded turn, only the newest 6
+  lines kept.
+
+### Evaluation: raw vs condensed vs standalone
 
 `retrieval/eval/fixtures/conversations.json` holds 17 conversations over the same 30 notes (no new
 notes). Each is `{id, kind, turns, standalone}`: `turns` is two or more `{question, relevant?}`,
@@ -560,9 +608,61 @@ unchanged.
 | `no_answer` | Has no answer in the notes (`relevant: []`) |
 
 The loader (`load_conversations`) checks unique ids, known note keys, at least two turns, a labelled
-last turn, a non-empty `standalone`, and `no_answer` exactly when the last `relevant` is empty. The
-raw vs condensed vs standalone comparison arrives with phase 1's `eval_retrieval --conversations`
-command; until then the fixtures are only loaded and validated.
+last turn, a non-empty `standalone`, and `no_answer` exactly when the last `relevant` is empty.
+
+```
+python manage.py eval_retrieval --conversations [--k 5] [--provider fake|openai|gemini] [--by-kind]
+```
+
+The command (D287) loads the 30 notes as the plain evaluation does (throwaway user, one rolled-back
+transaction, no data left) and searches each conversation's **last turn** three ways with hybrid
+search, the mode asks use:
+
+| Variant | The query |
+|---|---|
+| `raw` | the follow-up as the user wrote it |
+| `condensed` | what a turn would search: the follow-up as is if the cheap "stands alone" check passes (D221), otherwise the chat provider's rewrite (`conversation.run_condenser`, `condense-v1`), and the follow-up as is again if the condenser fails or returns nothing |
+| `standalone` | the fixture's human rewrite: the upper bound |
+
+It prints how many last turns were condensed, stood alone, or fell back, then recall@k and MRR per
+variant (`--by-kind`: per kind). Condensing here uses `CHAT_PROVIDER` and records no usage events
+and consumes no `condense` limit (there is no ask to link one to); with a real provider it does
+spend a few dozen small calls. The earlier turns reach the condenser as the fixture's questions
+with empty answers: the answers a real conversation would have are not generated, so a follow-up
+that points at something only an answer said ("the second one") is judged harder here than in
+use.
+
+**Fake providers (smoke test).** The fake condenser (D225) and the fake embeddings (a hashed bag of
+words) only show the pipeline runs and that condensing moves retrieval the right way. 15
+answerable conversations (2 no-answer are skipped), k=5; 12 last turns condensed, 5 stood alone,
+none fell back:
+
+| Follow-up | recall@5 | MRR |
+|---|---|---|
+| raw | 0.733 | 0.532 |
+| condensed | 0.900 | 0.668 |
+| standalone | 0.933 | 0.710 |
+
+| Kind | n | raw r@5 / MRR | condensed r@5 / MRR | standalone r@5 / MRR |
+|---|---|---|---|---|
+| ellipsis | 3 | 0.667 / 0.690 | 1.000 / 0.667 | 1.000 / 1.000 |
+| near_duplicate | 3 | 1.000 / 0.483 | 1.000 / 0.567 | 1.000 / 0.611 |
+| pronoun | 3 | 0.667 / 0.714 | 0.833 / 1.000 | 1.000 / 0.750 |
+| refinement | 3 | 0.667 / 0.417 | 1.000 / 0.750 | 1.000 / 0.833 |
+| topic_shift | 3 | 0.667 / 0.357 | 0.667 / 0.357 | 0.667 / 0.357 |
+
+The topic shifts are the same in all three columns, as they should be: they stand alone, so
+condensing leaves them be and does not drag the old topic in. Their 0.667 is the fake embeddings'
+retrieval, not conversation handling. These numbers are a smoke test, not a measure.
+
+**Real provider: pending an API key.** Run `python manage.py eval_retrieval --conversations
+--by-kind --provider openai` with `CHAT_PROVIDER` and the key set, and fill this table:
+
+| Follow-up | recall@5 | MRR |
+|---|---|---|
+| raw | pending an API key | |
+| condensed | pending an API key | |
+| standalone | pending an API key | |
 
 ## Known limits
 

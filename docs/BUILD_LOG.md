@@ -346,3 +346,22 @@ Concurrency is proven at the user edge and the system edge (exactly N pass), and
 - The "mail once" marker lives in the cache, so it is best effort (D99).
 - `enabled` off on a limit means "not enforced"; this is parked for the owner (D100).
 - During a rolling deploy, asks made by old code after the migration get no event (D103). Rerun the backfill if that happens.
+
+### V2 1 — conversations
+
+`v2-feat/1-conversations` and `v2-feat/1c-chat-web` (D140-D146, D220-D227, D280-D287,
+D300-D304). `Conversation` (title from the first question, running `summary`,
+`summary_through`, soft delete); a turn *is* an `AskQuery` (D78) with `conversation`,
+`position` and `standalone_question`, created through the ask's lock, limit and idempotency;
+`conversations/` CRUD and `conversations/<id>/turns/` (202 / 200 replay / 409
+`turn_in_progress` / 429 / 503). A follow-up is condensed to stand alone before retrieval
+(`condense-v1`, system-only `condense` limit, any failure falls back to the raw question) and
+answered with `chat-v1`, which carries the summary and the newest whole turns within a
+character budget. Over budget, a task folds the oldest turns into the summary
+(`summarize-v1`, system-only `summarize_history` limit, a conditional write so racing folds
+write once). `eval_retrieval --conversations` on the fake providers: recall@5 raw 0.733,
+condensed 0.900, human standalone 0.933 (MRR 0.532 / 0.668 / 0.710). Web: `/chat` list
+(rename, delete, new) and `/chat/:id` thread with citation chips, polling, the 409 wait and
+retry of a failed turn; `/ask` redirects to a new conversation and the old Ask panel is gone.
+Left: real-provider numbers and prompt quality need an API key; `summarize_history` at
+5000/month is a guess; streaming (phase 2) and memory (phase 3) build on this.
