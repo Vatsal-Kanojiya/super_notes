@@ -26,7 +26,7 @@ A pure function `occurrences(due_at, lead_days, tz) -> list[datetime]` is the si
   included per note in `notes/changes/`; a deleted note cancels its reminders. Tests: DST
   (`Europe/London` across the October change), lead 0 and 7, ownership (other user → 404),
   range validation, sync.
-- [ ] 2. **Delivery engine + email** (Opus) — a Celery beat task every minute: find due
+- [x] 2. **Delivery engine + email** (Opus) — a Celery beat task every minute: find due
   occurrences (≤ now, not yet delivered, reminder `scheduled`, note live), claim each by inserting
   its `ReminderDelivery` (the unique constraint makes a second worker's insert fail → at most
   once), enqueue sending on commit. After an outage, only the latest missed occurrence per

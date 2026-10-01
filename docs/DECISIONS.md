@@ -1645,3 +1645,56 @@ a second component with a reminder `status` makes drf-spectacular's enum naming 
 asks' `status` and the schema check fail. The asks' enum is now `AskQueryStatusEnum` (was
 `StatusEnum`; nothing referenced the name). **Alternative:** a flat item plus an
 `ENUM_NAME_OVERRIDES` entry in config/settings.py (outside this sub-task's files).
+
+### D134. A reminder occurrence is claimed by `INSERT ... ON CONFLICT DO NOTHING RETURNING id` (5, 2026-10-02)
+
+**Decided:** the minute sweep (`notes/delivery.py`, beat entry `deliver-due-reminders`, 60 s,
+`expires` 55 s) reads scheduled live reminders with `due_at` in `[now − grace, now + 31 days]`
+(the `(status, due_at)` index) and the last delivered occurrence of each, works out the due
+occurrence in Python (the schedule depends on each owner's timezone), and inserts its
+`ReminderDelivery`. A returned id means this sweep won: it enqueues the send on commit. Each claim is
+its own transaction, so a later failure in the sweep never re-opens claims whose sends are queued.
+A test holds two sweeps at a barrier after they read their candidates. With the unique constraint,
+one claim succeeds. With it dropped, both do. **Alternative:** catching `IntegrityError` in a
+savepoint per claim (Postgres logs an error for every lost race); `SELECT ... FOR UPDATE SKIP
+LOCKED` on reminders (guards one sweep, not a resend by a later one).
+
+### D135. Which occurrence is due: the latest passed one, after the last delivered and the last change (5, 2026-10-02)
+
+**Decided:** due now = the latest occurrence `≤ now` that is later than the last delivered one and
+not before the reminder's `updated_at`. After an outage only the latest missed heads-up goes out. A
+reminder created or moved after that day's time has passed does not fire a heads-up at once; the
+next one is tomorrow's. **Alternative:** replay every missed occurrence (a burst of stale mail), or
+send the passed heads-up on creation (a notification for something the user just did).
+
+### D136. An occurrence missed by more than 24 hours is not sent (5, 2026-10-02)
+
+**Decided:** `REMINDER_MISSED_GRACE_HOURS` (env, default 24). It also bounds the sweep: a reminder
+due more than that long ago is no longer read. **Alternative:** no limit (after a long outage, a
+"due now" mail days late; and every past reminder rescanned each minute for ever).
+
+### D137. At most once also at send time; a failed send is recorded, not retried (5, 2026-10-02)
+
+**Decided:** the send task first sets `sent_at` with `UPDATE ... WHERE sent_at IS NULL`. If no row
+changes, another run already has it (Celery's `acks_late` can hand a task out twice). Then it
+re-checks the reminder (scheduled, not deleted, note live: `{"skipped": "inactive"}` if not), sends
+each channel and records `channel_results` (`sent`, `failed`, `no_address`). No retries. A worker
+dying mid-send, or an SMTP error, loses that one notification; the next day's still comes.
+**Alternative:** retry transient mail errors (risks duplicates, which the plan rules out); set
+`sent_at` after sending (a redelivered task would send again).
+
+### D138. The reminder email: title, due date, relative day and a link, plain text, never the note body (5, 2026-10-02)
+
+**Decided:** subject `Reminder: <title> (due in N days | due tomorrow | due now)`. The title is put
+on one line (a newline in a subject is header injection), cut to 100 characters, and "Untitled
+note" when empty. The body has the title, `Due Tue 27 Oct 2026, 09:00 GMT.` in the owner's
+timezone, `<WEB_APP_URL>/notes/<id>` and one line on how to stop it. It is sent from
+`DEFAULT_FROM_EMAIL` (defaults to `SERVER_EMAIL`). **Alternative:** HTML mail (templates to
+maintain, for three lines); including an excerpt (note text leaving the app by email).
+
+### D139. New settings `WEB_APP_URL` and `DEFAULT_FROM_EMAIL`; push is recorded `unavailable` until it exists (5, 2026-10-02)
+
+**Decided:** `WEB_APP_URL` (default `http://localhost:5173`) is where mail links point; the deploy
+sets it with the hosting discussion. Until sub-task 3 adds push, a reminder with the `push`
+channel records `"push": "unavailable"` and sends its email as usual. **Alternative:** build links
+from the API host (the web client is served elsewhere in dev).
