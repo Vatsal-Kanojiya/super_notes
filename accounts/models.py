@@ -165,6 +165,9 @@ class SignedInDevice(models.Model):
     # The User-Agent, truncated: enough for a person to tell their phone
     # from their laptop. Untrusted text -- a client must escape it.
     label = models.CharField(max_length=200, blank=True)
+    # When this device's last *counted* app open was (D90, D93): the per-device
+    # throttle on ``app_opened`` reads it. Null: never opened.
+    last_app_open_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         # The foreign key's own index covers "this user's devices".
