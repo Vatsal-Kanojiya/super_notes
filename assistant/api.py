@@ -1,29 +1,47 @@
-"""The Ask API: ``POST ask/``, ``GET ask/`` and ``GET ask/<id>/`` (plan §6.5, §7).
+"""The Ask API: asks, and conversations of them (plan §6.5, §7; V2 plan §5 phase 1).
+
+``POST ask/``, ``GET ask/`` and ``GET ask/<id>/``; ``POST/GET conversations/``,
+``GET/PATCH/DELETE conversations/<id>/`` and ``POST conversations/<id>/turns/``.
 
 Asynchronous, in the reference's job shape: POST creates the AskQuery and
 returns it pending (202), the task answers it, and the client polls the
-detail URL until the status is done or failed. All of the rules -- the
-quota, idempotency, the lock -- live in assistant/services.py; this module
-is the HTTP around them.
+detail URL until the status is done or failed. A conversation turn is an
+AskQuery too, polled at the same URL. All of the rules -- the quota,
+idempotency, the lock, turns being sequential -- live in
+assistant/services.py; this module is the HTTP around them.
 
 Every query is filtered by ``user=request.user`` in SQL, so another user's
-ask is a 404, never a 403 that says it exists.
+ask or conversation is a 404, never a 403 that says it exists. A deleted
+conversation is a 404 too, and so are its turns (DECISIONS D145).
 """
 
 import re
 
+from django.db.models import Prefetch
 from django.urls import path
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import generics, serializers, status
+from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
 
 from config.api.common import SYSTEM_LIMIT_RESPONSE, MessageSerializer
 
-from .models import QUESTION_MAX_CHARS, AskQuery
-from .services import IdempotencyKeyReused, QuotaExceeded, create_ask
+from .models import QUESTION_MAX_CHARS, TITLE_MAX_CHARS, AskQuery, Conversation
+from .services import (
+    ConversationNotFound,
+    IdempotencyKeyReused,
+    QuotaExceeded,
+    TurnInProgress,
+    create_ask,
+    create_conversation,
+    create_turn,
+    delete_conversation,
+    rename_conversation,
+)
 
 ASK_TAG = ["Ask"]
+CONVERSATION_TAG = ["Conversations"]
 
 IDEMPOTENCY_HEADER = "Idempotency-Key"
 # Letters, digits, "-" and "_": a UUID fits, and so does anything a client
@@ -43,7 +61,7 @@ class CitationSerializer(serializers.Serializer):
 
 
 class AskQuerySerializer(serializers.ModelSerializer):
-    """An ask as the client shows it.
+    """An ask (or a conversation turn) as the client shows it.
 
     Not ``retrieved`` or the token counts: they are for debugging and cost,
     and the scores in ``retrieved`` would invite a client to rank with them.
@@ -60,6 +78,8 @@ class AskQuerySerializer(serializers.ModelSerializer):
         model = AskQuery
         fields = [
             "id",
+            "conversation",
+            "position",
             "question",
             "status",
             "answer",
@@ -69,6 +89,14 @@ class AskQuerySerializer(serializers.ModelSerializer):
             "completed_at",
         ]
         read_only_fields = fields
+        extra_kwargs = {
+            "conversation": {
+                "help_text": "The conversation this is a turn of; null for a plain ask."
+            },
+            "position": {
+                "help_text": "The turn's number in its conversation, from 1; null for a plain ask."
+            },
+        }
 
 
 class AskCreateSerializer(serializers.Serializer):
@@ -91,11 +119,135 @@ class QuotaExceededSerializer(MessageSerializer, AskUsageSerializer):
     pass
 
 
-# --- Views ----------------------------------------------------------------
+class ConversationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Conversation
+        fields = ["id", "title", "created_at", "updated_at"]
+        read_only_fields = fields
+        extra_kwargs = {
+            "title": {
+                "help_text": "The first question, shortened, until renamed. Blank until the "
+                "first turn."
+            },
+            "updated_at": {"help_text": "When the last turn was asked. The list is ordered by it."},
+        }
+
+
+class ConversationDetailSerializer(ConversationSerializer):
+    turns = AskQuerySerializer(many=True, read_only=True, help_text="Oldest first.")
+
+    class Meta(ConversationSerializer.Meta):
+        fields = [*ConversationSerializer.Meta.fields, "turns"]
+        read_only_fields = fields
+
+
+class ConversationCreateSerializer(serializers.Serializer):
+    question = serializers.CharField(
+        max_length=QUESTION_MAX_CHARS,
+        required=False,
+        help_text="Optional: asks it as turn 1 at once (then `Idempotency-Key` is required).",
+    )
+
+
+class ConversationRenameSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=TITLE_MAX_CHARS)
+
+
+class TurnInProgressSerializer(MessageSerializer):
+    turn = serializers.IntegerField(help_text="The unfinished turn: poll `GET ask/<turn>/`.")
+
+
+# --- Helpers --------------------------------------------------------------
 
 
 def _problem(detail, code, http_status, **extra):
     return Response({"detail": detail, "code": code, **extra}, status=http_status)
+
+
+def _idempotency_key(request):
+    """(key, None) from the header, or (None, the 400 to answer with)."""
+    key = request.headers.get(IDEMPOTENCY_HEADER, "")
+    if not key:
+        return None, _problem(
+            f"Send an {IDEMPOTENCY_HEADER} header: a fresh UUID per question.",
+            "idempotency_key_required",
+            status.HTTP_400_BAD_REQUEST,
+        )
+    if not IDEMPOTENCY_KEY.fullmatch(key):
+        return None, _problem(
+            f"{IDEMPOTENCY_HEADER} must be 1-100 letters, digits, '-' or '_'.",
+            "idempotency_key_invalid",
+            status.HTTP_400_BAD_REQUEST,
+        )
+    return key, None
+
+
+def _quota_exceeded(exceeded):
+    return _problem(
+        "You've used this month's asks.",
+        "quota_exceeded",
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        **AskUsageSerializer(exceeded).data,
+    )
+
+
+def _key_reused():
+    return _problem(
+        f"This {IDEMPOTENCY_HEADER} was already used for a different question.",
+        "idempotency_key_reused",
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+
+
+def _not_found():
+    return _problem("Not found.", "not_found", status.HTTP_404_NOT_FOUND)
+
+
+def _visible_asks(user):
+    """The user's asks, less the turns of deleted conversations (DECISIONS D145).
+
+    ``conversation__deleted_at__isnull`` is a LEFT JOIN, so a plain ask (no
+    conversation) matches as well as a live conversation's turn.
+    """
+    return AskQuery.objects.filter(user=user, conversation__deleted_at__isnull=True)
+
+
+def _live_conversations(user):
+    return Conversation.objects.filter(user=user, deleted_at__isnull=True)
+
+
+def _with_turns(conversations):
+    return conversations.prefetch_related(
+        Prefetch("turns", queryset=AskQuery.objects.order_by("position"))
+    )
+
+
+IDEMPOTENCY_PARAMETER = OpenApiParameter(
+    IDEMPOTENCY_HEADER,
+    OpenApiTypes.STR,
+    OpenApiParameter.HEADER,
+    required=True,
+    description="1-100 of `A-Z a-z 0-9 - _`; a UUID is ideal.",
+)
+BAD_REQUEST = OpenApiResponse(
+    MessageSerializer,
+    description="Invalid question, or `idempotency_key_required` / `idempotency_key_invalid`.",
+)
+UNAUTHORIZED = OpenApiResponse(MessageSerializer, description="Not signed in.")
+KEY_REUSED = OpenApiResponse(
+    MessageSerializer,
+    description="`idempotency_key_reused`: the key was used for another question, or for an "
+    "ask somewhere else (a plain ask, another conversation).",
+)
+QUOTA = OpenApiResponse(
+    QuotaExceededSerializer, description="`quota_exceeded` (with usage), or `throttled`."
+)
+NO_CONVERSATION = OpenApiResponse(
+    MessageSerializer, description="No such conversation of yours (or it was deleted)."
+)
+
+
+# --- Asks -----------------------------------------------------------------
 
 
 class AskListView(generics.ListAPIView):
@@ -111,12 +263,13 @@ class AskListView(generics.ListAPIView):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return AskQuery.objects.none()
-        return AskQuery.objects.filter(user=self.request.user)
+        return _visible_asks(self.request.user)
 
     @extend_schema(
         tags=ASK_TAG,
         summary="Your asks, newest first",
-        description="Follow `next` for more.",
+        description="Conversation turns included, except those of deleted conversations. "
+        "Follow `next` for more.",
         parameters=[
             OpenApiParameter("page_size", OpenApiTypes.INT, description="1-100, default 25.")
         ],
@@ -133,55 +286,28 @@ class AskListView(generics.ListAPIView):
             "notes only, with `[n]` markers matching `citations`.\n\n"
             "Send a fresh `Idempotency-Key` per question. Resending one (a retry after a "
             "dropped connection) returns the ask it already made, with 200, and does not count "
-            "again. Reusing it for a different question is a 422.\n\n"
+            "again. Reusing it for a different question, or one first sent as a conversation "
+            "turn, is a 422.\n\n"
             "Each ask that does not fail counts against the month's quota (see `me/`). When "
             "the service-wide monthly budget is used up, asking pauses for everyone: 503 "
             "`system_limit_reached`."
         ),
-        parameters=[
-            OpenApiParameter(
-                IDEMPOTENCY_HEADER,
-                OpenApiTypes.STR,
-                OpenApiParameter.HEADER,
-                required=True,
-                description="1-100 of `A-Z a-z 0-9 - _`; a UUID is ideal.",
-            )
-        ],
+        parameters=[IDEMPOTENCY_PARAMETER],
         request=AskCreateSerializer,
         responses={
             202: OpenApiResponse(AskQuerySerializer, description="Asked; poll for the answer."),
             200: OpenApiResponse(AskQuerySerializer, description="A replayed key: that ask."),
-            400: OpenApiResponse(
-                MessageSerializer,
-                description="Invalid question, or `idempotency_key_required` / "
-                "`idempotency_key_invalid`.",
-            ),
-            401: OpenApiResponse(MessageSerializer, description="Not signed in."),
-            422: OpenApiResponse(
-                MessageSerializer,
-                description="`idempotency_key_reused`: the key was used for another question.",
-            ),
-            429: OpenApiResponse(
-                QuotaExceededSerializer,
-                description="`quota_exceeded` (with usage), or `throttled`.",
-            ),
+            400: BAD_REQUEST,
+            401: UNAUTHORIZED,
+            422: KEY_REUSED,
+            429: QUOTA,
             503: SYSTEM_LIMIT_RESPONSE,
         },
     )
     def post(self, request, *args, **kwargs):
-        key = request.headers.get(IDEMPOTENCY_HEADER, "")
-        if not key:
-            return _problem(
-                f"Send an {IDEMPOTENCY_HEADER} header: a fresh UUID per question.",
-                "idempotency_key_required",
-                status.HTTP_400_BAD_REQUEST,
-            )
-        if not IDEMPOTENCY_KEY.fullmatch(key):
-            return _problem(
-                f"{IDEMPOTENCY_HEADER} must be 1-100 letters, digits, '-' or '_'.",
-                "idempotency_key_invalid",
-                status.HTTP_400_BAD_REQUEST,
-            )
+        key, problem = _idempotency_key(request)
+        if problem:
+            return problem
 
         body = AskCreateSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -189,19 +315,9 @@ class AskListView(generics.ListAPIView):
         try:
             ask, created = create_ask(request.user, body.validated_data["question"], key)
         except QuotaExceeded as exceeded:
-            usage = AskUsageSerializer(exceeded).data
-            return _problem(
-                "You've used this month's asks.",
-                "quota_exceeded",
-                status.HTTP_429_TOO_MANY_REQUESTS,
-                **usage,
-            )
+            return _quota_exceeded(exceeded)
         except IdempotencyKeyReused:
-            return _problem(
-                f"This {IDEMPOTENCY_HEADER} was already used for a different question.",
-                "idempotency_key_reused",
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
+            return _key_reused()
 
         return Response(
             AskQuerySerializer(ask).data,
@@ -215,16 +331,17 @@ class AskDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return AskQuery.objects.none()
-        return AskQuery.objects.filter(user=self.request.user)
+        return _visible_asks(self.request.user)
 
     @extend_schema(
         tags=ASK_TAG,
         summary="Get an ask",
         description="Poll this until `status` is `done` or `failed`; a failed ask has a "
-        "user-facing `error` and does not count against the quota.",
+        "user-facing `error` and does not count against the quota. Conversation turns are "
+        "polled here too.",
         responses={
             200: AskQuerySerializer,
-            401: OpenApiResponse(MessageSerializer, description="Not signed in."),
+            401: UNAUTHORIZED,
             404: OpenApiResponse(MessageSerializer, description="No such ask of yours."),
         },
     )
@@ -232,7 +349,226 @@ class AskDetailView(generics.RetrieveAPIView):
         return super().get(request, *args, **kwargs)
 
 
+# --- Conversations --------------------------------------------------------
+
+
+class ConversationPagination(CursorPagination):
+    """Most recently active first (DECISIONS D146).
+
+    ``updated_at`` moves, which config/api/pagination.py warns against: a
+    conversation that gets a new turn while a client pages jumps to the
+    top, and a client already past page one does not see it again on this
+    pass. It only ever moves up, so nothing is shown twice, and the next
+    fetch of page one has it. ``-id`` breaks ties.
+    """
+
+    page_size = 25
+    max_page_size = 100
+    page_size_query_param = "page_size"
+    ordering = ("-updated_at", "-id")
+
+
+class ConversationListView(generics.ListAPIView):
+    serializer_class = ConversationSerializer
+    pagination_class = ConversationPagination
+
+    @property
+    def throttle_scope(self):
+        # A first question costs a provider call, as an ask does.
+        return "ask" if self.request.method == "POST" else None
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Conversation.objects.none()
+        return _live_conversations(self.request.user)
+
+    @extend_schema(
+        tags=CONVERSATION_TAG,
+        summary="Your conversations, most recently active first",
+        description="Follow `next` for more.",
+        parameters=[
+            OpenApiParameter("page_size", OpenApiTypes.INT, description="1-100, default 25.")
+        ],
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=CONVERSATION_TAG,
+        summary="Start a conversation",
+        description=(
+            "Without a `question`, makes an empty conversation (201). With one, also asks it "
+            "as turn 1, exactly as `POST conversations/<id>/turns/` would, and then needs an "
+            "`Idempotency-Key`: a retry with the same key returns the same conversation (200) "
+            "and does not count again. Poll the turn with `GET ask/<id>/`."
+        ),
+        parameters=[
+            OpenApiParameter(
+                IDEMPOTENCY_HEADER,
+                OpenApiTypes.STR,
+                OpenApiParameter.HEADER,
+                description="Required with a `question`. 1-100 of `A-Z a-z 0-9 - _`.",
+            )
+        ],
+        request=ConversationCreateSerializer,
+        responses={
+            201: OpenApiResponse(ConversationDetailSerializer, description="Started."),
+            200: OpenApiResponse(
+                ConversationDetailSerializer, description="A replayed key: that conversation."
+            ),
+            400: BAD_REQUEST,
+            401: UNAUTHORIZED,
+            422: KEY_REUSED,
+            429: QUOTA,
+            503: SYSTEM_LIMIT_RESPONSE,
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        body = ConversationCreateSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        question = body.validated_data.get("question")
+
+        key = None
+        if question is not None:
+            key, problem = _idempotency_key(request)
+            if problem:
+                return problem
+
+        try:
+            conversation, created = create_conversation(request.user, question, key)
+        except QuotaExceeded as exceeded:
+            return _quota_exceeded(exceeded)
+        except IdempotencyKeyReused:
+            return _key_reused()
+
+        conversation = _with_turns(Conversation.objects).get(pk=conversation.pk)
+        return Response(
+            ConversationDetailSerializer(conversation).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class ConversationDetailView(generics.RetrieveAPIView):
+    serializer_class = ConversationDetailSerializer
+    http_method_names = ["get", "patch", "delete", "head", "options"]
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Conversation.objects.none()
+        return _with_turns(_live_conversations(self.request.user))
+
+    @extend_schema(
+        tags=CONVERSATION_TAG,
+        summary="Get a conversation and its turns",
+        responses={200: ConversationDetailSerializer, 401: UNAUTHORIZED, 404: NO_CONVERSATION},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=CONVERSATION_TAG,
+        summary="Rename a conversation",
+        description="Does not move it in the list, which follows new turns.",
+        request=ConversationRenameSerializer,
+        responses={
+            200: ConversationSerializer,
+            400: OpenApiResponse(MessageSerializer, description="Invalid title."),
+            401: UNAUTHORIZED,
+            404: NO_CONVERSATION,
+        },
+    )
+    def patch(self, request, *args, **kwargs):
+        body = ConversationRenameSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        try:
+            conversation = rename_conversation(
+                request.user, self.kwargs["pk"], body.validated_data["title"]
+            )
+        except ConversationNotFound:
+            return _not_found()
+        return Response(ConversationSerializer(conversation).data)
+
+    @extend_schema(
+        tags=CONVERSATION_TAG,
+        summary="Delete a conversation",
+        description="Its turns go from `ask/` too. The asks it used still count this month.",
+        responses={204: None, 401: UNAUTHORIZED, 404: NO_CONVERSATION},
+    )
+    def delete(self, request, *args, **kwargs):
+        try:
+            delete_conversation(request.user, self.kwargs["pk"])
+        except ConversationNotFound:
+            return _not_found()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TurnCreateView(generics.GenericAPIView):
+    serializer_class = AskCreateSerializer
+    throttle_scope = "ask"
+
+    @extend_schema(
+        tags=CONVERSATION_TAG,
+        summary="Ask the next question in a conversation",
+        description=(
+            "`POST ask/`, in a conversation: returns the turn `pending` (202); poll "
+            "`GET ask/<id>/` until it is `done` or `failed`. Turns are sequential: while the "
+            "previous turn is pending or running this is a 409 `turn_in_progress`, naming "
+            "that turn. A replayed `Idempotency-Key` returns its turn (200), even then.\n\n"
+            "Each turn counts against the month's asks, as an ask does."
+        ),
+        parameters=[IDEMPOTENCY_PARAMETER],
+        request=AskCreateSerializer,
+        responses={
+            202: OpenApiResponse(AskQuerySerializer, description="Asked; poll for the answer."),
+            200: OpenApiResponse(AskQuerySerializer, description="A replayed key: that turn."),
+            400: BAD_REQUEST,
+            401: UNAUTHORIZED,
+            404: NO_CONVERSATION,
+            409: OpenApiResponse(
+                TurnInProgressSerializer,
+                description="`turn_in_progress`: the previous turn has not finished.",
+            ),
+            422: KEY_REUSED,
+            429: QUOTA,
+            503: SYSTEM_LIMIT_RESPONSE,
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        key, problem = _idempotency_key(request)
+        if problem:
+            return problem
+
+        body = AskCreateSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+
+        try:
+            turn, created = create_turn(
+                request.user, self.kwargs["pk"], body.validated_data["question"], key
+            )
+        except ConversationNotFound:
+            return _not_found()
+        except TurnInProgress as busy:
+            return _problem(
+                "The previous question in this conversation is still being answered.",
+                "turn_in_progress",
+                status.HTTP_409_CONFLICT,
+                turn=busy.turn.pk,
+            )
+        except QuotaExceeded as exceeded:
+            return _quota_exceeded(exceeded)
+        except IdempotencyKeyReused:
+            return _key_reused()
+
+        return Response(
+            AskQuerySerializer(turn).data,
+            status=status.HTTP_202_ACCEPTED if created else status.HTTP_200_OK,
+        )
+
+
 urlpatterns = [
     path("ask/", AskListView.as_view(), name="ask-list"),
     path("ask/<int:pk>/", AskDetailView.as_view(), name="ask-detail"),
+    path("conversations/", ConversationListView.as_view(), name="conversation-list"),
+    path("conversations/<int:pk>/", ConversationDetailView.as_view(), name="conversation-detail"),
+    path("conversations/<int:pk>/turns/", TurnCreateView.as_view(), name="conversation-turns"),
 ]

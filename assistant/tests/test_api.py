@@ -83,6 +83,8 @@ class AuthAndIsolationTests(AskAPITestCase):
             set(body),
             {
                 "id",
+                "conversation",
+                "position",
                 "question",
                 "status",
                 "answer",
