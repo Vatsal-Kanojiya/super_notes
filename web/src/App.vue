@@ -5,7 +5,7 @@ import AppHeader from './components/AppHeader.vue'
 import MemoryBanner from './components/MemoryBanner.vue'
 import UpdateBar from './components/UpdateBar.vue'
 import { useAppVersionStore } from './stores/appVersion'
-import { useAskStore } from './stores/ask'
+import { useChatStore } from './stores/chat'
 import { useAuthStore } from './stores/auth'
 import { useLifecycleStore } from './stores/lifecycle'
 import { useNotesStore } from './stores/notes'
@@ -14,7 +14,7 @@ import { safeNext } from './lib/safeNext'
 
 const auth = useAuthStore()
 const notes = useNotesStore()
-const ask = useAskStore()
+const chat = useChatStore()
 const route = useRoute()
 const router = useRouter()
 const appVersion = useAppVersionStore()
@@ -39,7 +39,7 @@ watch(
     } else {
       notes.clear()
       lifecycle.end()
-      ask.clear()
+      chat.clear()
       push.clear()
       // Back to sign-in, remembering where they were so signing in returns there.
       if (!route.meta.public) void router.replace({ name: 'signin', query: { next: route.fullPath } })

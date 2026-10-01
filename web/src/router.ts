@@ -18,7 +18,12 @@ export const router = createRouter({
     { path: '/notes', name: 'notes', component: () => import('./components/NotesList.vue') },
     { path: '/notes/:id', name: 'note', component: () => import('./components/NotePage.vue'), props: (r) => ({ noteId: r.params.id as string }) },
     { path: '/calendar', name: 'calendar', component: () => import('./components/CalendarPage.vue') },
-    { path: '/ask', name: 'ask', component: () => import('./components/AskPanel.vue') },
+    // Ask became Chat (V2 1): a plain /ask opens a new conversation.
+    { path: '/ask', redirect: '/chat/new' },
+    { path: '/chat', name: 'chat', component: () => import('./components/ChatList.vue') },
+    // `new` is a conversation not created yet: the first question creates it (D300).
+    { path: '/chat/new', name: 'chat-new', component: () => import('./components/ChatThread.vue') },
+    { path: '/chat/:id(\\d+)', name: 'chat-thread', component: () => import('./components/ChatThread.vue') },
     { path: '/settings', name: 'settings', component: () => import('./components/SettingsPage.vue') },
     { path: '/:rest(.*)*', redirect: '/notes' },
   ],

@@ -2271,3 +2271,46 @@ button is disabled with the reason, and a 429 `quota_exceeded` updates the store
 body. `me/` is re-read after each job ends (a failed job is not counted). Dates use the existing
 `formatDate` (browser time zone, so a reset at midnight IST reads as the day before in UTC).
 **Alternative:** only react to the 429.
+
+### D300. A new conversation is created by its first question; `/chat/new` is a screen, not a row (1c, 2026-10-01)
+
+**Decided:** "New conversation" and `/ask` go to `/chat/new`, which shows an empty thread. Nothing is
+created until the first question: it is sent as `POST conversations/` with the question and an
+`Idempotency-Key` (the API's own one-call form), then the URL is replaced by `/chat/<id>` (so Back
+skips `/chat/new`) and the thread, already in hand, is not reloaded. **Alternative:** create an empty
+conversation on click and navigate to it (each abandoned click would leave a blank-titled row in the
+list, and a delete to clean up).
+
+### D301. Thread logic lives in `lib/thread.ts`; the store only does the network (1c, 2026-10-01)
+
+**Decided:** merging a polled turn (a snapshot never moves a turn backwards: a slow poll that
+overtakes the finished answer cannot bring "pending" back), the thread's phase (empty, sending,
+waiting, answering, failed, ready) and whether the composer may send, the list order, and the
+wording of 429/503/network/409 failures (using `limits.chat_turns` from `me/`, the 429 body's own
+numbers winning) are pure functions with vitest tests; `stores/chat.ts` has a smaller test with the
+API mocked. **Alternative:** keep it all in the store (as the ask store did; untestable without
+mocking timers and the network).
+
+### D302. A 409 `turn_in_progress` is waited out: poll the named turn, then send again with the same key (1c, 2026-10-01)
+
+**Decided:** on 409 the store shows the busy turn, polls it to the end (the "Waiting for the previous
+answer to finish…" state, composer disabled), and re-sends the same question with the same
+`Idempotency-Key`, up to 3 times (another tab may keep asking), then shows the error. The composer
+already blocks a second send while a turn of this tab is pending, so a 409 only arises from another
+tab or device. **Alternative:** show the 409 and make the person retry (the answer to "wait" is the
+only thing they would do).
+
+### D303. Retry of a failed turn asks its question again as a new turn (1c, 2026-10-01)
+
+**Decided:** the last turn, when failed, shows its error and a Retry button that sends the same
+question with a fresh key; the failed turn stays in the thread (it is history, and the backend skips
+failed turns in the prompt, D224). Earlier failed turns show the error without a button.
+**Alternative:** re-run the failed turn in place (the API has no such call; a failed turn is final).
+
+### D304. `/ask` is gone as a screen: AskPanel and the ask store are removed; the answer body is a component (1c, 2026-10-01)
+
+**Decided:** with `/ask` redirecting, nothing used `AskPanel.vue` and `stores/ask.ts` (a conversation
+turn is also listed by `GET ask/`, so a "history" list there would duplicate the chat list). The
+text-and-chips rendering (still `splitAnswer`, never `v-html`, D50) moved unchanged into
+`AnswerBody.vue`, shared by every turn; its CSS stays. `auth.setAskUsage` now also updates
+`limits.chat_turns` (the same numbers). **Alternative:** keep the unused panel until a later cleanup.

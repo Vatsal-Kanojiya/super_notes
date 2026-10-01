@@ -43,7 +43,7 @@
   limit key `summarize_history` or reuse `condense` — decide); `eval_retrieval --conversations`
   reporting recall@5 and MRR for raw vs condensed vs the human `standalone`; docs/RAG.md
   "Conversations" section.
-- [ ] 4. **Web chat** (Sonnet) — `/chat` (list) and `/chat/:id` (thread, composer, polling, the
+- [x] 4. **Web chat** (Sonnet) — `/chat` (list) and `/chat/:id` (thread, composer, polling, the
   citation chips), "New conversation"; `/ask` redirects to a new conversation; vitest for the
   thread logic; headless check against the real backend.
 

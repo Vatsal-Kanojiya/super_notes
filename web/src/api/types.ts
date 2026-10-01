@@ -51,11 +51,12 @@ export interface AskUsage {
   resets_at: DateTime | null
 }
 
-/** Same shape for every key of `me/`'s `limits`. */
+/** Use and limit of one limit key (`limits` in `me/`); same fields as `AskUsage`. */
 export type LimitUsage = AskUsage
 
-/** `me/`'s `limits`: use and limit per user-facing key (D84, D91). */
+/** `limits` in `me/`: one entry per user-facing limit key (D84). */
 export interface UserLimits {
+  /** Asks and chat turns, per month. */
   chat_turns: LimitUsage
   format: LimitUsage
   summary: LimitUsage
@@ -65,8 +66,8 @@ export interface UserLimits {
 /** `GET me/`; the sign-in response's `user` has the same shape. */
 export interface Me extends User {
   ask_usage: AskUsage
-  /** Optional only so an older server does not break the client. */
-  limits?: UserLimits
+  /** Every user-facing limit (D84); `chat_turns` is what a chat turn counts against. */
+  limits: UserLimits
   /** An IANA name; the server's default is Asia/Kolkata. */
   timezone: string
   memory_enabled: boolean
@@ -261,6 +262,10 @@ export interface Citation {
 
 export interface AskQuery {
   id: Id
+  /** The conversation this is a turn of; null for a plain ask. */
+  conversation: Id | null
+  /** The turn's number in its conversation, from 1; null for a plain ask. */
+  position: number | null
   question: string
   status: AskStatus
   answer: string
@@ -358,4 +363,33 @@ export interface FormatJob {
 export interface FormatQuotaBody extends LimitUsage {
   detail: string
   code: 'quota_exceeded'
+}
+
+// --------------------------------------------------------- conversations --
+
+export interface Conversation {
+  id: Id
+  /** The first question, shortened, until renamed. Blank until the first turn. */
+  title: string
+  created_at: DateTime
+  /** When the last turn was asked; the list is ordered by it. */
+  updated_at: DateTime
+}
+
+/** `GET conversations/<id>/`, and the reply of `POST conversations/`: the turns, oldest first. */
+export interface ConversationDetail extends Conversation {
+  turns: AskQuery[]
+}
+
+/** `POST conversations/`: with a `question` it is asked as turn 1 (and needs an `Idempotency-Key`). */
+export interface ConversationCreateRequest {
+  question?: string
+}
+
+/** 409 body of `POST conversations/<id>/turns/` while the previous turn is unfinished. */
+export interface TurnInProgressBody {
+  detail: string
+  code: 'turn_in_progress'
+  /** The unfinished turn: poll `GET ask/<turn>/`. */
+  turn: Id
 }

@@ -81,7 +81,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** Keep the usage line in step without a round trip (e.g. from a 429 body). */
   function setAskUsage(usage: AskUsage) {
-    if (user.value) user.value = { ...user.value, ask_usage: usage }
+    if (!user.value) return
+    // `ask_usage` and `limits.chat_turns` are the same numbers (D84).
+    const limits = user.value.limits ? { ...user.value.limits, chat_turns: usage } : user.value.limits
+    user.value = { ...user.value, ask_usage: usage, limits }
   }
 
   /** The same for the `format` limit (from a 429 body). */
