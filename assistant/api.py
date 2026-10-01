@@ -1,6 +1,7 @@
 """The Ask API: asks, and conversations of them (plan §6.5, §7; V2 plan §5 phase 1).
 
-``POST ask/``, ``GET ask/`` and ``GET ask/<id>/``; ``POST/GET conversations/``,
+``POST ask/``, ``GET ask/``, ``GET ask/<id>/`` and ``GET ask/<id>/stream/``;
+``POST/GET conversations/``,
 ``GET/PATCH/DELETE conversations/<id>/`` and ``POST conversations/<id>/turns/``.
 
 Asynchronous, in the reference's job shape: POST creates the AskQuery and
@@ -17,16 +18,23 @@ conversation is a 404 too, and so are its turns (DECISIONS D145).
 
 import re
 
+from django.core.handlers.asgi import ASGIRequest
 from django.db.models import Prefetch
+from django.http import StreamingHttpResponse
 from django.urls import path
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import generics, serializers, status
+from rest_framework.negotiation import BaseContentNegotiation
 from rest_framework.pagination import CursorPagination
+from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from config.api.common import SYSTEM_LIMIT_RESPONSE, MessageSerializer
+from config.middleware import get_request_id
 
+from . import stream
 from .models import QUESTION_MAX_CHARS, TITLE_MAX_CHARS, AskQuery, Conversation
 from .services import (
     ConversationNotFound,
@@ -349,6 +357,84 @@ class AskDetailView(generics.RetrieveAPIView):
         return super().get(request, *args, **kwargs)
 
 
+class JSONErrorsOnly(BaseContentNegotiation):
+    """Answer in the first renderer whatever the client accepts.
+
+    The stream endpoint's client sends ``Accept: text/event-stream``; its
+    errors (401, 404, 429) are still the API's JSON, not a 406.
+    """
+
+    def select_parser(self, request, parsers):
+        return parsers[0]
+
+    def select_renderer(self, request, renderers, format_suffix=None):
+        return renderers[0], renderers[0].media_type
+
+
+STREAM_DESCRIPTION = """\
+The answer as it is written, as server-sent events (`text/event-stream`). Read it with
+`fetch` and a streaming body reader (an `EventSource` cannot send the `Authorization` header).
+Polling `GET ask/<id>/` keeps working and stays the source of truth: on any error, or a stream
+that ends without `done` or `failed`, poll (or open the stream again: it catches up).
+
+Each event is `event: <type>` and one `data:` line of JSON that repeats `type`:
+
+- `snapshot` `{text, offset}`: the answer so far; replaces what you have. `offset` is its
+  length. First, for an unfinished ask.
+- `delta` `{offset, text}`: append `text`. Deltas are contiguous: `offset` is always the length
+  of the text so far (in code points).
+- `reset`: the answer is starting over (a retry); clear the text.
+- `done` / `failed` `{ask}`: the ask exactly as `GET ask/<id>/` returns it, citations
+  included. Last.
+- `timeout`: the stream reached its time limit (5 minutes by default). Last: poll.
+- `unavailable`: live events are off or unreachable, or the server is not running under ASGI.
+  Last: poll.
+
+A finished ask gets its `done` or `failed` at once. A `: keep-alive` comment line comes after
+15 seconds without an event. Opening a stream counts against the general request rate, not the
+`ask` scope."""
+
+
+class AskStreamView(APIView):
+    """``GET ask/<id>/stream/``: who and whose here, the events in assistant/stream.py.
+
+    A DRF view, so authentication, throttles, the error shape and the
+    schema are the API's own (DECISIONS D370). It is synchronous: under
+    ASGI, Django runs it in a worker thread, and it does no more than an
+    ownership check. The body it returns is an async generator that the
+    ASGI server drives on its event loop for as long as the stream is open.
+    """
+
+    renderer_classes = [JSONRenderer]
+    content_negotiation_class = JSONErrorsOnly
+
+    @extend_schema(
+        tags=ASK_TAG,
+        summary="Stream an ask's answer",
+        description=STREAM_DESCRIPTION,
+        responses={
+            (200, "text/event-stream"): OpenApiResponse(
+                OpenApiTypes.STR, description="Server-sent events until the ask ends."
+            ),
+            401: UNAUTHORIZED,
+            404: OpenApiResponse(MessageSerializer, description="No such ask of yours."),
+            429: OpenApiResponse(MessageSerializer, description="`throttled`."),
+        },
+    )
+    def get(self, request, pk):
+        if not _visible_asks(request.user).filter(pk=pk).exists():
+            return _not_found()
+        if isinstance(request._request, ASGIRequest):
+            body = stream.events(pk, request.user.pk, request_id=get_request_id())
+        else:
+            body = stream.catch_up(pk, request.user.pk)
+        response = StreamingHttpResponse(body, content_type="text/event-stream; charset=utf-8")
+        response["Cache-Control"] = "no-cache"
+        # nginx: pass each event on as it comes, not when its buffer fills.
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+
 # --- Conversations --------------------------------------------------------
 
 
@@ -568,6 +654,7 @@ class TurnCreateView(generics.GenericAPIView):
 urlpatterns = [
     path("ask/", AskListView.as_view(), name="ask-list"),
     path("ask/<int:pk>/", AskDetailView.as_view(), name="ask-detail"),
+    path("ask/<int:pk>/stream/", AskStreamView.as_view(), name="ask-stream"),
     path("conversations/", ConversationListView.as_view(), name="conversation-list"),
     path("conversations/<int:pk>/", ConversationDetailView.as_view(), name="conversation-detail"),
     path("conversations/<int:pk>/turns/", TurnCreateView.as_view(), name="conversation-turns"),
