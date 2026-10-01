@@ -67,3 +67,12 @@ Things that came up and were left for a decision. Each names what it is waiting 
   minutes is acceptable.
 - **Account deletion** — not in V1's scope. `SecurityEvent.user` is `SET_NULL` so the trail
   survives it, but nothing blanks the `email` snapshot yet (the reference does).
+
+## Parked during V2
+
+- **Summary chunks after an embedding-model change** (D555) — `reindex_notes` re-embeds note
+  chunks but not the summary chunk, and an embedding error while storing a summary leaves it
+  without a chunk (logged, not retried). Until fixed, re-run "Summarize" after a model change.
+- **Chunk search post-filtering** (D68) — the HNSW owner post-filter can starve a small user in a
+  large table; D517 fixed it for facts only. Revisit with pgvector ≥ 0.8 iterative scans.
+

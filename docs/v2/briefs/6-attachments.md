@@ -42,7 +42,7 @@
   `extract_image_text` provider method (fake), chunking into `NoteChunk` (`attachment` FK,
   `source`), search and Ask/chat citations naming the attachment, de-indexing on delete; caps on
   extracted text and PDF pages (decompression bombs, encrypted PDFs → failed, not crashed).
-- [ ] 3. **Summaries** (Sonnet) — `POST notes/<id>/summarize/` job, `Note.summary` /
+- [x] 3. **Summaries** (Sonnet) — `POST notes/<id>/summarize/` job, `Note.summary` /
   `summary_version`, summary chunk, stale summary visible, attachment summaries, `summary` limit
   with refunds; tests.
 - [ ] 4. **Web** (Sonnet) — attach (picker + drop), list with status, download, delete, the

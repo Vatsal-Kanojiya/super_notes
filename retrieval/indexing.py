@@ -13,7 +13,8 @@ queue, and the management commands call it directly.
   writes nothing rather than overwrite it with stale chunks.
 
 A note's chunks come from three sources (``NoteChunk.source``, D341). This
-module's ``index_note`` owns the ``note`` ones only: an attachment's chunks
+module's ``index_note`` owns the ``note`` ones only: the note's summary is one
+``summary`` chunk, replaced whole when a new summary is stored (D555); an attachment's chunks
 are written when its text is extracted (``embed_attachment`` then
 ``write_attachment_chunks``, under the lock notes/extraction.py holds) and
 re-embedded by ``index_attachment``. Deleting the note removes them all.
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 NOTE = NoteChunk.Source.NOTE
 ATTACHMENT = NoteChunk.Source.ATTACHMENT
+SUMMARY = NoteChunk.Source.SUMMARY
 
 
 def deindex_note(note_id: int) -> int:
@@ -208,3 +210,51 @@ def index_attachment(attachment_id: int) -> bool:
             return False
         write_attachment_chunks(locked, chunks, vectors, model_id, locked.note.version)
     return True
+
+
+# Summaries -------------------------------------------------------------------
+
+
+def embed_summary(note: Note, text: str):
+    """Chunk a note's summary and embed it: ``(chunks, vectors, model_id)``.
+
+    No lock and no write, as ``embed_attachment``; ``write_summary_chunks``
+    stores them under the owner's lock. Raises the embedding errors.
+    """
+    model_id = embedding_model_id()
+    chunks = chunk_text(note.title or "Summary", text)
+    vectors = dict(
+        zip(
+            (c.content_hash for c in chunks),
+            embed_texts([c.embed_text for c in chunks]),
+            strict=True,
+        )
+    )
+    return chunks, vectors, model_id
+
+
+def write_summary_chunks(
+    note: Note, chunks: list[Chunk], vectors: dict, model_id: str, note_version: int
+) -> None:
+    """Replace the note's summary chunks with ``chunks`` (none: remove them).
+
+    The caller holds the owner's lock. ``note_version`` is the version the
+    summary was made from, so ``index_status`` and a reader can tell a chunk
+    describing an older note.
+    """
+    NoteChunk.objects.filter(note_id=note.pk, source=SUMMARY).delete()
+    NoteChunk.objects.bulk_create(
+        NoteChunk(
+            note_id=note.pk,
+            owner_id=note.owner_id,
+            source=SUMMARY,
+            ordinal=chunk.ordinal,
+            text=chunk.text,
+            heading_path="Summary",
+            content_hash=chunk.content_hash,
+            embedding=vectors[chunk.content_hash],
+            embedding_model=model_id,
+            note_version=note_version,
+        )
+        for chunk in chunks
+    )

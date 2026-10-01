@@ -324,6 +324,81 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: No such attachment of yours.
+  /api/v1/attachments/{id}/summarize/:
+    post:
+      operationId: attachments_summarize_create
+      description: |-
+        As summarising a note, for a file whose text has been read (`status` `ready`) and is not empty. The summary is stored on the attachment (`summary`), which its note sends again in `notes/changes/`.
+
+        Send a fresh `Idempotency-Key` per request. Resending one (a retry after a dropped connection) returns the job it already made, with 200, and does not count again; so does asking again while a job for the same target is still running. Reusing a key for another target is a 422.
+      summary: Summarize an attachment
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: 1-100 of `A-Z a-z 0-9 - _`; a UUID is ideal.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Summaries
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryJob'
+          description: Started; poll for the result.
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryJob'
+          description: 'A replayed key, or a job still running: that job.'
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`nothing_to_summarize` or `attachment_not_ready`, `idempotency_key_required`
+            or `idempotency_key_invalid`.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such attachment of yours.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`idempotency_key_reused`: the key was used for another target.'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryQuotaExceeded'
+          description: '`quota_exceeded` (with usage), or `throttled`.'
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`system_limit_reached`: this feature is paused for everyone
+            (a system-wide limit). Not the caller''s own quota; try again later.'
   /api/v1/auth/devices/:
     get:
       operationId: auth_devices_list
@@ -1502,6 +1577,80 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: ''
+  /api/v1/notes/{id}/summarize/:
+    post:
+      operationId: notes_summarize_create
+      description: |-
+        Starts summarising the note and returns at once with the job `pending` (202): poll `GET summary-jobs/<id>/` until `status` is `done` or `failed`. A finished summary is stored on the note as `summary`, with `summary_version`, the note `version` it was made from; the note's own `version` does not change, so nothing conflicts. `summary_stale` is true once the note has been edited since. The summary is also searchable, so broad questions find the note. A failed job does not count against the month's `summary` limit (see `me/`), except one whose answer the assistant generated but could not be used.
+
+        Send a fresh `Idempotency-Key` per request. Resending one (a retry after a dropped connection) returns the job it already made, with 200, and does not count again; so does asking again while a job for the same target is still running. Reusing a key for another target is a 422.
+      summary: Summarize a note
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: 1-100 of `A-Z a-z 0-9 - _`; a UUID is ideal.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Summaries
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryJob'
+          description: Started; poll for the result.
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryJob'
+          description: 'A replayed key, or a job still running: that job.'
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`nothing_to_summarize`, `idempotency_key_required` or `idempotency_key_invalid`.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such note of yours.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`idempotency_key_reused`: the key was used for another target.'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryQuotaExceeded'
+          description: '`quota_exceeded` (with usage), or `throttled`.'
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`system_limit_reached`: this feature is paused for everyone
+            (a system-wide limit). Not the caller''s own quota; try again later.'
   /api/v1/notes/changes/:
     get:
       operationId: notes_changes_retrieve
@@ -1786,6 +1935,41 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Not signed in.
+  /api/v1/summary-jobs/{id}/:
+    get:
+      operationId: summary_jobs_retrieve
+      description: Poll this until `status` is `done` or `failed`; a failed job has
+        an `error_code` and a user-facing `error`.
+      summary: Get a summary job
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Summaries
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryJob'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such job of yours.
 components:
   schemas:
     AppVersion:
@@ -2341,6 +2525,18 @@ components:
         revision:
           type: integer
           readOnly: true
+        summary:
+          type: string
+          readOnly: true
+        summary_version:
+          type: integer
+          readOnly: true
+          nullable: true
+        summary_stale:
+          type: boolean
+          readOnly: true
+          description: True when the note has been edited since its `summary` was
+            made (`summary_version != version`). False with no summary.
         created_at:
           type: string
           format: date-time
@@ -2360,6 +2556,9 @@ components:
       - deleted_at
       - id
       - revision
+      - summary
+      - summary_stale
+      - summary_version
       - updated_at
       - version
     NoteChange:
@@ -2427,6 +2626,18 @@ components:
         revision:
           type: integer
           readOnly: true
+        summary:
+          type: string
+          readOnly: true
+        summary_version:
+          type: integer
+          readOnly: true
+          nullable: true
+        summary_stale:
+          type: boolean
+          readOnly: true
+          description: True when the note has been edited since its `summary` was
+            made (`summary_version != version`). False with no summary.
         created_at:
           type: string
           format: date-time
@@ -2458,6 +2669,9 @@ components:
       - id
       - reminders
       - revision
+      - summary
+      - summary_stale
+      - summary_version
       - updated_at
       - version
     NoteTombstone:
@@ -3022,6 +3236,85 @@ components:
       description: |-
         * `prominent` - prominent
         * `subtle` - subtle
+    SummaryJob:
+      type: object
+      description: A job as the client shows it. Not the provider, model, prompt or
+        tokens.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        note_id:
+          type: integer
+          readOnly: true
+        attachment_id:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: Set when the job summarises a file.
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        base_version:
+          type: integer
+          readOnly: true
+        summary:
+          type: string
+          readOnly: true
+          description: The summary, when `status` is `done`; otherwise empty. It is
+            already stored on the note (`Note.summary`) or the attachment.
+        error_code:
+          type: string
+          readOnly: true
+        error:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - attachment_id
+      - base_version
+      - completed_at
+      - created_at
+      - error
+      - error_code
+      - id
+      - note_id
+      - status
+      - summary
+    SummaryQuotaExceeded:
+      type: object
+      description: 'A plain answer: what happened, and a stable code a client can
+        branch on.'
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+        used:
+          type: integer
+        limit:
+          type: integer
+          nullable: true
+          description: 'Null: unlimited.'
+        resets_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - code
+      - detail
+      - limit
+      - resets_at
+      - used
     TokenPair:
       type: object
       properties:

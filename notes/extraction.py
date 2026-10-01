@@ -239,7 +239,8 @@ def image_text(attachment: Attachment, data: bytes) -> str:
 
     One ``image_text`` use per call, the owner's (a per-user and a system
     limit), consumed under the owner's lock and refunded if the call fails
-    for any reason, a transient one included (the retry consumes its own).
+    for any reason, a transient one included (the retry consumes its own),
+    except a chat.BilledChatError, which keeps the use and records its cost.
     A transient error is re-raised for the task to retry.
     """
     if len(data) > settings.ATTACHMENT_IMAGE_TEXT_MAX_BYTES:
@@ -254,7 +255,11 @@ def image_text(attachment: Attachment, data: bytes) -> str:
     try:
         result = chat.extract_image_text(data, attachment.mime_type)
     except BaseException as exc:
-        limits.refund(event)
+        if isinstance(exc, chat.BilledChatError):
+            # Generated and billed but unusable: keep the use, record the cost (D500, D550).
+            limits.describe_where({"pk": event.pk}, **exc.cost())
+        else:
+            limits.refund(event)
         if isinstance(exc, chat.ImageTextNotSupported):
             logger.warning("Attachment %s: %s", attachment.pk, exc)
             raise ExtractionFailed(IMAGE_NOT_SUPPORTED) from exc

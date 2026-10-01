@@ -115,6 +115,10 @@ reminder schedule D95, chat history kept until deleted D96. **All open questions
 5. **Deploy wiring for D89:** the deploy must set the server's `CLIENT_LATEST_VERSION` to the same
    build id as the web bundle it ships (set `VITE_APP_VERSION` once, pass it to both), or clients
    could reload toward a build whose files aren't served yet. Part of the hosting discussion.
+6. **Review-time choices to confirm (2026-10-02):** per-user `image_text` 50/250 a month (D520);
+   show `image_text` usage in `me/` (D529); facts keep numbers as "(2024)" (D504); attachment
+   summaries manual and counted under `summary` (D557); long notes summarised from their first
+   24,000 characters rather than refused (D556).
 
 1. **Quota model (before phase 1).** One monthly budget of *AI actions* shared by asks, chat
    turns, formatting and summaries (recommended: simpler to explain, one ledger), or a separate

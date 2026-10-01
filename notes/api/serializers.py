@@ -53,6 +53,10 @@ class NoteSerializer(serializers.ModelSerializer):
     """A live note, as every endpoint returns it."""
 
     content = serializers.JSONField(required=False, validators=[validate_content])
+    summary_stale = serializers.SerializerMethodField(
+        help_text="True when the note has been edited since its `summary` was made "
+        "(`summary_version != version`). False with no summary."
+    )
 
     class Meta:
         model = Note
@@ -64,6 +68,9 @@ class NoteSerializer(serializers.ModelSerializer):
             "content_text",
             "version",
             "revision",
+            "summary",
+            "summary_version",
+            "summary_stale",
             "created_at",
             "updated_at",
             "deleted_at",
@@ -72,10 +79,16 @@ class NoteSerializer(serializers.ModelSerializer):
             "content_text",
             "version",
             "revision",
+            "summary",
+            "summary_version",
+            "summary_stale",
             "created_at",
             "updated_at",
             "deleted_at",
         ]
+
+    def get_summary_stale(self, note) -> bool:
+        return bool(note.summary) and note.summary_version != note.version
 
     def create(self, validated_data):
         return services.create_note(self.context["request"].user, **validated_data)
