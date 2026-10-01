@@ -64,7 +64,8 @@ onMounted(() => {
       ></textarea>
       <div class="ask-row">
         <span v-if="ask.usage" class="muted small usage">
-          {{ ask.usage.used }} / {{ ask.usage.limit }} asks used · resets on {{ formatDate(ask.usage.resets_at) }}
+          <template v-if="ask.usage.limit === null">{{ ask.usage.used }} asks this month · unlimited</template>
+          <template v-else>{{ ask.usage.used }} / {{ ask.usage.limit }} asks used<template v-if="ask.usage.resets_at"> · resets on {{ formatDate(ask.usage.resets_at) }}</template></template>
         </span>
         <button type="submit" :disabled="ask.submitting || !question.trim()">
           {{ ask.submitting ? 'Asking…' : 'Ask' }}

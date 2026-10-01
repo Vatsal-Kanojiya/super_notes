@@ -42,7 +42,10 @@ export const useAskStore = defineStore('ask', () => {
   const errorKind = ref<'' | 'quota' | 'throttled' | 'reused' | 'network' | 'other'>('')
 
   const usage = computed<AskUsage | null>(() => auth.user?.ask_usage ?? null)
-  const overQuota = computed(() => (usage.value ? usage.value.used >= usage.value.limit : false))
+  const overQuota = computed(() => {
+    const u = usage.value
+    return u !== null && u !== undefined && u.limit !== null && u.used >= u.limit
+  })
   const selected = computed(() => history.value.find((q) => q.id === selectedId.value) ?? null)
 
   // A key for a POST that got no answer, kept for a retry of the same question.
@@ -87,6 +90,11 @@ export const useAskStore = defineStore('ask', () => {
         }
         errorKind.value = 'quota'
         error.value = body?.limit ? `You have used all ${body.limit} asks for this month.` : 'You have used all your asks for this month.'
+      } else if (e instanceof ApiError && e.code === 'system_limit_reached') {
+        // The whole service is at its monthly cap (D84, D130): nothing was created.
+        unanswered = null
+        errorKind.value = 'other'
+        error.value = 'Asking is paused for everyone right now. Your notes still work; try again later.'
       } else if (e instanceof ApiError && e.code === 'throttled') {
         errorKind.value = 'throttled'
         error.value = 'You are asking too fast. Wait a moment and try again.'
