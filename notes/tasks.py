@@ -125,6 +125,8 @@ def _format(job_id: int) -> None:
         proposed,
         min_kept=settings.FORMAT_MIN_WORDS_KEPT,
         min_original=settings.FORMAT_MIN_WORDS_ORIGINAL,
+        new_words_floor=settings.FORMAT_NEW_WORDS_FLOOR,
+        new_words_share=settings.FORMAT_NEW_WORDS_SHARE,
     )
     if not verdict.ok:
         logger.warning(
