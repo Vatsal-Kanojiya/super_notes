@@ -1,5 +1,6 @@
 """reindex_notes, index_status and eval_retrieval."""
 
+import re
 from io import StringIO
 from unittest import mock
 
@@ -8,6 +9,8 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
+from assistant.chat import ChatError
+from limits.models import UsageEvent
 from notes import services
 from notes.tests.helpers import doc, make_user
 from retrieval import indexing
@@ -142,4 +145,59 @@ class EvalRetrievalTests(TestCase):
         # command says so instead of printing numbers.
         with mock.patch.dict("os.environ", {"OPENAI_API_KEY": ""}), self.assertRaises(CommandError):
             run("eval_retrieval", k=3, provider="openai")
+        self.assertFalse(NoteChunk.objects.exists())
+
+
+class EvalConversationsTests(TestCase):
+    """--conversations with the fake providers: the report's shape, and what it leaves behind."""
+
+    def test_reports_raw_condensed_and_standalone_and_leaves_no_data(self):
+        users_before = get_user_model().objects.count()
+
+        out, err = run("eval_retrieval", conversations=True, k=5, by_kind=True)
+
+        self.assertIn(
+            "30 notes, 17 conversations (15 answerable, 2 no-answer). Hybrid search, k=5.", out
+        )
+        self.assertIn("Fake provider: a smoke test", out)
+        self.assertIn("Last turns: 12 condensed, 5 stood alone, 0 fell back.", out)
+        for variant in ("raw", "condensed", "standalone"):
+            self.assertRegex(out, rf"\n{variant} +\d\.\d{{3}} +\d\.\d{{3}}\n")
+        self.assertRegex(out, r"\npronoun +3 ")
+        self.assertRegex(out, r"\ntopic_shift +3 ")
+        self.assertNotIn("no_answer  ", out)
+        self.assertEqual(err, "")
+        self.assertEqual(get_user_model().objects.count(), users_before)
+        self.assertFalse(NoteChunk.objects.exists())
+
+    def test_condensing_in_the_eval_needs_no_ask_and_consumes_no_limit(self):
+        run("eval_retrieval", conversations=True)
+
+        self.assertFalse(UsageEvent.objects.exists())
+
+    def test_condensing_helps_the_fake_pronoun_follow_ups(self):
+        out, _ = run("eval_retrieval", conversations=True, k=5)
+
+        def mrr(variant):
+            return float(re.search(rf"\n{variant} +\d\.\d{{3}} +(\d\.\d{{3}})\n", out).group(1))
+
+        self.assertGreater(mrr("condensed"), mrr("raw"))
+        self.assertGreaterEqual(mrr("standalone"), mrr("condensed"))
+
+    def test_a_condenser_that_fails_falls_back_to_the_follow_up_as_asked(self):
+        with mock.patch("assistant.chat.complete", side_effect=ChatError("down")):
+            out, err = run("eval_retrieval", conversations=True)
+
+        self.assertIn("Last turns: 0 condensed, 5 stood alone, 12 fell back.", out)
+        self.assertEqual(err.count("condensing failed, searched as asked"), 12)
+        # Everything fell back to the raw question: condensed scores as raw does.
+        raw = re.search(r"\nraw +(\d\.\d{3} +\d\.\d{3})\n", out).group(1)
+        condensed = re.search(r"\ncondensed +(\d\.\d{3} +\d\.\d{3})\n", out).group(1)
+        self.assertEqual(raw, condensed)
+
+    def test_bad_k_and_a_failing_embedding_provider_are_command_errors(self):
+        with self.assertRaises(CommandError):
+            run("eval_retrieval", conversations=True, k=0)
+        with mock.patch.dict("os.environ", {"OPENAI_API_KEY": ""}), self.assertRaises(CommandError):
+            run("eval_retrieval", conversations=True, provider="openai")
         self.assertFalse(NoteChunk.objects.exists())

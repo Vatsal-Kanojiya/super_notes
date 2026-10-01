@@ -311,6 +311,15 @@ class CondenseUsageTests(TurnTestCase):
         self.assertEqual(own.provider, "fake")
         self.assertEqual(own.input_tokens, follow_up.input_tokens)
 
+    def test_the_pure_condenser_needs_no_ask_and_records_nothing(self):
+        history = [HistoryTurn(1, self.FIRST, "He said it is low.")]
+
+        rewritten, result = conversation.run_condenser(self.FOLLOW_UP, history)
+
+        self.assertEqual(rewritten, "How often do I have to take Dr Kulkarni say vitamin D?")
+        self.assertEqual(result.provider, "fake")
+        self.assertFalse(UsageEvent.objects.filter(key="condense").exists())
+
     def test_a_failed_turn_refunds_its_chat_turn_but_not_the_condense_call(self):
         follow_up = self.follow(self.FOLLOW_UP)
         real = chat.complete

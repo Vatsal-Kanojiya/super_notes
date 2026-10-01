@@ -14,6 +14,12 @@ replaced by the content words of the previous turn's question; a follow-up
 with no such word comes back unchanged, as a topic shift should. So "When
 is it due next?" after "When did I last service the Honda City?" becomes
 "When is last service Honda City due next?", which retrieval can match.
+
+A fold call (prompts/summarize.md: the user message holds ``<fold>``) gets
+another fixed rule (DECISIONS D286): the summary so far, one line
+``- <question> -> <first sentence of the answer>`` per folded turn, and
+only the newest FOLD_LINES lines kept -- a bounded summary that forgets the
+oldest, as a real one is told to.
 """
 
 import json
@@ -34,6 +40,14 @@ _SENTENCE = re.compile(r"(.+?[.!?])(?=\s|$)")
 _FOLLOW_UP = re.compile(r"<follow_up>\n(.*?)\n</follow_up>", re.DOTALL)
 _HISTORY_QUESTION = re.compile(r"<question>\n(.*?)\n</question>", re.DOTALL)
 _TOKEN = re.compile(r"[\w'’.-]+")
+
+_FOLD = re.compile(r"<fold>\n(.*?)\n</fold>", re.DOTALL)
+_SUMMARY = re.compile(r"<summary>\n(.*?)\n</summary>", re.DOTALL)
+_FOLD_TURN = re.compile(
+    r"<turn>\n<question>\n(.*?)\n</question>\n<answer>\n(.*?)\n</answer>\n</turn>", re.DOTALL
+)
+# The fake summary keeps this many lines.
+FOLD_LINES = 6
 
 # What the fake condenser resolves: the commonest words that point back.
 POINTING = frozenset("it its them they their this that these those one ones".split())
@@ -94,6 +108,7 @@ class FakeProvider:
         note = _NOTE.match(user)
         follow_up = _FOLLOW_UP.search(user)
         excerpts = _EXCERPT.findall(user)[:CITED]
+        fold = _FOLD.search(user)
         if note:
             # A "format my note" request (notes/format_prompt.py): answer with the
             # document, restructured, as the prompt demands.
@@ -101,6 +116,11 @@ class FakeProvider:
                 text = json.dumps(format_document(json.loads(note.group(1))), ensure_ascii=False)
             except ValueError:
                 text = "not json"
+        elif fold:
+            previous = _SUMMARY.search(user[: fold.start()])
+            text = summarise(
+                previous.group(1) if previous else "", _FOLD_TURN.findall(fold.group(1))
+            )
         elif follow_up:
             previous = _HISTORY_QUESTION.findall(user[: follow_up.start()])
             text = condense(follow_up.group(1), previous[-1] if previous else "")
@@ -133,3 +153,12 @@ def condense(follow_up: str, previous_question: str) -> str:
         if match.group().lower().strip(".?!'’") in POINTING:
             return follow_up[: match.start()] + subject + follow_up[match.end() :]
     return follow_up
+
+
+def summarise(previous: str, turns: list[tuple[str, str]]) -> str:
+    """The fake summariser: the old lines plus one per folded turn, the newest FOLD_LINES kept."""
+    lines = [line for line in previous.splitlines() if line.strip()]
+    lines += [
+        f"- {' '.join(question.split())} -> {first_sentence(answer)}" for question, answer in turns
+    ]
+    return "\n".join(lines[-FOLD_LINES:])

@@ -26,9 +26,10 @@ PROMPT_PATH = PROMPTS_DIR / "ask.md"
 # any case and spacing: "</excerpt>", "< /EXCERPTS", "<question ...".
 _DELIMITER_TAG = re.compile(r"<(\s*/?\s*(?:excerpts?|question)\b)", re.IGNORECASE)
 # The same for a conversation's prompts (chat.md, condense.md), which also
-# delimit the history: earlier questions and answers, and the summary.
+# delimit the history: earlier questions and answers, the summary, and the
+# turns being folded into it (summarize.md).
 _CONVERSATION_TAG = re.compile(
-    r"<(\s*/?\s*(?:excerpts?|question|history|turn|answer|summary|follow_up)\b)",
+    r"<(\s*/?\s*(?:excerpts?|question|history|turn|answer|summary|follow_up|fold)\b)",
     re.IGNORECASE,
 )
 
@@ -73,7 +74,7 @@ def _load() -> tuple[str, str]:
 
 
 def load_prompt(name: str) -> tuple[str, str]:
-    """(version, body) of prompts/<name>.md: ``chat``, ``condense``."""
+    """(version, body) of prompts/<name>.md: ``chat``, ``condense``, ``summarize``."""
     return _read(PROMPTS_DIR / f"{name}.md")
 
 

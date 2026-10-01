@@ -575,6 +575,15 @@ CHAT_CONDENSE_HISTORY_MAX_CHARS = env.int("CHAT_CONDENSE_HISTORY_MAX_CHARS", def
 # The ceiling on a condensed question. A question is a sentence; this is
 # not tighter because OpenAI's reasoning tokens count against it too.
 CHAT_CONDENSE_MAX_OUTPUT_TOKENS = env.int("CHAT_CONDENSE_MAX_OUTPUT_TOKENS", default=512)
+# Folding (assistant/conversation.py, DECISIONS D280-D287): when the turns the
+# summary does not cover grow past CHAT_HISTORY_MAX_CHARS, the oldest are
+# folded into Conversation.summary. The summary is cut to this many
+# characters (about 375 tokens) whatever the model wrote: it rides in every
+# later prompt, so it must not grow without limit.
+CHAT_SUMMARY_MAX_CHARS = env.int("CHAT_SUMMARY_MAX_CHARS", default=1500)
+# The ceiling on a folding call's reply; like the condenser's, generous
+# because reasoning tokens count against it.
+CHAT_SUMMARY_MAX_OUTPUT_TOKENS = env.int("CHAT_SUMMARY_MAX_OUTPUT_TOKENS", default=1024)
 
 # Chunking (retrieval/chunking.py, DECISIONS D33)
 #
@@ -656,7 +665,7 @@ MAX_SIGNED_IN_DEVICES = env.int("MAX_SIGNED_IN_DEVICES", default=2)
 # system-wide value, over a period: "month" or "day" (calendar, in
 # TIME_ZONE) or "total". None (or absent) is unlimited. A Limit row in the
 # admin with the same key overrides all of a key's values, so changing one
-# needs no deploy. condense and memory_extract are model calls the user
+# needs no deploy. condense, summarize_history and memory_extract are model calls the user
 # never pays for; only the system caps them.
 LIMIT_DEFAULTS = {
     "chat_turns": {"user_free": 20, "user_premium": 100, "system": 2000, "period": "month"},
@@ -670,6 +679,7 @@ LIMIT_DEFAULTS = {
     },
     "signups": {"system": 30, "period": "day"},
     "condense": {"system": 20000, "period": "month"},
+    "summarize_history": {"system": 5000, "period": "month"},
     "memory_extract": {"system": 20000, "period": "month"},
 }
 

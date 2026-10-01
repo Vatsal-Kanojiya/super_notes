@@ -38,7 +38,7 @@
   history budget, `chat.md`, the task branching for conversation turns, citations per turn, fake
   provider rules; tests: a pronoun follow-up retrieves the right note, a topic shift doesn't drag
   old context, condense failure falls back, history trimmed to budget.
-- [ ] 3. **Summary folding + evaluation** (Sonnet) — fold the oldest turns into
+- [x] 3. **Summary folding + evaluation** (Sonnet) — fold the oldest turns into
   `Conversation.summary` when history exceeds the budget (async, after a turn, its own system-only
   limit key `summarize_history` or reuse `condense` — decide); `eval_retrieval --conversations`
   reporting recall@5 and MRR for raw vs condensed vs the human `standalone`; docs/RAG.md

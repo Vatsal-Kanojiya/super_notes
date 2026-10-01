@@ -2,7 +2,9 @@
 
 A conversation turn adds two steps (assistant/conversation.py): its
 follow-up is condensed to stand alone before retrieval, and its prompt
-(prompts/chat.md) carries the conversation so far.
+(prompts/chat.md) carries the conversation so far. Finishing a turn may
+queue a fold of the conversation's oldest turns into its summary
+(fold_history, below).
 
 The task owns the AskQuery's life after creation: pending → running → done
 or failed. Every way out of it ends in done or failed, including retries
@@ -201,6 +203,46 @@ def _finish(ask_id, **fields) -> None:
     if done and cost:
         # The ask's own use only: a turn's condense event has its own cost.
         limits.describe_where({"ask_id": ask_id, "key": quota.KEY}, **cost)
+    if done:
+        _queue_fold(ask_id)
+
+
+def _queue_fold(ask_id: int) -> None:
+    """After a conversation turn is answered, fold its conversation if it needs it.
+
+    The check is one cheap query inside the finishing transaction (it sees
+    this answer); the fold itself is its own task, queued on commit so it
+    reads what this commit wrote, and never delays or fails the answer: a
+    broker that is down costs the fold only, which the next turn retries
+    (DECISIONS D284).
+    """
+    conversation_id = (
+        AskQuery.objects.filter(pk=ask_id).values_list("conversation_id", flat=True).first()
+    )
+    if conversation_id is None or not conversation.should_fold(conversation_id):
+        return
+
+    def enqueue():
+        try:
+            fold_history.delay(conversation_id)
+        except Exception:
+            logger.exception("Conversation %s: could not queue the fold", conversation_id)
+
+    transaction.on_commit(enqueue)
+
+
+@shared_task
+def fold_history(conversation_id: int) -> None:
+    """Fold a conversation's oldest unsummarised turns into its summary (DECISIONS D280-D287).
+
+    Safe to run twice, concurrently or redelivered: the write is conditional
+    (conversation.fold). Not retried when the provider fails -- the
+    conversation is simply unchanged and the next finished turn queues
+    another. A fold that leaves more than the budget unsummarised (a long
+    backlog, folded a batch at a time) queues itself again.
+    """
+    if conversation.fold(conversation_id) and conversation.should_fold(conversation_id):
+        fold_history.delay(conversation_id)
 
 
 @transaction.atomic

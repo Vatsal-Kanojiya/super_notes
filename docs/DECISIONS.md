@@ -2314,3 +2314,102 @@ turn is also listed by `GET ask/`, so a "history" list there would duplicate the
 text-and-chips rendering (still `splitAnswer`, never `v-html`, D50) moved unchanged into
 `AnswerBody.vue`, shared by every turn; its CSS stays. `auth.setAskUsage` now also updates
 `limits.chat_turns` (the same numbers). **Alternative:** keep the unused panel until a later cleanup.
+
+
+### D280. Folding consumes its own system-only limit key, `summarize_history`, not `condense` (1, 2026-10-01)
+
+**Decided:** a fold call is `limits.consume(None, "summarize_history", ask=<last folded turn>)`,
+5,000 a month by default (`LIMIT_DEFAULTS`, overridable by a `Limit` row), user `None` like
+`condense` (D91, D222): the user pays nothing for it, only the system caps it. Provider, model and
+tokens are recorded on the event. A fold is rarer than a turn (one per few turns), so the default
+is a fraction of `condense`'s 20,000 (one per follow-up) and a little over twice
+`chat_turns`' system 2,000. **Alternative:** reuse `condense` (one key fewer, but a runaway summariser, or a
+provider outage that makes every fold retry, would then use up the budget every follow-up's
+condensing depends on, and the ledger could not tell the two costs apart).
+
+### D281. Folding starts when the unsummarised history exceeds the budget, and keeps half of it (1, 2026-10-01)
+
+**Decided:** after a turn is answered, `should_fold` is true when the done turns after
+`summary_through` -- exactly what the next prompt would repeat (`history_for`, same sizes) -- total
+more than `CHAT_HISTORY_MAX_CHARS`: folding starts when `fit_history` would start dropping. A fold
+keeps the newest turns that fit half the budget (`FOLD_KEEP_SHARE`; the newest turn always stays)
+and folds the older ones, so the next fold is a few turns away. `summary_through` becomes the last
+folded turn's position. **Alternative:** fold down to exactly the budget (every later turn would
+overflow it again, one summariser call per turn); fold a fixed number of turns (a long answer would
+still blow the prompt).
+
+### D282. Folds write with a conditional UPDATE on `summary_through`, not a held lock (1, 2026-10-01)
+
+**Decided:** `fold` reads `summary` and `summary_through`, calls the provider with no transaction
+and no row lock, then writes `UPDATE conversation SET summary=..., summary_through=<last folded>
+WHERE pk=? AND summary_through=<what it read>`. Two folds racing on one conversation: one UPDATE
+matches, the other matches no row and its result is dropped -- no turn is folded twice, and none
+is skipped, since `summary_through` only ever moves to the last turn this fold read. The loser's
+call was made and paid for, so its event stays counted. Proven three ways: the interleaving
+forced in one thread (a fold run to the end inside another's provider call), the same with the
+winner folding further than the loser read, and two real threads held by a barrier until both
+have read; each fails with the `summary_through` condition removed. **Alternative:**
+`SELECT ... FOR UPDATE` on the conversation across the provider call (up to a minute: a new
+turn's `updated_at` UPDATE of the same row, in `create_ask`, would wait behind it, so the user's
+POST would hang); a Postgres advisory lock (same problem, or an idle-in-transaction connection);
+the duplicate provider call it costs the rare loser is the price of not holding either.
+
+### D283. One fold call is bounded; a longer backlog is folded in batches that queue themselves (1, 2026-10-01)
+
+**Decided:** a fold sends the previous summary and at most 12,000 characters of turns, oldest
+first, one turn at least, each answer cut to 2,000 (`FOLD_INPUT_MAX_CHARS`,
+`FOLD_ANSWER_MAX_CHARS`). When the history is still over budget afterwards (a backlog left by
+failed folds or a lowered budget), `fold_history` queues itself again; each run advances
+`summary_through`, so it ends. **Alternative:** send everything unsummarised (an unbounded prompt
+after a long outage of the provider).
+
+### D284. A fold failure changes nothing; the next finished turn tries again; enqueueing never fails a turn (1, 2026-10-01)
+
+**Decided:** the limit reached, a `ChatError` or `TransientChatError` (refunded: nothing was
+billed), and an empty reply (stays counted: the call was made, like D226's) all leave `summary` and
+`summary_through` as they were. `fold_history` is not retried by Celery: the history is still over
+budget, so the next answered turn queues another fold, which is the retry, with no backoff to
+tune; meanwhile `fit_history` keeps the prompt within budget by dropping the oldest, as before
+folding existed. The fold is queued with `transaction.on_commit` from `_finish` (so it reads the
+committed answer) and the `.delay` is wrapped: a broker that is down is logged and costs the fold
+only, never the answer. A failed turn, a plain ask and a turn under budget queue nothing; a
+deleted conversation is not folded. **Alternative:** Celery autoretry (a fold that cannot succeed
+retries a minute for nothing, spending the limit each time); queueing the check in a task of its
+own for every turn (a message per turn to learn "no").
+
+### D285. The summary is bounded twice: 200 words in the prompt, `CHAT_SUMMARY_MAX_CHARS` in code (1, 2026-10-01)
+
+**Decided:** `summarize-v1` asks for at most 200 words and to drop the oldest, least relevant
+detail first; `clean_summary` removes a "Summary:" label and quotes and cuts whatever comes back to
+1,500 characters (about 375 tokens) at a word, with an ellipsis, so the cap holds even when the
+model ignores the rule. The summary rides in every later prompt of the conversation: its size is
+that prompt's fixed cost. The cut keeps the start, not the end (a model told to merge new turns
+into the old summary tends to put the newest last, so an over-long reply loses the newest: that
+is the model breaking a rule, and the next fold rewrites the summary anyway). **Alternative:**
+trust the prompt (an uncapped summary grows every fold); cut the head (starts mid-sentence).
+
+### D286. The fake summariser writes one line per folded turn and keeps the newest six (1, 2026-10-01)
+
+**Decided:** when the user message holds `<fold>`, the fake provider returns the old summary's
+lines plus `- <question> -> <first sentence of the answer>` for each folded turn, keeping the
+newest 6 (`FOLD_LINES`). Deterministic, so a test reads off exactly which turns were folded and in
+which order; bounded like a real one is told to be, forgetting the oldest. The `fold` tag is
+neutralised in history, excerpts and summary like the other delimiters (D56), so a note or an
+answer cannot make a chat call look like a fold. **Alternative:** a fixed string (cannot show
+which turns were folded); an unbounded concatenation (could not show the bound).
+
+### D287. `eval_retrieval --conversations`: hybrid, questions-only history, a pure `run_condenser` (1, 2026-10-01)
+
+**Decided:** the last turn of each fixture conversation is searched raw, condensed (the "stands
+alone" heuristic first, then `run_condenser`, falling back to raw on failure or an empty reply, as
+`prepare` does) and as the human `standalone`; recall@k and MRR in hybrid mode only (the mode asks
+use), `--by-kind` per kind, and a count of how each last turn was handled. `condense` is split:
+`run_condenser(question, history) -> (rewrite, result)` does the call with no bookkeeping, and
+`condense(ask, history)` wraps it with the `condense` event (consume, refund on failure, cost).
+The eval needs no AskQuery and consumes no limit. The earlier turns are given as the fixture's
+questions with empty answers: producing real answers would mean running the whole ask on each,
+and the fixtures carry none. This under-serves a follow-up that points at something only an
+answer said ("the second one"), which the fixtures were not checked for. **Alternative:** answer the earlier turns
+with the real pipeline first (costs a chat call and a search per turn, and makes the numbers depend
+on the answer model too); all three modes per variant (nine rows, and only hybrid is what a turn
+uses).
