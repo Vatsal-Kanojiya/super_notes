@@ -650,3 +650,46 @@ a.note-card {
   min-height: 32px;
   padding: 2px 12px;
 }
+
+.memory-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.memory-banner p {
+  margin: 0;
+}
+.memory-banner.prominent {
+  background: var(--accent-soft);
+  font-size: 1rem;
+  padding: 12px 16px;
+}
+.memory-banner.subtle {
+  color: var(--muted);
+}
+.memory-banner button {
+  min-height: 32px;
+  padding: 2px 12px;
+  flex: none;
+}
+.setting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.setting-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.setting-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

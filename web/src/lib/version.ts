@@ -39,6 +39,10 @@ export interface UpdateInput {
   unsaved: boolean
   /** We already reloaded for this target and are still behind: do not loop. */
   alreadyReloaded?: boolean
+  /** `session/open/` said this build is older than the latest (an `update` notice). */
+  serverSaysUpdate?: boolean
+  /** ...and that it is below the minimum (`required`). */
+  serverSaysRequired?: boolean
 }
 
 /**
@@ -48,8 +52,8 @@ export interface UpdateInput {
  * asked again. After one reload that did not help, only the bar remains.
  */
 export function decideUpdate(input: UpdateInput): UpdateAction {
-  const behindLatest = (compareBuilds(input.current, input.latest) ?? 0) < 0
-  const belowMin = (compareBuilds(input.current, input.minSupported) ?? 0) < 0
+  const behindLatest = (compareBuilds(input.current, input.latest) ?? 0) < 0 || input.serverSaysUpdate === true
+  const belowMin = (compareBuilds(input.current, input.minSupported) ?? 0) < 0 || input.serverSaysRequired === true
   if (!behindLatest && !belowMin) return 'none'
   if (input.unsaved || input.alreadyReloaded) return 'prompt'
   return 'reload'

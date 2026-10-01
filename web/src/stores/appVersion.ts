@@ -31,7 +31,15 @@ export const useAppVersionStore = defineStore('appVersion', () => {
   const notes = useNotesStore()
   const latest = ref('')
   const minSupported = ref('')
+  /** From a `session/open/` `update` notice: the server compared our build for us. */
+  const noticeUpdate = ref(false)
+  const noticeRequired = ref(false)
   let started = false
+
+  function setUpdateNotice(required: boolean) {
+    noticeUpdate.value = true
+    noticeRequired.value = required
+  }
 
   const action = computed(() =>
     decideUpdate({
@@ -39,18 +47,22 @@ export const useAppVersionStore = defineStore('appVersion', () => {
       latest: latest.value,
       minSupported: minSupported.value,
       unsaved: notes.hasUnsaved,
-      alreadyReloaded: storage()?.getItem(RELOADED_FOR) === (latest.value || minSupported.value),
+      serverSaysUpdate: noticeUpdate.value,
+      serverSaysRequired: noticeRequired.value,
+      alreadyReloaded: storage()?.getItem(RELOADED_FOR) === reloadTarget(),
     }),
   )
   /** Show the "New version, reload" bar. */
   const showBar = computed(() => action.value !== 'none')
   /** The bar cannot be ignored: this build is below the minimum. */
-  const required = computed(() => isBelowMinimum(APP_VERSION, minSupported.value))
+  const required = computed(() => isBelowMinimum(APP_VERSION, minSupported.value) || noticeRequired.value)
+
+  const reloadTarget = () => latest.value || minSupported.value || 'notice'
 
   function reload() {
     // Remember what we reloaded for, so a deploy that is not live everywhere yet cannot loop us.
     try {
-      storage()?.setItem(RELOADED_FOR, latest.value || minSupported.value)
+      storage()?.setItem(RELOADED_FOR, reloadTarget())
     } catch {
       // ignore
     }
@@ -85,5 +97,5 @@ export const useAppVersionStore = defineStore('appVersion', () => {
     window.setInterval(() => void check(), CHECK_EVERY_MS)
   }
 
-  return { latest, minSupported, action, showBar, required, check, start, reload }
+  return { latest, minSupported, setUpdateNotice, action, showBar, required, check, start, reload }
 })

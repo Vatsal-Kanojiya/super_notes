@@ -1,6 +1,54 @@
+<script setup lang="ts">
+import { ref } from 'vue'
+import { errorMessage } from '../api/client'
+import { useAuthStore } from '../stores/auth'
+
+const auth = useAuthStore()
+const saving = ref(false)
+const error = ref('')
+
+async function setMemory(enabled: boolean) {
+  saving.value = true
+  error.value = ''
+  try {
+    await auth.updateMe({ memory_enabled: enabled })
+  } catch (e) {
+    error.value = errorMessage(e)
+  } finally {
+    saving.value = false
+  }
+}
+</script>
+
 <template>
   <main class="page">
     <h2>Settings</h2>
-    <p class="muted">Settings are coming soon.</p>
+
+    <section v-if="auth.user" class="setting">
+      <label class="setting-row">
+        <input
+          type="checkbox"
+          :checked="auth.user.memory_enabled"
+          :disabled="saving"
+          @change="setMemory(($event.target as HTMLInputElement).checked)"
+        />
+        <span>
+          <strong>Memory</strong>
+          <span class="muted small">
+            {{
+              auth.user.memory_enabled
+                ? 'On: a lasting memory is built from your chats to make answers more relevant.'
+                : 'Off: answers use only your notes and the current chat.'
+            }}
+          </span>
+        </span>
+      </label>
+      <p v-if="error" class="error small" role="alert">{{ error }}</p>
+    </section>
+
+    <section v-if="auth.user" class="setting">
+      <strong>Time zone</strong>
+      <span class="muted small">{{ auth.user.timezone }}</span>
+    </section>
   </main>
 </template>

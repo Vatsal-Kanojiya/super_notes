@@ -53,6 +53,32 @@ export interface AskUsage {
 /** `GET me/`; the sign-in response's `user` has the same shape. */
 export interface Me extends User {
   ask_usage: AskUsage
+  /** An IANA name; the server's default is Asia/Kolkata. */
+  timezone: string
+  memory_enabled: boolean
+  /** True once the user has set `memory_enabled` themselves (D88). */
+  memory_choice_explicit: boolean
+}
+
+/** `PATCH me/`. */
+export interface MeUpdateRequest {
+  timezone?: string
+  memory_enabled?: boolean
+}
+
+/** One item of `session/open/`'s `notices`. */
+export interface Notice {
+  kind: 'update' | 'memory'
+  /** `update` only: this build is below the minimum. */
+  required?: boolean
+  /** `memory` only. */
+  style?: 'prominent' | 'subtle'
+  state?: 'on' | 'off'
+}
+
+export interface SessionOpenResponse {
+  notices: Notice[]
+  server_time: DateTime
 }
 
 export interface GoogleSignInRequest {

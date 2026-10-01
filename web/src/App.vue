@@ -2,10 +2,12 @@
 import { onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from './components/AppHeader.vue'
+import MemoryBanner from './components/MemoryBanner.vue'
 import UpdateBar from './components/UpdateBar.vue'
 import { useAppVersionStore } from './stores/appVersion'
 import { useAskStore } from './stores/ask'
 import { useAuthStore } from './stores/auth'
+import { useLifecycleStore } from './stores/lifecycle'
 import { useNotesStore } from './stores/notes'
 import { safeNext } from './lib/safeNext'
 
@@ -15,6 +17,7 @@ const ask = useAskStore()
 const route = useRoute()
 const router = useRouter()
 const appVersion = useAppVersionStore()
+const lifecycle = useLifecycleStore()
 
 onMounted(() => appVersion.start())
 
@@ -25,8 +28,10 @@ watch(
   (signedIn) => {
     if (signedIn) {
       notes.startAutoSync()
+      lifecycle.begin()
     } else {
       notes.clear()
+      lifecycle.end()
       ask.clear()
       // Back to sign-in, remembering where they were so signing in returns there.
       if (!route.meta.public) void router.replace({ name: 'signin', query: { next: route.fullPath } })
@@ -43,6 +48,7 @@ watch(
   <router-view v-else-if="!auth.signedIn || route.meta.public" />
   <div v-else class="shell">
     <AppHeader />
+    <MemoryBanner />
     <router-view />
   </div>
 </template>
