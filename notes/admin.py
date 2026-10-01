@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import FormatJob, Note, Reminder, ReminderDelivery
+from .models import Attachment, FormatJob, Note, Reminder, ReminderDelivery
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -83,4 +83,30 @@ class FormatJobAdmin(ReadOnlyAdmin):
     list_filter = ["status", "error_code"]
     search_fields = ["owner__email"]
     list_select_related = ["owner", "note"]
+    ordering = ["-id"]
+
+
+@admin.register(Attachment)
+class AttachmentAdmin(ReadOnlyAdmin):
+    """Read-only, like notes: an attachment write must stamp its note's revision
+    and record or release its storage.
+
+    The file itself is left out: it is never served by URL (the storage
+    refuses to make one), and the bytes are the user's.
+    """
+
+    list_display = [
+        "id",
+        "note",
+        "owner",
+        "mime_type",
+        "size",
+        "status",
+        "created_at",
+        "deleted_at",
+    ]
+    list_filter = ["status", "mime_type", ("deleted_at", admin.EmptyFieldListFilter)]
+    search_fields = ["owner__email"]
+    list_select_related = ["note", "owner"]
+    exclude = ["file"]
     ordering = ["-id"]

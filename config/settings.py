@@ -237,12 +237,66 @@ REMINDER_MISSED_GRACE_HOURS = env.int("REMINDER_MISSED_GRACE_HOURS", default=24)
 
 # Upload size
 #
-# Nothing here accepts files; the largest body is a note, whose serialized
-# TipTap content the serializer caps at NOTE_CONTENT_MAX_BYTES. The request
-# limit leaves headroom above that for the title and the JSON around it,
-# and MaxUploadSizeMiddleware refuses anything larger from the header alone.
+# Apart from attachment uploads (below), the largest body is a note, whose
+# serialized TipTap content the serializer caps at NOTE_CONTENT_MAX_BYTES.
+# The request limit leaves headroom above that for the title and the JSON
+# around it, and MaxUploadSizeMiddleware refuses anything larger from the
+# header alone.
 NOTE_CONTENT_MAX_BYTES = 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = NOTE_CONTENT_MAX_BYTES + 512 * 1024
+
+# Attachments (notes/attachments.py, DECISIONS D85, D91, D320-D330). The one
+# endpoint that takes a file gets its own, larger body limit: one file of up
+# to ATTACHMENT_MAX_BYTES plus the multipart envelope around it (boundaries,
+# part headers, the file name). MaxUploadSizeMiddleware looks the request's
+# view up only when a body is over DATA_UPLOAD_MAX_MEMORY_SIZE, and allows
+# it only for a view named here, on POST.
+ATTACHMENT_MAX_BYTES = env.int("ATTACHMENT_MAX_BYTES", default=10 * 1024 * 1024)
+UPLOAD_SIZE_ALLOWANCES = {"api:v1:note-attachments": ATTACHMENT_MAX_BYTES + 64 * 1024}
+
+
+# File storage (DECISIONS D85, D320)
+#
+# Attachments live in their own storage alias. With AWS_STORAGE_BUCKET_NAME
+# set it is S3 (django-storages): a private bucket, objects written without
+# an ACL (the bucket's own policy decides, and it should block public
+# access), never served by URL. boto3 reads its credentials from its usual
+# chain (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, an instance role...),
+# never a setting here. Without a bucket, local disk under MEDIA_ROOT, which
+# no URL serves: there is no MEDIA_URL route, and the only way to a file's
+# bytes is the owner-scoped download endpoint. Either way the stored name is
+# random, never the client's. The test runner always swaps in a temp dir.
+MEDIA_ROOT = env("MEDIA_ROOT", default=str(BASE_DIR / "media"))
+AWS_STORAGE_BUCKET_NAME = env("AWS_STORAGE_BUCKET_NAME", default="")
+if AWS_STORAGE_BUCKET_NAME:
+    _attachment_storage = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {
+            "bucket_name": AWS_STORAGE_BUCKET_NAME,
+            "region_name": env("AWS_S3_REGION_NAME", default="") or None,
+            # For an S3-compatible service (MinIO, R2...); empty is AWS itself.
+            "endpoint_url": env("AWS_S3_ENDPOINT_URL", default="") or None,
+            "default_acl": None,
+            "querystring_auth": True,
+            "file_overwrite": False,
+            "location": env("AWS_S3_LOCATION", default=""),
+        },
+    }
+else:
+    _attachment_storage = {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        # 0o600/0o700: readable by the app's own user only.
+        "OPTIONS": {
+            "location": MEDIA_ROOT,
+            "file_permissions_mode": 0o600,
+            "directory_permissions_mode": 0o700,
+        },
+    }
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    "attachments": _attachment_storage,
+}
 
 
 # Security
@@ -406,6 +460,8 @@ REST_FRAMEWORK = {
         "search": env("API_SEARCH_THROTTLE", default="120/hour"),
         "ask": env("API_ASK_THROTTLE", default="60/hour"),
         "format": env("API_FORMAT_THROTTLE", default="30/hour"),
+        # Attachment uploads: each costs storage and, later, an extraction.
+        "upload": env("API_UPLOAD_THROTTLE", default="120/hour"),
     },
     # Unset, DRF identifies an anonymous caller by the whole X-Forwarded-For
     # header -- which the caller writes.
@@ -470,11 +526,12 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": r"/api/v1",
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
-    # Three models have a `status`: asks and format jobs share one choice set
-    # (StatusEnum); a reminder's is its own.
+    # Four models have a `status`: asks and format jobs share one choice set
+    # (StatusEnum); a reminder's and an attachment's are their own.
     "ENUM_NAME_OVERRIDES": {
         "StatusEnum": "assistant.models.AskQuery.Status",
         "ReminderStatusEnum": "notes.models.Reminder.Status",
+        "AttachmentStatusEnum": "notes.models.Attachment.Status",
     },
 }
 

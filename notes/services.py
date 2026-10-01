@@ -1,4 +1,4 @@
-"""Every note and reminder write goes through here. Nothing else saves a Note.
+"""Every note, reminder and attachment write goes through here. Nothing else saves a Note.
 
 Each write, in one transaction:
 
@@ -23,12 +23,19 @@ would overwrite the first without a conflict.
 
 from __future__ import annotations
 
+import logging
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Note, Reminder
+from limits import service as limits
+
+from .attachments import attachment_storage
+from .models import Attachment, Note, Reminder
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -41,18 +48,29 @@ class VersionConflict(Exception):
         self.current = current
 
 
-def _next_revision(owner) -> int:
-    """Lock the owner's row and take the next revision.
+def _lock_owner(owner):
+    """Lock the owner's row and return a fresh copy of it (with its plan).
 
     Must run inside ``transaction.atomic``: the lock is held until the
     transaction ends, which is what serialises the owner's writes.
     """
-    user = User.objects.select_for_update().only("pk", "notes_revision").get(pk=owner.pk)
-    user.notes_revision += 1
-    user.save(update_fields=["notes_revision"])
-    # The caller's ``owner`` object is left alone: if the transaction rolls
-    # back, a copy updated here would claim a revision that never happened.
-    return user.notes_revision
+    return User.objects.select_for_update().only("pk", "plan", "notes_revision").get(pk=owner.pk)
+
+
+def _bump_revision(locked) -> int:
+    """Take the next revision on a row ``_lock_owner`` returned."""
+    locked.notes_revision += 1
+    locked.save(update_fields=["notes_revision"])
+    return locked.notes_revision
+
+
+def _next_revision(owner) -> int:
+    """Lock the owner's row and take the next revision.
+
+    The caller's ``owner`` object is left alone: if the transaction rolls
+    back, a copy updated here would claim a revision that never happened.
+    """
+    return _bump_revision(_lock_owner(owner))
 
 
 def _locked_live_note(owner, note_id) -> Note:
@@ -140,6 +158,10 @@ def delete_note(owner, note_id) -> Note:
     Reminder.objects.filter(
         note=note, status=Reminder.Status.SCHEDULED, deleted_at__isnull=True
     ).update(status=Reminder.Status.CANCELLED, updated_at=note.deleted_at)
+    # Its attachments go with it: storage released, files deleted on commit.
+    _release_attachments(
+        Attachment.objects.filter(note=note, deleted_at__isnull=True), note.deleted_at
+    )
     _after_write(note)
     return note
 
@@ -248,3 +270,142 @@ def delete_reminder(owner, reminder_id) -> Reminder:
     reminder.save(update_fields=["deleted_at", "updated_at"])
     _stamp_note(reminder.note, revision)
     return reminder
+
+
+# Attachments ---------------------------------------------------------------
+#
+# Like a reminder, an attachment write is a write to its note for sync: the
+# owner lock, the next revision stamped on the note, version and updated_at
+# untouched (D326). Under the same lock the ``storage_bytes`` limit is
+# checked and recorded (limits/, D84, D91) -- one lock, so two uploads at the
+# edge of the quota cannot both fit. The bytes themselves are written to
+# storage *before* the lock (D323): a 10 MB write to S3 must not hold up the
+# owner's other saves, and a refused or duplicate upload's file is deleted.
+
+STORAGE_KEY = "storage_bytes"
+
+
+def _delete_files(names) -> None:
+    """Delete stored files, best effort: a failure is logged, never raised.
+
+    Runs after the transaction that stopped referring to them has committed
+    (or instead of one that never will), so raising would only turn a done
+    request into a 500. A file left behind is unreachable: no live row
+    names it.
+    """
+    storage = attachment_storage()
+    for name in names:
+        try:
+            storage.delete(name)
+        except Exception:
+            logger.exception("Could not delete attachment file %s.", name)
+
+
+def _release_attachments(attachments, when) -> None:
+    """Soft-delete ``attachments``, refund their storage, delete their files on commit.
+
+    Runs inside the caller's transaction, under the owner's lock.
+    """
+    rows = list(attachments.only("pk", "file", "usage_event_id"))
+    if not rows:
+        return
+    Attachment.objects.filter(pk__in=[row.pk for row in rows]).update(deleted_at=when)
+    # Storage is a running total ("total" period), so releasing a file is
+    # refunding the use its upload recorded (D324).
+    limits.refund_where(pk__in=[row.usage_event_id for row in rows if row.usage_event_id])
+    names = [row.file.name for row in rows if row.file]
+    transaction.on_commit(lambda: _delete_files(names))
+
+
+def _after_attachment_added(attachment: Attachment) -> None:
+    """Runs inside the upload's transaction, once the new row is saved.
+
+    The one place a new attachment's follow-up work starts (text
+    extraction, enqueued on commit as ``_after_write`` enqueues indexing),
+    so no upload path can skip it. The row is left ``pending`` until then.
+    """
+
+
+def _live_attachment(owner, note_id, sha256) -> Attachment | None:
+    return Attachment.objects.filter(
+        owner_id=owner.pk, note_id=note_id, sha256=sha256, deleted_at__isnull=True
+    ).first()
+
+
+def add_attachment(
+    owner, note_id, upload, *, original_name: str, mime_type: str, sha256: str
+) -> tuple[Attachment, bool]:
+    """Store ``upload`` on a live note of ``owner``'s: ``(attachment, created)``.
+
+    The caller has sniffed ``mime_type``, cleaned ``original_name``, checked
+    the per-file size and hashed the bytes. The same bytes already on the
+    note return that row with ``created`` False, consuming nothing.
+
+    Raises Note.DoesNotExist (someone else's note, or deleted), and
+    limits.UserLimitExceeded / SystemLimitExceeded when the file does not fit
+    in ``storage_bytes``; nothing is kept in either case.
+    """
+    # A re-upload is answered without storing the bytes again. Checked
+    # again under the lock below, where it counts.
+    existing = _live_attachment(owner, note_id, sha256)
+    if existing is not None:
+        return existing, False
+
+    attachment = Attachment(
+        owner_id=owner.pk,
+        note_id=note_id,
+        original_name=original_name,
+        mime_type=mime_type,
+        size=upload.size,
+        sha256=sha256,
+    )
+    # upload_to ignores the name given here: the stored one is random.
+    attachment.file.save("upload", upload, save=False)
+    stored = attachment.file.name
+    try:
+        attachment, created = _record_attachment(owner, note_id, attachment)
+    except BaseException:
+        _delete_files([stored])
+        raise
+    if not created:
+        _delete_files([stored])
+    return attachment, created
+
+
+@transaction.atomic
+def _record_attachment(owner, note_id, attachment: Attachment) -> tuple[Attachment, bool]:
+    locked = _lock_owner(owner)
+    note = _locked_live_note(locked, note_id)
+    existing = _live_attachment(locked, note.pk, attachment.sha256)
+    if existing is not None:
+        # Nothing changed, so no revision is taken.
+        return existing, False
+
+    # The event first: a refusal raises out of this transaction before the row exists.
+    attachment.usage_event = limits.consume(locked, STORAGE_KEY, attachment.size)
+    attachment.note = note
+    attachment.save()
+    _stamp_note(note, _bump_revision(locked))
+    _after_attachment_added(attachment)
+    return attachment, True
+
+
+@transaction.atomic
+def delete_attachment(owner, attachment_id) -> Attachment:
+    """Soft-delete an attachment: storage released, file deleted on commit.
+
+    Raises Attachment.DoesNotExist for someone else's, a deleted one, or one
+    whose note is deleted.
+    """
+    locked = _lock_owner(owner)
+    attachment = Attachment.objects.select_related("note").get(
+        pk=attachment_id,
+        owner=locked,
+        deleted_at__isnull=True,
+        note__deleted_at__isnull=True,
+    )
+    when = timezone.now()
+    _release_attachments(Attachment.objects.filter(pk=attachment.pk), when)
+    attachment.deleted_at = when
+    _stamp_note(attachment.note, _bump_revision(locked))
+    return attachment

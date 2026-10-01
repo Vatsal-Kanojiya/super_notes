@@ -11,6 +11,7 @@ from contextvars import ContextVar
 
 from django.conf import settings
 from django.http import JsonResponse
+from django.urls import Resolver404, resolve
 from django.utils.cache import patch_vary_headers
 
 # ContextVar, not threading.local: under ASGI one thread interleaves many
@@ -31,6 +32,11 @@ class MaxUploadSizeMiddleware:
     guarantee: a client that lies about Content-Length, or sends the body
     chunked, lands on DATA_UPLOAD_MAX_MEMORY_SIZE instead, later. In
     production the reverse proxy's own body limit is the backstop.
+
+    One endpoint takes a file (attachment uploads), so it may send more:
+    settings.UPLOAD_SIZE_ALLOWANCES maps a view name to its own limit, on
+    POST only (DECISIONS D327). The URL is resolved only for a body already
+    over the default limit, so no other request pays for it.
     """
 
     def __init__(self, get_response):
@@ -47,14 +53,28 @@ class MaxUploadSizeMiddleware:
                 declared_size = None
 
             if declared_size is not None and declared_size > limit:
-                # The API's own error shape, so a client reads one field.
-                response = JsonResponse(
-                    {"detail": "Request body too large.", "code": "too_large"}, status=413
-                )
-                self._add_cors(request, response)
-                return response
+                allowance = self._allowance(request)
+                if allowance is None or declared_size > allowance:
+                    # The API's own error shape, so a client reads one field.
+                    response = JsonResponse(
+                        {"detail": "Request body too large.", "code": "too_large"}, status=413
+                    )
+                    self._add_cors(request, response)
+                    return response
 
         return self.get_response(request)
+
+    @staticmethod
+    def _allowance(request):
+        """The larger body limit of the view this request is for, if it has one."""
+        allowances = getattr(settings, "UPLOAD_SIZE_ALLOWANCES", None)
+        if not allowances or request.method != "POST":
+            return None
+        try:
+            match = resolve(request.path_info)
+        except Resolver404:
+            return None
+        return allowances.get(match.view_name)
 
     @staticmethod
     def _add_cors(request, response):

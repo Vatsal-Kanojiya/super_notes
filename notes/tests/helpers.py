@@ -60,3 +60,31 @@ def format_limit(free, premium=None, system=None):
             "system": settings.LIMIT_DEFAULTS["format"]["system"] if system is None else system,
         },
     }
+
+
+def isolate_attachment_storage(testcase):
+    """Point attachment storage at a fresh temp dir for one test.
+
+    The test runner already uses a temp dir, but one shared by every
+    parallel worker; a test counting files needs its own.
+    """
+    import shutil
+    import tempfile
+
+    from django.conf import settings
+    from django.test import override_settings
+
+    location = tempfile.mkdtemp(prefix="sn-test-attachments-")
+    testcase.addCleanup(shutil.rmtree, location, True)
+    override = override_settings(
+        STORAGES={
+            **settings.STORAGES,
+            "attachments": {
+                "BACKEND": "django.core.files.storage.FileSystemStorage",
+                "OPTIONS": {"location": location},
+            },
+        }
+    )
+    override.enable()
+    testcase.addCleanup(override.disable)
+    return location

@@ -26,7 +26,7 @@ from rest_framework.response import Response
 
 from config.api.common import MessageSerializer
 from notes import services
-from notes.models import Note, Reminder
+from notes.models import Attachment, Note, Reminder
 from notes.search import keyword_search
 
 from .serializers import (
@@ -192,8 +192,9 @@ class NoteViewSet(
         description=(
             "Every note written after revision `after`, deleted ones included as tombstones "
             "(no title or content, `deleted_at` set), oldest write first. A live note "
-            "carries all its `reminders`; adding, changing, finishing or deleting one sends "
-            "its note again, so replace the note's reminders with the ones sent. Store "
+            "carries all its `reminders` and `attachments` (metadata only); adding, changing, "
+            "finishing or deleting either sends its note again, so replace the note's "
+            "reminders and attachments with the ones sent. Store "
             "`latest_revision` and send it as `after` next time. If `has_more` is true, call "
             "again straight away with it: the batch was cut at `limit`. A first sync sends "
             "`after=0`."
@@ -245,10 +246,18 @@ class NoteViewSet(
             queryset=Reminder.objects.filter(deleted_at__isnull=True).order_by("due_at", "id"),
             to_attr="live_reminders",
         )
+        # Attachments likewise, metadata only (D326).
+        live_attachments = Prefetch(
+            "attachments",
+            queryset=Attachment.objects.filter(deleted_at__isnull=True)
+            .defer("extracted_text")
+            .order_by("id"),
+            to_attr="live_attachments",
+        )
         batch = list(
             Note.objects.filter(owner=request.user, revision__gt=after, revision__lte=ceiling)
             .order_by("revision")
-            .prefetch_related(live_reminders)[: limit + 1]
+            .prefetch_related(live_reminders, live_attachments)[: limit + 1]
         )
         has_more = len(batch) > limit
         batch = batch[:limit]
