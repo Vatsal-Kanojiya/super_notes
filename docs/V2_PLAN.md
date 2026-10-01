@@ -110,6 +110,11 @@ reminder schedule D95, chat history kept until deleted D96. **All open questions
 3. **Refinements the owner asked to revisit:** system limit multipliers (D91), the 5-hour idle
    rule for "app open" (D93), the memory-notice cadence (D94), reminder snooze/stop and other
    cadences (D95).
+4. **A limit's "enabled" switch (D100):** recorded as "off = not enforced, usage still counted".
+   The other reading is "off = feature paused for everyone". Confirm.
+5. **Deploy wiring for D89:** the deploy must set the server's `CLIENT_LATEST_VERSION` to the same
+   build id as the web bundle it ships (set `VITE_APP_VERSION` once, pass it to both), or clients
+   could reload toward a build whose files aren't served yet. Part of the hosting discussion.
 
 1. **Quota model (before phase 1).** One monthly budget of *AI actions* shared by asks, chat
    turns, formatting and summaries (recommended: simpler to explain, one ledger), or a separate
