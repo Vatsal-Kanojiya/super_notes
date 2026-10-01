@@ -2961,3 +2961,11 @@ its channel anyway. Open streams per user are limited only by the request rate (
 request); a per-user cap on concurrent streams is left until there is load to size it.
 **Alternative:** one shared subscription per process fanning out to streams (a router to write and
 test, for a saving that matters only at many concurrent streams).
+
+## D530 — Web review fixes (chat poll, reminders, push, a11y)
+- Chat polling is keyed by `id:epoch`, so leaving and re-entering a thread never skips the poll (alternative: clear the set on reset).
+- A sync response drops the reminder lists of notes with a reminder write newer than the request (alternative: re-apply pending writes afterwards).
+- An unchanged reminder due time is detected by comparing the form text with `toLocalInput(currentDue)` and the original `due_at` is kept, so seconds survive.
+- Format retry reuses the Idempotency-Key only if the note content is unchanged since the failed attempt (compared by the serialised doc, no new prop).
+- Push is released on auth loss and on sign-in as a different account; the reminder form defaults push to `usable && subscribed`.
+- Calendar day cells are `div role="group"`; `aria-live` on the format status only.

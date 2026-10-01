@@ -33,6 +33,8 @@ export const useAuthStore = defineStore('auth', () => {
   // The API client calls this when a refresh is refused: the session ended
   // elsewhere (device limit, signed out from another device, account gone).
   setAuthLostHandler(() => {
+    // The token is gone, so the server call will likely fail; the local subscription is still dropped.
+    if (user.value) void usePushStore().release()
     if (user.value) reset('You were signed out. Please sign in again.')
   })
 
@@ -68,6 +70,8 @@ export const useAuthStore = defineStore('auth', () => {
   async function signIn(idToken: string) {
     notice.value = ''
     const response = await authApi.google(idToken)
+    // A different account on this browser must not inherit the last one's push subscription.
+    if (user.value && user.value.id !== response.user.id) await releasePush()
     setTokens(response)
     user.value = response.user
   }
@@ -92,11 +96,15 @@ export const useAuthStore = defineStore('auth', () => {
     if (user.value?.limits) user.value = { ...user.value, limits: { ...user.value.limits, format: usage } }
   }
 
+  function releasePush() {
+    return Promise.race([usePushStore().release(), new Promise((resolve) => setTimeout(resolve, 3000))])
+  }
+
   async function signOut() {
     const refresh = getRefresh()
     // This browser must stop getting the account's push reminders; it needs the
     // token, so it goes before the reset. Best effort, and not worth a long wait.
-    await Promise.race([usePushStore().release(), new Promise((resolve) => setTimeout(resolve, 3000))])
+    await releasePush()
     reset()
     disableGoogleAutoSelect()
     if (refresh) {

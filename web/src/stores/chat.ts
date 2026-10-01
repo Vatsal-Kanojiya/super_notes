@@ -74,7 +74,7 @@ export const useChatStore = defineStore('chat', () => {
   let epoch = 0
   // The id of a conversation `send` just created and adopted: the view moving to its URL must not reload it.
   let fresh: Id | null = null
-  const polling = new Set<Id>()
+  const polling = new Set<string>() // `${id}:${epoch}`
 
   function reset() {
     epoch++
@@ -189,12 +189,14 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function poll(id: Id) {
-    if (polling.has(id)) return
-    polling.add(id)
+    const started = epoch
+    const key = `${id}:${started}`
+    if (polling.has(key)) return
+    polling.add(key)
     try {
-      if (await pollLoop(id, epoch)) await refreshUsage()
+      if (await pollLoop(id, started)) await refreshUsage()
     } finally {
-      polling.delete(id)
+      polling.delete(key)
     }
   }
 

@@ -279,14 +279,17 @@ export function buildReminderRequest(
 ): FormResult {
   const dueAt = fromLocalInput(form.due, tz)
   if (!dueAt) return { ok: false, error: 'Pick a date and time.' }
-  const unchanged = currentDue !== undefined && new Date(currentDue).getTime() === new Date(dueAt).getTime()
+  // The form shows minutes only: a form value equal to the current due time (seconds dropped) is untouched.
+  const unchanged =
+    currentDue !== undefined &&
+    (form.due.trim() === toLocalInput(currentDue, tz) || new Date(currentDue).getTime() === new Date(dueAt).getTime())
   if (!unchanged && new Date(dueAt).getTime() <= now) return { ok: false, error: 'The due time must be in the future.' }
   const lead = typeof form.leadDays === 'number' ? form.leadDays : Number(String(form.leadDays).trim())
   if (!Number.isInteger(lead) || lead < 0 || lead > LEAD_DAYS_MAX || String(form.leadDays).trim() === '') {
     return { ok: false, error: `Days before must be a whole number from 0 to ${LEAD_DAYS_MAX}.` }
   }
   if (form.channels.length === 0) return { ok: false, error: 'Choose at least one way to be notified.' }
-  return { ok: true, body: { due_at: dueAt, lead_days: lead, channels: [...form.channels] } }
+  return { ok: true, body: { due_at: unchanged ? currentDue : dueAt, lead_days: lead, channels: [...form.channels] } }
 }
 
 /**

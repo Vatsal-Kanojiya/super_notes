@@ -62,6 +62,8 @@ const before = shallowRef<DocNode | null>(null)
 let run = 0
 let key = ''
 let reuseKey = false
+// The note's content when the key was used: an edit since makes it a different request.
+let keyedDoc = ''
 
 function setPhase(next: FormatPhase) {
   phase.value = next
@@ -115,6 +117,9 @@ async function start() {
   }
 
   before.value = props.beforeDoc()
+  const docNow = JSON.stringify(before.value)
+  if (docNow !== keyedDoc) reuseKey = false
+  keyedDoc = docNow
   setPhase('working')
   // A POST that got no answer may have made the job: its retry reuses the key.
   const attempt = reuseKey && key ? key : uuid4()
@@ -189,13 +194,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="format-panel" aria-live="polite">
+  <section class="format-panel">
     <div v-if="phase === 'idle'" class="format-row">
       <button type="button" class="secondary" :disabled="!!disabledReason" @click="start">Format note</button>
-      <span class="muted small" data-testid="format-hint">{{ disabledReason || usageLine }}</span>
+      <span class="muted small" data-testid="format-hint" aria-live="polite">{{ disabledReason || usageLine }}</span>
     </div>
 
-    <p v-else-if="phase === 'saving' || phase === 'working'" class="muted format-working" data-testid="format-working">
+    <p v-else-if="phase === 'saving' || phase === 'working'" class="muted format-working" data-testid="format-working" role="status">
       <span class="spinner" aria-hidden="true"></span>
       {{ phase === 'saving' ? 'Saving your note…' : 'Formatting your note…' }}
       <button type="button" class="link" @click="cancel">Cancel</button>

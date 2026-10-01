@@ -191,6 +191,21 @@ describe('buildReminderRequest', () => {
   })
 })
 
+describe('an unchanged due time with seconds', () => {
+  it('is not sent in the PATCH', () => {
+    const current = reminder({ due_at: '2026-10-05T03:30:25Z', lead_days: 7, channels: ['email'] })
+    const now = new Date('2026-10-01T12:00:00Z').getTime()
+    const built = buildReminderRequest(
+      { due: '2026-10-05T09:00', leadDays: 3, channels: ['email'] },
+      KOLKATA,
+      now,
+      current.due_at,
+    )
+    expect(built.ok).toBe(true)
+    if (built.ok) expect(diffReminderRequest(current, built.body)).toEqual({ lead_days: 3 })
+  })
+})
+
 describe('diffReminderRequest', () => {
   const current = reminder({ due_at: '2026-10-27T09:00:00Z', lead_days: 7, channels: ['email', 'push'] })
   it('is null when nothing changed (channels in any order)', () => {
