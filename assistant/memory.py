@@ -375,6 +375,12 @@ def extract(ask_id: int) -> int:
         result = chat.complete(
             system, user, max_output_tokens=settings.MEMORY_EXTRACT_MAX_OUTPUT_TOKENS
         )
+    except chat.BilledChatError as exc:
+        # The vendor generated and bills for an unusable reply: the use stays
+        # counted and records what it cost (D500, D550).
+        logger.warning("Ask %s: memory extraction failed", ask_id, exc_info=True)
+        limits.describe_where({"pk": event.pk}, **exc.cost())
+        return 0
     except (chat.ChatError, chat.TransientChatError):
         logger.warning("Ask %s: memory extraction failed", ask_id, exc_info=True)
         limits.refund(event)

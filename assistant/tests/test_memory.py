@@ -21,7 +21,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from assistant import chat, memory, tasks
-from assistant.chat import ChatError, ChatResult, TransientChatError
+from assistant.chat import BilledChatError, ChatError, ChatResult, TransientChatError
 from assistant.chat.providers.fake import extract_facts, statements
 from assistant.memory import (
     Operation,
@@ -582,6 +582,23 @@ class ExtractionFailureTests(TestCase):
             ):
                 self.assertEqual(memory.extract(turn.pk), 0)
                 self.assertTrue(memory_events(turn).get().refunded)
+        self.assertFalse(UserFact.objects.exists())
+
+    def test_a_billed_failure_keeps_the_use_and_records_its_cost(self):
+        error = BilledChatError("cut off", provider="p", model="m", input_tokens=7, output_tokens=3)
+        turn = done_turn(self.conv, AskQuery.objects.count() + 1, "I'm vegetarian.")
+        with (
+            mock.patch(COMPLETE, side_effect=error),
+            self.assertLogs("assistant.memory", "WARNING"),
+        ):
+            self.assertEqual(memory.extract(turn.pk), 0)
+
+        event = memory_events(turn).get()
+        self.assertFalse(event.refunded)
+        self.assertEqual(
+            (event.provider, event.model, event.input_tokens, event.output_tokens),
+            ("p", "m", 7, 3),
+        )
         self.assertFalse(UserFact.objects.exists())
 
     @override_settings(LIMIT_DEFAULTS=memory_limit(1))

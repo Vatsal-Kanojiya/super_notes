@@ -16,7 +16,13 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from assistant import chat
-from assistant.chat import ChatError, ChatResult, ImageTextNotSupported, TransientChatError
+from assistant.chat import (
+    BilledChatError,
+    ChatError,
+    ChatResult,
+    ImageTextNotSupported,
+    TransientChatError,
+)
 from assistant.chat.providers.fake import FAKE_IMAGE_TEXT
 from assistant.models import AskQuery
 from assistant.tasks import answer_ask
@@ -281,6 +287,23 @@ class ImageTests(ExtractionTestCase):
         self.assertEqual(attachment.status, Attachment.Status.FAILED)
         self.assertEqual(attachment.error, extraction.IMAGE_UNREADABLE)
         self.assertTrue(UsageEvent.objects.get(key="image_text").refunded)
+
+    def test_a_billed_failure_keeps_the_use_and_records_its_cost(self):
+        error = BilledChatError("cut off", provider="p", model="m", input_tokens=9, output_tokens=2)
+        with (
+            mock.patch(IMAGE_CALL, side_effect=error),
+            self.assertLogs("notes.extraction", "WARNING"),
+        ):
+            attachment = self.upload(PNG)
+
+        self.assertEqual(attachment.status, Attachment.Status.FAILED)
+        self.assertEqual(attachment.error, extraction.IMAGE_UNREADABLE)
+        event = UsageEvent.objects.get(key="image_text")
+        self.assertFalse(event.refunded)
+        self.assertEqual(
+            (event.provider, event.model, event.input_tokens, event.output_tokens),
+            ("p", "m", 9, 2),
+        )
 
     def test_a_provider_that_cannot_read_images_fails_it_clearly(self):
         with (
