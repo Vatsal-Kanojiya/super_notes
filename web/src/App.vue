@@ -5,7 +5,7 @@ import AppHeader from './components/AppHeader.vue'
 import { useAskStore } from './stores/ask'
 import { useAuthStore } from './stores/auth'
 import { useNotesStore } from './stores/notes'
-import { safeNext } from './router'
+import { safeNext } from './lib/safeNext'
 
 const auth = useAuthStore()
 const notes = useNotesStore()

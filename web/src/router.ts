@@ -11,13 +11,8 @@ import NotePage from './components/NotePage.vue'
 import NotesList from './components/NotesList.vue'
 import SettingsPage from './components/SettingsPage.vue'
 import SignIn from './components/SignIn.vue'
+import { safeNext } from './lib/safeNext'
 import { useAuthStore } from './stores/auth'
-
-/** A same-site path only: never follow a `next` that points off the app. */
-export function safeNext(next: unknown): string {
-  // '//host' and '/\host' are protocol-relative to a browser; refuse both.
-  return typeof next === 'string' && /^\/(?![/\\])/.test(next) ? next : '/notes'
-}
 
 export const router = createRouter({
   history: createWebHistory(),
