@@ -2413,3 +2413,93 @@ answer said ("the second one"), which the fixtures were not checked for. **Alter
 with the real pipeline first (costs a chat call and a search per turn, and makes the numbers depend
 on the answer model too); all three modes per variant (nine rows, and only hybrid is what a turn
 uses).
+
+### D360. Streaming is an optional provider method; the boundary falls back to `complete` (2-streaming 1, 2026-10-01)
+
+**Decided:** a provider may have `stream(system, user, model, max_output_tokens)`, yielding text
+deltas and then one `ChatResult`, last (the `StreamingChatProvider` Protocol; `ChatProvider` is
+unchanged, so a provider without it still matches). `chat.stream()` sits beside `chat.complete()`:
+same provider, model and ceiling; it drops empty deltas, raises `ChatError` if no result comes, and
+closes the provider's stream (and so its connection) when closed early. A provider without `stream`
+is called through `complete` and yields its whole answer as one delta. The result's text is the
+deltas joined and stripped, with the same stop-reason, status and finish-reason checks as
+`complete`, so a streamed answer and a complete one are stored identically. Only the answer call
+streams; condense, fold and format stay on `complete`. **Alternative:** an `on_delta` callback on
+`complete` (changes the signature every existing caller and test double has); make `stream`
+required (every test double and future provider would need one).
+
+### D361. One SSE reader in `_http`; a stream that just stops is transient; error events map like statuses (2-streaming 1, 2026-10-01)
+
+**Decided:** `post_stream` sends the request with `stream=True`, checks the status exactly as
+`post_json` does (before any delta), then feeds `iter_content(chunk_size=None)` to `parse_sse`:
+lines split on `\n` (a trailing `\r` dropped) and decoded only once whole, so a character split
+between chunks survives; `:` comments (keep-alives), `id:` and `retry:` ignored; an event the stream
+ends inside of is dropped, never parsed half-received; a line over 1 MB is refused. A connection that
+drops or stalls (`CHAT_TIMEOUT_SECONDS` between two reads), or a stream that ends without the
+vendor's last event (`message_stop`, `response.completed/incomplete/failed`, a `finishReason`), is
+`TransientChatError`: that is what a dropped connection looks like. Mid-stream error events are
+translated as their HTTP status would have been: Claude's `rate_limit_error`, `api_error`,
+`overloaded_error` retry; OpenAI's `error` event by code (`rate_limit_exceeded`, `server_error`...);
+Gemini's `error` object by `code` through the same status table, else by `status`
+(`UNAVAILABLE`, `RESOURCE_EXHAUSTED`...). Everything else is `ChatError`. Tested against
+handwritten recordings of each vendor's documented events (`assistant/tests/fixtures/streams/`),
+whole, a byte at a time and in odd chunks, plus one opt-in live test each (D40). **Alternative:**
+`iter_lines()` (its own buffering and decoding, harder to prove on split characters); a vendor SDK
+(three new dependencies, D53).
+
+### D362. The fake streams word by word, replaying the boundary's `chat.complete` (2-streaming 1, 2026-10-01)
+
+**Decided:** `FakeProvider.stream` cuts its answer before each word that follows whitespace (joined,
+the pieces are the answer exactly) and yields the result last. When the fake is the configured
+provider, the answer it cuts up comes from `assistant.chat.complete`, looked up at call time (with
+the ceiling as a keyword, so a spy still sees `(system, user)`); otherwise from its own `complete`.
+So the 30-odd existing task and turn tests that script `chat.complete` (refusals, retries, token
+counts, prompt contents) script the streamed answer too and pass unchanged. **Alternative:** point
+those tests at `chat.stream` (a large diff to tests whose behaviour did not change, and they would no
+longer prove the polling path unchanged).
+
+### D363. Events on Redis pub/sub `ask:<id>`: numbered deltas with offsets, `reset`, and `done`/`failed` carrying the row (2-streaming 1, 2026-10-01)
+
+**Decided:** every message is compact JSON with `seq` and `type`: `delta` (`offset`, `text`),
+`reset`, and `done` or `failed` whose `ask` is the row through `AskQuerySerializer` -- exactly what
+`GET ask/<id>/` returns, parsed citations included. The end event is published on commit
+(`transaction.on_commit(..., robust=True)`), so a reader that fetches the row on `done` finds it
+done; the row is read afresh for it. `seq` counts from 1 in each run of the task (a retry is a new
+run), so 1 may follow anything and any other jump means missed messages. `offset` is where the delta
+starts in the run's text, in code points: the same text `partial_answer` holds, so a reader that
+caught up from the row skips what it has. **Alternative:** a Redis stream (`XADD`) with replay
+(keys to expire and trim, for a catch-up the row already gives); a seq kept across runs in Redis (a
+write per run, and it fails exactly when Redis does).
+
+### D364. `partial_answer` is a new field, saved at most every 0.5 s while running, not in the API (2-streaming 1, 2026-10-01)
+
+**Decided:** `AskQuery.partial_answer` (migration 0003) holds the text streamed so far; written by
+an UPDATE conditional on `status=running` at most every `ASK_PARTIAL_SAVE_SECONDS` (0.5), so a
+late save can never touch a finished row; cleared by the claim, by done (`answer` has it), by
+failed and by the sweeper. Not serialized: polling shows a finished answer only, as before; the
+stream endpoint (sub-task 2) reads it for catch-up. **Alternative:** reuse `answer` while running
+(V1 polling clients would start seeing half an answer on a running row, and a failed ask would need
+it cleared from the field clients read); save every delta (a write per word).
+
+### D365. A retry starts over: the partial text is cleared and `reset` published (2-streaming 1, 2026-10-01)
+
+**Decided:** a transient error after some text was streamed clears `partial_answer` and publishes
+`reset` before re-raising for Celery's retry, so readers drop the text at once rather than during
+the backoff; a run that takes up an ask that was already `running` (a retry, or a redelivery after a
+crash that published deltas it never saved) publishes `reset` first and clears the text with its
+claim. A duplicate reset is harmless. Limits, refunds and cost are untouched: a retry still does not
+refund, giving up still does. **Alternative:** continue from the partial text (the provider cannot
+resume an answer; a new call writes a different one).
+
+### D366. Publishing can never fail an answer (2-streaming 1, 2026-10-01)
+
+**Decided:** `ASK_EVENTS_REDIS_URL` defaults to `CELERY_BROKER_URL` (pub/sub ignores the database
+number, and a deployment that set the broker gets streaming without another setting); empty turns
+events off, and the test runner forces it off as it forces the fake providers. The client has 0.5 s
+connect and 1 s socket timeouts; every publish error is logged once per run and swallowed; after the
+first failure the run skips its remaining deltas (one timeout, not one per word) but still tries
+`reset` and the end event; a URL that cannot be parsed turns events off. With events off no on-commit
+callback is queued at all. The publisher takes any client with `publish(channel, message)`, so the
+task tests use a recorder; one test uses the real local Redis on database 15 and is skipped without
+one. **Alternative:** a separate default database (pub/sub does not use it); fail the run on a Redis
+error (polling would have had the answer).
