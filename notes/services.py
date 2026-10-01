@@ -314,16 +314,144 @@ def _release_attachments(attachments, when) -> None:
     # refunding the use its upload recorded (D324).
     limits.refund_where(pk__in=[row.usage_event_id for row in rows if row.usage_event_id])
     names = [row.file.name for row in rows if row.file]
+    # Out of search at once, in this transaction: the chunks' rows are what
+    # search reads, and an extraction finishing now waits on the owner lock
+    # and then finds the attachment deleted (D346).
+    from retrieval.indexing import deindex_attachments
+
+    deindex_attachments(row.pk for row in rows)
     transaction.on_commit(lambda: _delete_files(names))
 
 
 def _after_attachment_added(attachment: Attachment) -> None:
     """Runs inside the upload's transaction, once the new row is saved.
 
-    The one place a new attachment's follow-up work starts (text
-    extraction, enqueued on commit as ``_after_write`` enqueues indexing),
-    so no upload path can skip it. The row is left ``pending`` until then.
+    The one place a new attachment's follow-up work starts: text
+    extraction, enqueued on commit as ``_after_write`` enqueues indexing,
+    so no upload path can skip it. The row is ``pending`` until a worker
+    takes it. A broker that cannot be reached is logged, not raised: the
+    upload has committed, and the stuck-attachment sweeper fails the row
+    later rather than leave it pending forever (D345).
     """
+    # Imported here: notes.tasks imports the assistant and retrieval, which
+    # import notes.
+    from .tasks import extract_attachment
+
+    attachment_id = attachment.pk
+
+    def enqueue():
+        try:
+            extract_attachment.delay(attachment_id)
+        except Exception:
+            logger.exception("Could not queue text extraction for attachment %s.", attachment_id)
+
+    transaction.on_commit(enqueue)
+
+
+# Extraction's status changes (notes/extraction.py). Each takes the owner's
+# lock and stamps the note with the next revision when, and only when, the
+# status really changes, so ``notes/changes/`` sends the note again with the
+# attachment's new status (D326). Every update is conditional on the status
+# it expects, so a duplicate task run or a race with the sweeper changes it
+# once.
+
+EXTRACTION_UNFINISHED = (Attachment.Status.PENDING, Attachment.Status.EXTRACTING)
+
+
+def _locked_extraction(attachment_id, statuses):
+    """Lock the attachment's owner, then the attachment if it is live in ``statuses``.
+
+    ``(locked owner, attachment)``; the attachment is None when it is gone,
+    deleted, its note is deleted, or it has moved past ``statuses``.
+    """
+    owner_id = (
+        Attachment.objects.filter(pk=attachment_id).values_list("owner_id", flat=True).first()
+    )
+    if owner_id is None:
+        return None, None
+    locked = _lock_owner(User(pk=owner_id))
+    attachment = (
+        Attachment.objects.select_for_update(of=("self",))
+        .select_related("note")
+        .filter(
+            pk=attachment_id,
+            status__in=statuses,
+            deleted_at__isnull=True,
+            note__deleted_at__isnull=True,
+        )
+        .first()
+    )
+    return locked, attachment
+
+
+@transaction.atomic
+def start_extraction(attachment_id) -> Attachment | None:
+    """Claim an attachment for extraction: pending -> extracting.
+
+    Returns the attachment (with its note) to work on, or None when there is
+    nothing to do. An attachment already ``extracting`` is returned as it is:
+    that is a redelivered task (acks_late) taking it up again, and no
+    revision is taken for a status that did not change.
+    """
+    locked, attachment = _locked_extraction(attachment_id, EXTRACTION_UNFINISHED)
+    if attachment is None:
+        return None
+    if attachment.status == Attachment.Status.PENDING:
+        attachment.status = Attachment.Status.EXTRACTING
+        attachment.save(update_fields=["status"])
+        _stamp_note(attachment.note, _bump_revision(locked))
+    return attachment
+
+
+def save_extracted_text(attachment_id, text: str) -> bool:
+    """Keep the text read from the file while the attachment is still extracting.
+
+    So a retry after a failure further on (embedding) does not read the file
+    -- or pay for a vision call -- again. No revision: nothing a client sees
+    changes.
+    """
+    return bool(
+        Attachment.objects.filter(
+            pk=attachment_id, status=Attachment.Status.EXTRACTING, deleted_at__isnull=True
+        ).update(extracted_text=text)
+    )
+
+
+@transaction.atomic
+def finish_extraction(attachment_id, *, write_chunks=None) -> bool:
+    """extracting -> ready, writing the chunks under the same lock. True if it did.
+
+    ``write_chunks(attachment)`` runs once the attachment is known to be
+    live and still extracting, so chunks are never written for one deleted
+    meanwhile: the delete takes the same owner lock.
+    """
+    locked, attachment = _locked_extraction(attachment_id, (Attachment.Status.EXTRACTING,))
+    if attachment is None:
+        return False
+    if write_chunks is not None:
+        write_chunks(attachment)
+    attachment.status, attachment.error = Attachment.Status.READY, ""
+    attachment.save(update_fields=["status", "error"])
+    _stamp_note(attachment.note, _bump_revision(locked))
+    return True
+
+
+@transaction.atomic
+def fail_extraction(attachment_id, error: str) -> bool:
+    """pending or extracting -> failed with a user-safe ``error``. True if it did.
+
+    Any chunk a partial run left is removed with it.
+    """
+    locked, attachment = _locked_extraction(attachment_id, EXTRACTION_UNFINISHED)
+    if attachment is None:
+        return False
+    from retrieval.indexing import deindex_attachments
+
+    deindex_attachments([attachment.pk])
+    attachment.status, attachment.error = Attachment.Status.FAILED, error[:255]
+    attachment.save(update_fields=["status", "error"])
+    _stamp_note(attachment.note, _bump_revision(locked))
+    return True
 
 
 def _live_attachment(owner, note_id, sha256) -> Attachment | None:

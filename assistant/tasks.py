@@ -135,6 +135,8 @@ def _answer(ask_id: int, publisher: events.Publisher | None = None) -> None:
             title=hit.title,
             heading_path=hit.heading_path,
             text=hit.text,
+            attachment_id=hit.attachment_id,
+            attachment_name=hit.attachment_name,
         )
         for n, hit in enumerate(hits, start=1)
     ]

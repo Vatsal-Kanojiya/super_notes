@@ -88,3 +88,46 @@ def isolate_attachment_storage(testcase):
     override.enable()
     testcase.addCleanup(override.disable)
     return location
+
+
+def make_pdf(*pages, password=None, compress=False):
+    """A real PDF with one page per string, its lines as Helvetica text.
+
+    ``password`` encrypts it (``""``: opens without one, permissions only);
+    ``compress`` Flate-compresses the page content, as most real PDFs are.
+    """
+    import io
+
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    writer = PdfWriter()
+    font = writer._add_object(
+        DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject("/Helvetica"),
+            }
+        )
+    )
+    for text in pages:
+        page = writer.add_blank_page(612, 792)
+        operators = ["BT", "/F1 12 Tf", "14 TL", "72 720 Td"]
+        for line in text.split("\n"):
+            escaped = line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+            operators.append(f"({escaped}) Tj T*")
+        operators.append("ET")
+        stream = DecodedStreamObject()
+        stream.set_data("\n".join(operators).encode("latin-1"))
+        page[NameObject("/Contents")] = writer._add_object(stream)
+        page[NameObject("/Resources")] = DictionaryObject(
+            {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})}
+        )
+        if compress:
+            page.compress_content_streams()
+    if password is not None:
+        writer.encrypt(user_password=password, owner_password="owner", algorithm="RC4-128")
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()

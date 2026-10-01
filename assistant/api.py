@@ -56,8 +56,24 @@ class CitationSerializer(serializers.Serializer):
     n = serializers.IntegerField(help_text="The `[n]` marker in the answer this cites.")
     note_id = serializers.IntegerField()
     chunk_id = serializers.IntegerField()
-    title = serializers.CharField()
+    title = serializers.CharField(help_text="The note's title.")
+    attachment_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="The attachment whose text is cited; null when it is the note's own text.",
+    )
+    attachment_name = serializers.CharField(
+        allow_null=True,
+        help_text="That attachment's file name; null when it is the note's own text.",
+    )
     snippet = serializers.CharField(help_text="The cited passage, on one line, cut at a word.")
+
+    def to_representation(self, instance):
+        # Answers stored before attachments were searchable have no such
+        # keys: they cite the note's own text.
+        return super().to_representation({**NO_ATTACHMENT, **instance})
+
+
+NO_ATTACHMENT = {"attachment_id": None, "attachment_name": None}
 
 
 class AskQuerySerializer(serializers.ModelSerializer):

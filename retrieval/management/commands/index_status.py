@@ -12,13 +12,20 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         model_id = embedding_model_id()
         live = Note.objects.filter(deleted_at__isnull=True)
-        chunks = NoteChunk.objects.filter(note=OuterRef("pk"))
+        # The note's own chunks: an attachment's are written once, at
+        # extraction, and do not follow the note's version.
+        chunks = NoteChunk.objects.filter(note=OuterRef("pk"), source=NoteChunk.Source.NOTE)
 
         # A note with no chunks is either not indexed yet or empty; both
         # are reported, and re-indexing an empty note is harmless.
         without = live.filter(~Exists(chunks)).count()
         lagging = live.filter(Exists(chunks.exclude(note_version=OuterRef("version")))).count()
         other_model = live.filter(Exists(chunks.exclude(embedding_model=model_id))).count()
+        attachments = NoteChunk.objects.filter(
+            source=NoteChunk.Source.ATTACHMENT, note__deleted_at__isnull=True
+        )
+        attachment_chunks = attachments.count()
+        attachment_other_model = attachments.exclude(embedding_model=model_id).count()
         orphans = NoteChunk.objects.filter(note__deleted_at__isnull=False).aggregate(
             chunks=Count("pk"), notes=Count("note", distinct=True)
         )
@@ -28,6 +35,10 @@ class Command(BaseCommand):
         self.stdout.write(f"  without chunks: {without}")
         self.stdout.write(f"  chunks behind the note's version: {lagging}")
         self.stdout.write(f"  chunks from another embedding model: {other_model}")
+        self.stdout.write(
+            f"Attachment chunks: {attachment_chunks} "
+            f"({attachment_other_model} from another embedding model)"
+        )
         self.stdout.write(
             f"Orphan chunks of deleted notes: {orphans['chunks']} ({orphans['notes']} notes)"
         )

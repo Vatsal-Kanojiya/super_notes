@@ -1160,7 +1160,7 @@ paths:
       description: |-
         One file in the `file` field of a multipart form: a JPEG, PNG or WebP image, or a PDF, of at most 10 MB. The type is read from the file's bytes; the name and Content-Type sent are not trusted, and a file of any other type is refused with 415 whatever it is called. The name is kept for display and downloads, cleaned, and always ends in the type's extension.
 
-        The same file again on the same note is not stored twice: you get the existing attachment with 200. A new one is 201, `status: pending`. It counts against your `storage_bytes` (see `me/`) until it is deleted. The note is sent again by `notes/changes/` with its attachments.
+        The same file again on the same note is not stored twice: you get the existing attachment with 200. A new one is 201, `status: pending`. Its text is then read in the background (`extracting`), and once it is `ready` search and Ask find it, naming the file; a file whose text cannot be read is `failed`, with the reason in `error`, and stays attached. It counts against your `storage_bytes` (see `me/`) until it is deleted. The note is sent again by `notes/changes/` with its attachments, on every status change too.
       summary: Attach a file to a note
       parameters:
       - in: path
@@ -1544,8 +1544,10 @@ paths:
       operationId: search_list
       description: 'The best-matching chunks of your notes, best first: by meaning
         (embeddings) and by keyword, merged by reciprocal rank fusion, at most 2 per
-        note. Deleted notes never appear. A note edited in the last few seconds may
-        still match its previous text until it is re-indexed.'
+        note. A note''s attachments are searched with it once their text is read (`status:
+        ready`); such a hit names the file. Deleted notes and attachments never appear.
+        A note edited in the last few seconds may still match its previous text until
+        it is re-indexed.'
       summary: Search your notes
       parameters:
       - in: query
@@ -1823,6 +1825,16 @@ components:
       description: |-
         * `email` - Email
         * `push` - Push
+    ChunkSourceEnum:
+      enum:
+      - note
+      - attachment
+      - summary
+      type: string
+      description: |-
+        * `note` - Note
+        * `attachment` - Attachment
+        * `summary` - Summary
     Citation:
       type: object
       properties:
@@ -1835,10 +1847,23 @@ components:
           type: integer
         title:
           type: string
+          description: The note's title.
+        attachment_id:
+          type: integer
+          nullable: true
+          description: The attachment whose text is cited; null when it is the note's
+            own text.
+        attachment_name:
+          type: string
+          nullable: true
+          description: That attachment's file name; null when it is the note's own
+            text.
         snippet:
           type: string
           description: The cited passage, on one line, cut at a word.
       required:
+      - attachment_id
+      - attachment_name
       - chunk_id
       - n
       - note_id
@@ -2679,6 +2704,24 @@ components:
           type: integer
         title:
           type: string
+          description: The note's title.
+        source:
+          allOf:
+          - $ref: '#/components/schemas/ChunkSourceEnum'
+          description: |-
+            Where the text is from: the note itself, the text of one of its attachments, or its summary.
+
+            * `note` - Note
+            * `attachment` - Attachment
+            * `summary` - Summary
+        attachment_id:
+          type: integer
+          nullable: true
+          description: The attachment the text is from; null unless `source` is `attachment`.
+        attachment_name:
+          type: string
+          nullable: true
+          description: That attachment's file name; null unless `source` is `attachment`.
         heading_path:
           type: string
           description: The headings above the chunk, "A > B".
@@ -2705,6 +2748,8 @@ components:
           nullable: true
           description: Full-text rank; null if found by meaning only.
       required:
+      - attachment_id
+      - attachment_name
       - chunk_id
       - heading_path
       - keyword_rank
@@ -2712,6 +2757,7 @@ components:
       - score
       - similarity
       - snippet
+      - source
       - text
       - title
     SessionOpenRequest:

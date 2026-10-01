@@ -3,8 +3,8 @@
 from rest_framework import serializers
 
 # The keys a user has their own limit on, in the order a client lists them.
-# System-only keys (signups, condense, summarize_history, memory_extract) are not the user's
-# business and are left out.
+# System-only keys (signups, condense, summarize_history, memory_extract, image_text) are
+# not the user's business and are left out.
 USER_KEYS = ("chat_turns", "format", "summary", "storage_bytes")
 
 

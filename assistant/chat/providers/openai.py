@@ -16,6 +16,7 @@ each carrying the whole response object, usage included. An ``error``
 event can arrive instead, at any point.
 """
 
+import base64
 from contextlib import closing
 
 from ..errors import ChatError, TransientChatError
@@ -51,7 +52,32 @@ class OpenAIProvider:
 
     def complete(self, system: str, user: str, model: str, max_output_tokens: int) -> ChatResult:
         data = post_json("OpenAI", URL, _headers(), _body(system, user, model, max_output_tokens))
+        return self._answer(data, model)
 
+    def read_image(
+        self,
+        system: str,
+        user: str,
+        image: bytes,
+        mime_type: str,
+        model: str,
+        max_output_tokens: int,
+    ) -> ChatResult:
+        """``complete`` with the image as an ``input_image`` data URL before the text (D343)."""
+        encoded = base64.standard_b64encode(image).decode("ascii")
+        message = {
+            "role": "user",
+            "content": [
+                {"type": "input_image", "image_url": f"data:{mime_type};base64,{encoded}"},
+                {"type": "input_text", "text": user},
+            ],
+        }
+        data = post_json(
+            "OpenAI", URL, _headers(), _body(system, [message], model, max_output_tokens)
+        )
+        return self._answer(data, model)
+
+    def _answer(self, data: dict, model: str) -> ChatResult:
         check_status(data)
 
         parts = []
@@ -119,7 +145,7 @@ def _headers() -> dict:
     }
 
 
-def _body(system: str, user: str, model: str, max_output_tokens: int) -> dict:
+def _body(system: str, user: str | list, model: str, max_output_tokens: int) -> dict:
     return {
         "model": model,
         "instructions": system,
