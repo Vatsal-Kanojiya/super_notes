@@ -1566,3 +1566,33 @@ within 60 s surfaces normally. If `sessionStorage` is blocked there is no loop g
 `VITE_APP_VERSION` environment variable (so CI can match the server's `CLIENT_LATEST_VERSION`).
 Builds compare by timestamp only; an id that does not parse (dev server) never triggers an update.
 **Alternative:** a package.json version (needs a manual bump per deploy).
+
+### D120. The client reports `launch` on every transition to signed-in, `resume` after 5 idle hours (0d, 2026-10-02)
+
+**Decided:** `session/open/` is sent with `launch` when a session becomes valid (a page load with a
+stored session, or a fresh sign-in) and with `resume` on the first click, key, scroll or touch
+after 5 hours with none. `lastInteractionAt` lives in memory and `localStorage`; storage is read
+on every interaction, so another tab's activity counts, and written at most every 30 s (and at the
+moment of a resume). With nothing stored there is no resume (the launch covers it); with storage
+blocked the tab's own memory copy still works. The server's per-device throttle absorbs repeats.
+**Alternative:** a `visibilitychange` trigger (rejected by D93).
+
+### D121. "Review / turn off" counts as seeing the memory notice (0d, 2026-10-02)
+
+**Decided:** following the banner's link to `/settings` calls `memory-notice/seen/` as well as
+Dismiss does, since the person has looked at it. A failed call still hides the banner; it returns
+at a later open. **Alternative:** only Dismiss marks it seen (the banner would reappear on the next
+open after someone has already reviewed their settings).
+
+### D122. A server `update` notice is a fact for the same update decision, not a second mechanism (0d, 2026-10-02)
+
+**Decided:** `decideUpdate` takes `serverSaysUpdate` / `serverSaysRequired` beside the version
+check, so the unsaved-edit wait and the reload-loop guard apply to it too. **Alternative:** act on
+the notice directly in the lifecycle store (would bypass those guards).
+
+### D123. The settings page saves the memory toggle at once; the timezone is sent, not edited (0d, 2026-10-02)
+
+**Decided:** the memory checkbox sends `PATCH me/` on change. The browser's timezone is sent at
+launch only when the user is still on the server default `Asia/Kolkata` and the browser's zone
+differs; the page shows the zone but has no picker yet. **Alternative:** a Save button; a timezone
+picker (not asked for, and a long list to get right).

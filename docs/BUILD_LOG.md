@@ -305,3 +305,23 @@ on / off), due on the first open and every 5 opens after the user last saw it;
 `me/memory-notice/seen/` records that. A device id from another account's token is ignored. New
 settings `CLIENT_LATEST_VERSION`, `CLIENT_MIN_VERSION`, `MEMORY_NOTICE_EVERY_OPENS`,
 `APP_OPEN_MIN_INTERVAL_SECONDS`.
+
+### V2 0d — web platform
+
+`v2-feat/0d-web-platform` (D86, D89, D90, D93, D94, D112-D123). `vue-router` replaces the view
+store: `/notes`, `/notes/:id`, `/ask`, `/settings` and a public `/signin`, with a guard that
+sends signed-out users to sign-in (returning them by a same-site `next`), lazy route components,
+and back / refresh / deep links working. `vitest` with 69 tests (citations, token-refresh
+single-flight, notes sync, `safeNext`, build ids and the update decision, the idle/resume tracker,
+notice handling); `npm test` is in the CI web job. The notes sync now resyncs from 0 when the
+server's revision goes backwards, as D25 always said. Builds carry an id
+`YYYYMMDDHHMM-<shortsha>`; the client checks `app/version/` on load, focus and every 5 minutes,
+reads `X-Client-Min-Version`, shows a "New version" bar and reloads when no edit is unsaved, and
+reloads once on a failed chunk load; `web/README.md` has the hosting rules (immutable hashed
+assets, `no-cache` index, SPA fallback). Lifecycle: `session/open/` on launch and on the first
+interaction after 5 idle hours, the memory banner (prominent or subtle, "Review / turn off" to
+the new settings page, dismiss marks it seen), the update notice feeding the same update logic,
+a memory on/off toggle, and the browser timezone sent for users still on the default.
+Checked in headless Chrome against the real backend: guarded redirect, deep link, refresh, back,
+unknown path, prominent banner on the first open, settings toggle (`PATCH me/`), timezone set to
+Europe/Berlin, and the update bar with `CLIENT_LATEST_VERSION` set to a future build.
