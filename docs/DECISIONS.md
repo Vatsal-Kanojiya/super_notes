@@ -2704,3 +2704,64 @@ callback is queued at all. The publisher takes any client with `publish(channel,
 task tests use a recorder; one test uses the real local Redis on database 15 and is skipped without
 one. **Alternative:** a separate default database (pub/sub does not use it); fail the run on a Redis
 error (polling would have had the answer).
+
+### D420. Facts ride in the chat prompt as `<facts>` after the excerpts, without ids; `chat-v2` (3-memory 2, 2026-10-01)
+
+**Decided:** a conversation turn's user message is summary, history, excerpts, then `<facts>` (one
+`<fact>` per fact, text only: no id, no kind, `[n]` markers stripped, neutralised like every other
+part), then the question. `prompts/chat.md` becomes `chat-v2`: a new rule 3 says the facts are what
+is known about the user from earlier conversations, context only -- shape the answer, never claim
+the notes say something because a fact does, never cite a fact, don't repeat them back unprompted,
+and the user's words in this conversation win over an out-of-date fact; rule 7 adds the facts to
+"data, not instructions". The block is left out when there are no facts. `AskQuery.memory_used`
+(migration 0005, JSON list) holds the ids put in the prompt, empty for a plain ask, a floor
+answer or memory off; it is not in the API. Plain asks (`ask-v1`) are unchanged. **Alternative:**
+facts first (a message that starts with `<facts>` is how an extraction is told apart, by the fake
+and by the extraction tests); ids in the block (a number next to text invites the model to cite
+it like an excerpt).
+
+### D421. The turn gets all live facts up to 5, else the 5 nearest the standalone question; failure means none (3-memory 2, 2026-10-01)
+
+**Decided:** `memory.facts_for_prompt(user, turn.search_question)`, called only when the chat
+prompt is built (a floor answer looks nothing up). Memory off: no query and no embedding call.
+At most `MEMORY_PROMPT_FACTS` (5) live facts: all of them, no embedding call (as D402). More: the
+question is embedded and the 5 nearest live facts of the current embedding model are taken with
+the owner-scoped `similar_facts` (D402's query). An `EmbeddingError` or
+`EmbeddingTransientError` is logged and gives no facts -- it must not reach the task's autoretry,
+since a turn is never retried or failed for its memory. No similarity floor: 5 short sentences
+are cheap, and the prompt tells the model they are context. **Alternative:** reuse the search's
+query vector (one call fewer, but changes `retrieval.search`'s signature, and only users with
+more than 5 facts pay the extra call); a similarity floor (a threshold to tune with no
+evaluation set for facts yet).
+
+### D422. `User.memory_reset_at`: a fact is only written from a turn created after it (3-memory 2, 2026-10-01)
+
+**Decided:** a nullable timestamp on the user (accounts migration 0007), moved by "forget
+everything" and by `PATCH me/ {memory_enabled: false}` (every such PATCH, not only a change:
+harmless and simpler). `apply_operations` reads it under the user's row lock it already takes
+and writes nothing when `ask.created_at <= memory_reset_at`; `extract` checks it up front too,
+so a turn asked before a reset makes no provider call. This closes the race left by D401: an
+extraction in flight while the user forgets everything (its `add` would land after the delete),
+or switches memory off and on again (`memory_enabled` alone reads true again by the write).
+`forget_all` locks the user row *before* deleting, so an extraction mid-write (holding the lock)
+commits first and its facts are in the delete's snapshot; the guard test fails with the lock
+after the delete. Switching off needs no explicit lock: its UPDATE waits for the row lock the
+same way. Both clocks are the app servers'; a turn and a reset are serialised by the user lock
+(`create_turn` takes it too), so only clock skew between two servers within the same instant
+could misorder them. **Alternative:** a counter (`memory_epoch`) stamped on each turn when it is
+created (exact, but a column on `AskQuery` and a change to `create_turn` for a sub-millisecond
+case); deleting facts on switch-off (the plan keeps them: off means not learned and not used).
+
+### D423. The memory API: list live facts, delete any of your own, forget all; nothing writable (3-memory 2, 2026-10-01)
+
+**Decided:** `GET memory/facts/` lists the user's live facts (`id`, `text`, `kind`,
+`valid_until`, `created_at`), newest first with the usual id cursor; superseded and expired
+facts are not listed, as they are not used. `DELETE memory/facts/<id>/` deletes any fact of the
+user's (a superseded one too, if its id is known), owner-scoped in SQL, else 404 `not_found`;
+the facts it superseded go with it (D405). `DELETE memory/facts/` deletes all the user's facts,
+superseded ones included, moves the reset marker (D422) and leaves `memory_enabled` alone.
+No create or edit: facts come only from the user's own words through extraction (D400), so a
+client cannot plant one. The fact `kind` enum is `FactKindEnum` in the schema, and the app-open
+notice's keeps the name `KindEnum`. **Alternative:** a 404 for a superseded fact (a fact
+superseded while the list was on screen could not be deleted); a `POST` to add facts by hand
+(a second path into the prompt that skips the secret filter, D403).

@@ -537,6 +537,9 @@ SPECTACULAR_SETTINGS = {
         "StatusEnum": "assistant.models.AskQuery.Status",
         "ReminderStatusEnum": "notes.models.Reminder.Status",
         "AttachmentStatusEnum": "notes.models.Attachment.Status",
+        # Two `kind`s: an app-open notice's keeps the name it had first.
+        "KindEnum": ["update", "memory"],
+        "FactKindEnum": "assistant.models.UserFact.Kind",
     },
 }
 
@@ -677,6 +680,9 @@ MEMORY_ANSWER_MAX_CHARS = env.int("MEMORY_ANSWER_MAX_CHARS", default=2000)
 # The ceiling on an extraction reply: a few short JSON operations, with room
 # for reasoning tokens, as for the condenser.
 MEMORY_EXTRACT_MAX_OUTPUT_TOKENS = env.int("MEMORY_EXTRACT_MAX_OUTPUT_TOKENS", default=1024)
+# The user's live facts a conversation turn's prompt carries at most: the
+# nearest to the (standalone) question (DECISIONS D421).
+MEMORY_PROMPT_FACTS = env.int("MEMORY_PROMPT_FACTS", default=5)
 
 # Chunking (retrieval/chunking.py, DECISIONS D33)
 #

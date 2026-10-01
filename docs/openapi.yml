@@ -850,7 +850,8 @@ paths:
     patch:
       operationId: me_partial_update
       description: '`timezone` (an IANA name) and `memory_enabled`. Setting `memory_enabled`
-        also records that the user chose it themselves.'
+        also records that the user chose it themselves. Switching memory off stops
+        it being learned and used; the facts stay until deleted (`DELETE memory/facts/`).'
       summary: Update your settings
       tags:
       - Account
@@ -967,6 +968,85 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Not signed in.
+  /api/v1/memory/facts/:
+    get:
+      operationId: memory_facts_list
+      description: Facts learned from what you said about yourself in conversations,
+        and used to shape later answers (never cited as a source). Only facts in use
+        are listed. Follow `next` for more.
+      summary: What the assistant remembers about you, newest first
+      parameters:
+      - name: cursor
+        required: false
+        in: query
+        description: The pagination cursor value.
+        schema:
+          type: string
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: 1-100, default 25.
+      tags:
+      - Memory
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserFactList'
+          description: ''
+    delete:
+      operationId: memory_facts_forget_all
+      description: Deletes every fact the assistant remembers about you. A conversation
+        turn asked before this teaches nothing afterwards, even if it is still being
+        answered. Memory stays on (`PATCH me/` turns it off).
+      summary: Forget everything
+      tags:
+      - Memory
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+  /api/v1/memory/facts/{id}/:
+    delete:
+      operationId: memory_facts_forget
+      description: Also forgets the older facts it replaced.
+      summary: Forget one fact
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Memory
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such fact of yours.
   /api/v1/notes/:
     get:
       operationId: notes_list
@@ -1939,6 +2019,14 @@ components:
       - id
       - label
       - last_seen_at
+    FactKindEnum:
+      enum:
+      - static
+      - dynamic
+      type: string
+      description: |-
+        * `static` - Static
+        * `dynamic` - Dynamic
     FormatJob:
       type: object
       description: A job as the client shows it. Not the provider, model, prompt or
@@ -2410,6 +2498,25 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Note'
+    PaginatedUserFactList:
+      type: object
+      required:
+      - results
+      properties:
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cD00ODY%3D"
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cj0xJnA9NDg3
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserFact'
     PatchedConversationRenameRequest:
       type: object
       properties:
@@ -2836,6 +2943,44 @@ components:
       description: |-
         * `text` - Text
         * `checklist` - Checklist
+    UserFact:
+      type: object
+      description: 'A fact the assistant remembers about the user. Read-only: facts
+        are only learned.'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        text:
+          type: string
+          readOnly: true
+          description: One short sentence, e.g. "User is vegetarian."
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/FactKindEnum'
+          readOnly: true
+          description: |-
+            `static`: true until you say otherwise. `dynamic`: true for now; forgotten at `valid_until`.
+
+            * `static` - Static
+            * `dynamic` - Dynamic
+        valid_until:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: When a dynamic fact is forgotten; null for static.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When it was learned.
+      required:
+      - created_at
+      - id
+      - kind
+      - text
+      - valid_until
     UserLimits:
       type: object
       description: One entry per user-facing limit key (DECISIONS D84, D91).

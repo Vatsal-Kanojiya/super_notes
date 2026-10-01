@@ -89,6 +89,10 @@ class AskQuery(models.Model):
     # What retrieval returned, scores included: for debugging an answer and
     # for tuning ASK_RELEVANCE_FLOOR. Never sent to the client.
     retrieved = models.JSONField(default=list, blank=True)
+    # The ids of the user's facts the chat prompt carried (assistant/memory.py,
+    # DECISIONS D420): which memory shaped this answer. Empty for a plain ask,
+    # a floor answer, or memory off. Not in the API.
+    memory_used = models.JSONField(default=list, blank=True)
     # User-safe text only. The vendor's own message goes to the log.
     error = models.CharField(max_length=255, blank=True)
 

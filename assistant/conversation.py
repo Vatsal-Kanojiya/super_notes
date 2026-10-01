@@ -17,7 +17,9 @@ conversation adds happens here, before and around retrieval:
    back to searching the follow-up as asked: condensing is an
    improvement, never a reason to fail a turn.
 3. **The prompt** (prompts/chat.md): the summary, the newest turns that fit
-   CHAT_HISTORY_MAX_CHARS, this turn's excerpts and the question as asked.
+   CHAT_HISTORY_MAX_CHARS, this turn's excerpts, what is known about the
+   user (their memory, assistant/memory.py: context only, never a source,
+   DECISIONS D420) and the question as asked.
 4. **Folding**, after a turn is answered (its own task, ``fold_history``): when
    the turns the summary does not cover outgrow CHAT_HISTORY_MAX_CHARS, the
    oldest are folded into ``Conversation.summary`` by the chat provider and
@@ -273,7 +275,7 @@ def clean_condensed(text: str) -> str:
 
 
 def chat_prompt_version() -> str:
-    """The version line of prompts/chat.md, e.g. "chat-v1"."""
+    """The version line of prompts/chat.md, e.g. "chat-v2"."""
     return load_prompt("chat")[0]
 
 
@@ -306,13 +308,35 @@ def build_condense_messages(question: str, turns: list[HistoryTurn]) -> tuple[st
     return load_prompt("condense")[1], user
 
 
+def user_facts_block(facts: list[str]) -> str:
+    """``<facts>`` with one ``<fact>`` per fact the user's memory holds (DECISIONS D420).
+
+    No ids and no ``[n]`` markers: nothing in the block looks like
+    something to cite. Neutralised like every other part, so a fact can
+    never close the block, or open another, early.
+    """
+    lines = "".join(
+        f"<fact>{neutralise(' '.join(strip_markers(fact).split()), conversation=True)}</fact>\n"
+        for fact in facts
+    )
+    return f"<facts>\n{lines}</facts>"
+
+
 def build_chat_messages(
-    question: str, excerpts: list[Excerpt], turns: list[HistoryTurn], summary: str = ""
+    question: str,
+    excerpts: list[Excerpt],
+    turns: list[HistoryTurn],
+    summary: str = "",
+    facts: list[str] | None = None,
 ) -> tuple[str, str]:
     """(system, user) for answering one turn.
 
     The summary and the history first, as context; then this turn's
-    excerpts, numbered as in a plain ask; the question as asked last.
+    excerpts, numbered as in a plain ask; then the user's facts, when there
+    are any; the question as asked last. The facts come after the excerpts
+    so the message never starts with ``<facts>``, the mark of a memory
+    extraction (prompts/memory.md), and sit next to the question they help
+    to read.
     """
     parts = []
     if summary.strip():
@@ -320,6 +344,8 @@ def build_chat_messages(
     if turns:
         parts.append(history_block(turns))
     parts.append(excerpts_block(excerpts, conversation=True))
+    if facts:
+        parts.append(user_facts_block(facts))
     parts.append(_block("question", question))
     return load_prompt("chat")[1], "\n\n".join(parts)
 

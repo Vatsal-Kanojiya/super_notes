@@ -23,6 +23,7 @@ from django.db import transaction
 from django.db.models import F
 from django.http import Http404
 from django.urls import path
+from django.utils import timezone as dj_timezone
 from django.views.decorators.debug import sensitive_variables
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status
@@ -420,7 +421,8 @@ class MeView(APIView):
         tags=AUTH_TAG,
         summary="Update your settings",
         description="`timezone` (an IANA name) and `memory_enabled`. Setting `memory_enabled` "
-        "also records that the user chose it themselves.",
+        "also records that the user chose it themselves. Switching memory off stops it being "
+        "learned and used; the facts stay until deleted (`DELETE memory/facts/`).",
         request=MeUpdateSerializer,
         responses={
             200: MeSerializer,
@@ -434,6 +436,12 @@ class MeView(APIView):
         changed = dict(body.validated_data)
         if "memory_enabled" in changed:
             changed["memory_choice_explicit"] = True
+        if changed.get("memory_enabled") is False:
+            # An extraction still in flight must not write a fact afterwards,
+            # even if memory is switched back on before it ends: it checks
+            # this under the user's row lock, which this UPDATE waits for
+            # (assistant/memory.py, DECISIONS D422).
+            changed["memory_reset_at"] = dj_timezone.now()
         if changed:
             for field, value in changed.items():
                 setattr(request.user, field, value)
