@@ -1870,3 +1870,87 @@ pager's warning about moving fields. `updated_at` only moves up (a new turn), so
 shows a conversation twice; one that gets a turn mid-paging is missed on that pass and is at the
 top of the next page-one fetch. **Alternative:** `-id` (stable, but not the "recent first" order
 the chat list needs).
+
+### D220. A conversation turn uses the chat prompt from turn 1, with the question as asked (2, 2026-10-01)
+
+**Decided:** every turn of a conversation is answered with `prompts/chat.md` (`chat-v1`, stored in
+`prompt_version`), turn 1 included (it simply has no history); a plain `POST ask/` keeps
+`ask-v1`. The user message is `<summary>` (if any), `<history>`, this turn's `<excerpts>`, then
+`<question>` holding the follow-up **as the user wrote it**: the model has the history to read it
+by, and the standalone rewrite is only for retrieval. The relevance floor applies to turns
+unchanged. **Alternative:** `ask-v1` for turn 1 (two prompts for one thread); the standalone
+question in `<question>` (a bad rewrite would then change what is answered, not only what is
+searched).
+
+### D221. The "already stands alone" heuristic: no pointing word, no continuation, four words, ASCII (2, 2026-10-01)
+
+**Decided:** `needs_condensing` sends a follow-up to the condenser if it has a word that points
+back (`it, its, they, them, their, this, that, these, those, he, him, his, she, her, there, one,
+ones, same, former, latter, else`…), opens with a continuation (`and, but, or, also, only, so,
+then, too`, "what about", "how about"), has fewer than four words, or has any non-ASCII letter (the
+word lists are English; anything else is always condensed). Over-inclusive on purpose: a false
+positive costs one cheap call that returns the question unchanged; a false negative searches
+"when is it due?" as is. Measured on the 17 multi-turn fixtures: all 12 follow-ups that need
+context are condensed, the 3 topic shifts and 2 no-answer follow-ups are not (a test pins this).
+**Alternative:** always condense (one extra call per turn, and a chance for a real model to drag
+the old topic into a shift).
+
+### D222. A condense call is a `condense` event with user None, linked to the turn; refunds and cost stay per key (2, 2026-10-01)
+
+**Decided:** before the provider call, `limits.consume(None, "condense", ask=turn)` in its own
+short transaction (the advisory lock is not held across the HTTP call). A provider error refunds
+it (nothing was billed); a reply records provider, model and tokens on it with `describe_where`.
+Because the event is linked to the turn, the task's `_finish` (D133), `_fail` (D102) and the
+sweeper now act on `key="chat_turns"` only: the answer's cost no longer lands on the condense
+event, and a turn that fails after condensing refunds its chat turn but not the condense call
+that was made. **Alternative:** the event under the user (attributable, but the brief and D91 say
+user None; the turn link gives the user anyway); no `ask` link (loses which turn it served).
+
+### D223. Earlier answers are repeated without their `[n]` markers (2, 2026-10-01)
+
+**Decided:** in the history (chat and condense prompts) an earlier answer has its citation markers
+removed (the `citations.MARKER` pattern), with the space before punctuation tidied. Those numbers
+referred to that turn's excerpts; left in, they invite the model to cite `[1]` meaning an old
+excerpt, while this turn's citations number only this turn's excerpts. **Alternative:** keep them
+(verbatim, but a source of wrong citations).
+
+### D224. History is trimmed by characters, newest whole turns, no gaps (2, 2026-10-01)
+
+**Decided:** the history is the conversation's `done` turns before this one with position after
+`summary_through` (failed turns have no answer and are skipped). `fit_history` keeps whole turns
+(question + answer characters) from the newest back while they fit `CHAT_HISTORY_MAX_CHARS`
+(6,000, ≈1,500 tokens) and stops at the first that does not, so there is never a gap. The newest
+turn is always kept, its answer cut at a word to the room left. Condensing uses the same function
+with `CHAT_CONDENSE_HISTORY_MAX_CHARS` (2,000) and no summary. The summary itself is included
+whole (sub-task 3 bounds what it writes). **Alternative:** a fixed number of turns (a long answer
+would blow the prompt); skipping an overflowing turn to fit an older one (a history with a hole).
+
+### D225. The fake condenser replaces the first pointing word with the previous question's content words (2, 2026-10-01)
+
+**Decided:** the fake provider recognises a condense call by `<follow_up>` and replaces the
+follow-up's first `it, its, them, they, their, this, that, these, those, one, ones` with the
+previous turn's question minus stop words ("How often do I have to take it?" after "What did
+Dr. Kulkarni say about my vitamin D?" → "How often do I have to take Dr Kulkarni say vitamin D?").
+No such word → the follow-up unchanged. Crude, but deterministic, and it moves retrieval the way a
+real condenser should, so tests can show a pronoun follow-up finding the right note and a shift
+not picking up the old topic. **Alternative:** prepend the previous question's keywords always
+(would drag every topic shift).
+
+### D226. Condensing never fails a turn; the rewrite is stored whenever the condenser gave one (2, 2026-10-01)
+
+**Decided:** `ChatError`, `TransientChatError` (not retried: the turn is not worth a minute of
+backoff for a better search), `SystemLimitExceeded` on `condense`, and an empty reply all log a
+warning and search the follow-up as asked; `standalone_question` stays blank. A usable reply is
+cleaned (first line, a "Question:" label and quotes removed, cut to 1,000 characters) and stored,
+even when it equals the follow-up, before retrieval; a turn taken up again (retry, redelivery)
+reuses it instead of condensing and paying twice. A bug in a provider (any other exception) still
+fails the turn, as it would the answer. **Alternative:** retry transient condense errors with the
+task (spends the turn's retries on an optional step).
+
+### D227. `chat.complete` takes an optional `max_output_tokens`; condensing gets 512 (2, 2026-10-01)
+
+**Decided:** `complete(system, user, max_output_tokens=None)` defaults to `CHAT_MAX_OUTPUT_TOKENS`;
+the condenser passes `CHAT_CONDENSE_MAX_OUTPUT_TOKENS` (512). A question needs a few dozen tokens,
+but OpenAI's reasoning tokens count against the ceiling, and a reply cut off by it is a
+`ChatError` (D54), which would make every condense fall back. **Alternative:** the shared 2,048
+ceiling (no cap on a runaway rewrite); a second entry point (`condense()` in the chat package).
