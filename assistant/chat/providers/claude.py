@@ -21,7 +21,7 @@ arrive at any point, even after a 200.
 import base64
 from contextlib import closing
 
-from ..errors import ChatError, TransientChatError
+from ..errors import BilledChatError, ChatError, TransientChatError
 from ..types import ChatResult
 from ._http import api_key, excerpt, post_json, post_stream
 
@@ -69,7 +69,18 @@ class ClaudeProvider:
         return self._result(data, model)
 
     def _result(self, data: dict, model: str) -> ChatResult:
-        check_stop_reason(data.get("stop_reason"))
+        usage = data.get("usage") or {}
+        cost = {
+            "provider": self.name,
+            # The model that answered, as the API reports it; the configured
+            # alias if it does not.
+            "model": data.get("model") or model,
+            "input_tokens": int(usage.get("input_tokens") or 0),
+            "output_tokens": int(usage.get("output_tokens") or 0),
+        }
+        # Past this point the vendor generated an answer: an unusable one is
+        # still billed (DECISIONS D500).
+        check_stop_reason(data.get("stop_reason"), **cost)
 
         text = "".join(
             block.get("text", "")
@@ -77,18 +88,8 @@ class ClaudeProvider:
             if block.get("type") == "text"
         ).strip()
         if not text:
-            raise ChatError("Claude returned no text")
-
-        usage = data.get("usage") or {}
-        return ChatResult(
-            text=text,
-            provider=self.name,
-            # The model that answered, as the API reports it; the configured
-            # alias if it does not.
-            model=data.get("model") or model,
-            input_tokens=int(usage.get("input_tokens") or 0),
-            output_tokens=int(usage.get("output_tokens") or 0),
-        )
+            raise BilledChatError("Claude returned no text", **cost)
+        return ChatResult(text=text, **cost)
 
     def stream(self, system: str, user: str, model: str, max_output_tokens: int):
         body = {**_body(system, user, model, max_output_tokens), "stream": True}
@@ -133,17 +134,17 @@ class ClaudeProvider:
 
         if not finished:
             raise TransientChatError("Claude's stream ended before the answer was finished")
-        check_stop_reason(stop_reason)
+        cost = {
+            "provider": self.name,
+            "model": answered_by,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+        }
+        check_stop_reason(stop_reason, **cost)
         text = "".join(parts).strip()
         if not text:
-            raise ChatError("Claude returned no text")
-        yield ChatResult(
-            text=text,
-            provider=self.name,
-            model=answered_by,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-        )
+            raise BilledChatError("Claude returned no text", **cost)
+        yield ChatResult(text=text, **cost)
 
 
 def _headers() -> dict:
@@ -165,16 +166,20 @@ def _body(system: str, user: str | list, model: str, max_output_tokens: int) -> 
     }
 
 
-def check_stop_reason(stop_reason) -> None:
-    """ChatError unless the answer ended the way a complete answer does."""
+def check_stop_reason(stop_reason, **cost) -> None:
+    """BilledChatError unless the answer ended the way a complete answer does.
+
+    ``cost`` (provider, model, tokens) rides on the error: the vendor
+    generated this answer and bills for it (DECISIONS D500).
+    """
     if stop_reason == "refusal":
-        raise ChatError("Claude declined to answer this question")
+        raise BilledChatError("Claude declined to answer this question", **cost)
     if stop_reason == "max_tokens":
         # A cut-off answer may end mid-citation. Failing it (and not
-        # counting it against the quota) beats storing half a claim.
-        raise ChatError("Claude's answer was cut off before finishing")
+        # counting it against the user's quota) beats storing half a claim.
+        raise BilledChatError("Claude's answer was cut off before finishing", **cost)
     if stop_reason not in COMPLETE:
-        raise ChatError(f"Claude stopped unexpectedly: {stop_reason!r}")
+        raise BilledChatError(f"Claude stopped unexpectedly: {stop_reason!r}", **cost)
 
 
 def stream_error(error: dict) -> Exception:

@@ -19,7 +19,7 @@ event can arrive instead, at any point.
 import base64
 from contextlib import closing
 
-from ..errors import ChatError, TransientChatError
+from ..errors import BilledChatError, ChatError, TransientChatError
 from ..types import ChatResult
 from ._http import api_key, excerpt, post_json, post_stream
 
@@ -78,7 +78,10 @@ class OpenAIProvider:
         return self._answer(data, model)
 
     def _answer(self, data: dict, model: str) -> ChatResult:
-        check_status(data)
+        # Past this point the vendor generated a response: an unusable one is
+        # still billed (DECISIONS D500).
+        cost = self._cost(data, model)
+        check_status(data, **cost)
 
         parts = []
         for item in data.get("output") or []:
@@ -86,14 +89,14 @@ class OpenAIProvider:
                 continue  # reasoning items carry no answer text
             for block in item.get("content") or []:
                 if block.get("type") == "refusal":
-                    raise ChatError("OpenAI declined to answer this question")
+                    raise BilledChatError("OpenAI declined to answer this question", **cost)
                 if block.get("type") == "output_text":
                     parts.append(block.get("text", ""))
         text = "".join(parts).strip()
         if not text:
-            raise ChatError("OpenAI returned no text")
+            raise BilledChatError("OpenAI returned no text", **cost)
 
-        return self._result(text, data, model)
+        return ChatResult(text=text, **cost)
 
     def stream(self, system: str, user: str, model: str, max_output_tokens: int):
         body = {**_body(system, user, model, max_output_tokens), "stream": True}
@@ -110,7 +113,11 @@ class OpenAIProvider:
                         parts.append(delta)
                         yield delta
                 elif kind == "response.refusal.delta":
-                    raise ChatError("OpenAI declined to answer this question")
+                    # Generated, so billed; the usage comes only with the
+                    # terminal event, which is not waited for.
+                    raise BilledChatError(
+                        "OpenAI declined to answer this question", provider=self.name, model=model
+                    )
                 elif kind in TERMINAL:
                     final = data.get("response") or {}
                     break
@@ -121,21 +128,22 @@ class OpenAIProvider:
 
         if final is None:
             raise TransientChatError("OpenAI's stream ended before the answer was finished")
-        check_status(final)
+        cost = self._cost(final, model)
+        check_status(final, **cost)
         text = "".join(parts).strip()
         if not text:
-            raise ChatError("OpenAI returned no text")
-        yield self._result(text, final, model)
+            raise BilledChatError("OpenAI returned no text", **cost)
+        yield ChatResult(text=text, **cost)
 
-    def _result(self, text: str, data: dict, model: str) -> ChatResult:
+    def _cost(self, data: dict, model: str) -> dict:
+        """Provider, model and tokens of a response: a ChatResult's or a BilledChatError's."""
         usage = data.get("usage") or {}
-        return ChatResult(
-            text=text,
-            provider=self.name,
-            model=data.get("model") or model,
-            input_tokens=int(usage.get("input_tokens") or 0),
-            output_tokens=int(usage.get("output_tokens") or 0),
-        )
+        return {
+            "provider": self.name,
+            "model": data.get("model") or model,
+            "input_tokens": int(usage.get("input_tokens") or 0),
+            "output_tokens": int(usage.get("output_tokens") or 0),
+        }
 
 
 def _headers() -> dict:
@@ -158,17 +166,21 @@ def _body(system: str, user: str | list, model: str, max_output_tokens: int) -> 
     }
 
 
-def check_status(data: dict) -> None:
-    """ChatError unless the response's status is a finished answer."""
+def check_status(data: dict, **cost) -> None:
+    """BilledChatError unless the response's status is a finished answer.
+
+    A response came back, so the call was accepted and may have generated
+    tokens: kept as billed, with ``cost`` on the error (DECISIONS D500).
+    """
     status = data.get("status")
     if status == "failed":
         message = (data.get("error") or {}).get("message", "unknown error")
-        raise ChatError(f"OpenAI failed to answer: {message}")
+        raise BilledChatError(f"OpenAI failed to answer: {message}", **cost)
     if status == "incomplete":
         reason = (data.get("incomplete_details") or {}).get("reason")
         if reason == "content_filter":
-            raise ChatError("OpenAI declined to answer this question")
-        raise ChatError("OpenAI's answer was cut off before finishing")
+            raise BilledChatError("OpenAI declined to answer this question", **cost)
+        raise BilledChatError("OpenAI's answer was cut off before finishing", **cost)
 
 
 def stream_error(data: dict) -> Exception:
