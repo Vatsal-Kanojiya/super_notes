@@ -1523,6 +1523,75 @@ system count, the abuse D84 guards against.
 **Reverse it if:** the owner wants a per-feature kill switch; add a separate flag rather than
 reusing `enabled`. **Needs the owner:** confirm `enabled` off = "not enforced".
 
+### D101. `assistant/quota.py` stays as a thin wrapper over the `chat_turns` limit; `ASK_QUOTAS` goes
+
+**Decided:** `quota.py` keeps its names (`usage`, `used`, `limit_for`, `month_bounds`) but each one
+reads `limits` for the key `chat_turns`. `ASK_QUOTAS` is removed from settings, so the values come
+from `LIMIT_DEFAULTS["chat_turns"]` (or its admin row). Premium therefore drops from V1's 500 to
+D91's 100. V1 tests that overrode `ASK_QUOTAS` now override `LIMIT_DEFAULTS` through
+`assistant/tests/helpers.chat_turns(free, premium)`.
+
+**Alternatives:** delete `quota.py` and have `me/` and the tests call `limits` directly; keep
+`ASK_QUOTAS` as the source of `chat_turns`' per-user values.
+
+**Why:** `me/`'s `ask_usage` and V1's tests keep working unchanged, and sub-task 3 changes `me/`
+anyway. Two settings for one number would drift.
+
+**Reverse it if:** nothing reads `quota` but `me/`; then inline it there and delete the module.
+
+### D102. A failed ask is refunded in the transaction that fails it, and only by the call that fails it
+
+**Decided:** `tasks._fail` is atomic: its conditional update (still pending or running → failed)
+and `limits.refund_where(ask_id=…)` commit together, and the refund runs only if that update
+changed the row. `sweep_stuck_asks` is atomic too. It locks the stuck rows (`select_for_update`),
+fails them with the same status-checked update, and refunds exactly those asks. A done ask is
+never refunded; a retry that has not given up refunds nothing.
+
+**Alternatives:** refund every failed ask's unrefunded events on each sweep (self-healing, but a
+join over all failed asks every five minutes); refund through a signal on `AskQuery` status.
+
+**Why:** "failed asks don't count" (V1) must stay exact. With the refund in the same commit, an ask
+is never failed but still counted, or refunded but not failed. Refunding only from the call that
+made the change means a duplicate run (`acks_late`) or the task racing the sweeper hands back one
+ask, not two. Tests remove each refund, and the guard, and fail.
+
+**Reverse it if:** asks gain partial costs (tokens) that should stay counted after a failure.
+
+### D103. The backfill copies each non-failed ask's user and time, and lives in `limits`
+
+**Decided:** `limits/migrations/0002_backfill_ask_usage` creates one `chat_turns` event (amount 1)
+per `AskQuery` that is not failed, with the ask's `user` and `created_at` and linked to the ask.
+It skips asks that already have an event, so a second run adds nothing. Reversing deletes the
+`chat_turns` events linked to an ask. Provider, model and tokens are not copied, because new ask
+events don't carry them yet either (not in scope).
+
+**Alternatives:** a migration in `assistant`; copying token counts.
+
+**Why:** with the original `created_at`, this month's count is the same number before and after
+the deploy, and V1's months stay in the right periods. The ledger owns its data, so the migration
+lives in `limits`.
+
+**Reverse it if:** never. Note: during a rolling deploy, asks made by old code after the migration
+ran get no event and don't count. Run the migration with the new code, or rerun the backfill
+afterwards (it is safe to repeat).
+
+### D104. `create_ask` makes the row, then consumes; a system refusal passes through untouched
+
+**Decided:** under the user lock, after the idempotency lookup, `create_ask` creates the
+`AskQuery` and then calls `limits.consume(locked, "chat_turns", ask=ask)`. `UserLimitExceeded`
+becomes V1's `QuotaExceeded` (same fields, so the 429 body is unchanged). `SystemLimitExceeded`
+passes through as it is. Either refusal rolls back the ask with the transaction. A replay returns
+before `consume`, so it uses nothing.
+
+**Alternatives:** consume first, then attach the ask to the event (one more UPDATE on every
+successful ask); a nullable link filled later.
+
+**Why:** the event is linked from birth, which is what refunds look up. A refused ask costs one
+rolled-back insert and one skipped id.
+
+**Reverse it if:** refusals become common enough that the wasted inserts matter. Until sub-task 3
+adds the 503 handler, a `SystemLimitExceeded` surfaces as a 500.
+
 
 ### D105. Lifecycle signals are sent with `send_robust`; `user_signed_in` is sent from `issue_tokens`
 
