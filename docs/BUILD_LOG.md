@@ -444,3 +444,20 @@ only); streaming web (2.3), memory web (3.3), attachment summaries (6.3) and att
 **Owner to confirm:** the per-user `image_text` values (D520), showing `image_text` in `me/`
 (D529), facts keeping their numbers as `(n)` (D504).
 
+
+### V2 2 — streaming (web)
+
+**Built:** a `fetch` stream reader (`web/src/api/stream.ts`), an SSE parser (`lib/sse.ts`), the
+stream state merge (`lib/askStream.ts`), and the chat store following a pending turn by streaming
+(`stores/chat.ts`, `chat.streaming`) with fallback to polling on any error, 404, 429
+`too_many_streams`, `timeout`, `unavailable` or an early end; `ChatThread.vue` shows the streamed
+text, chips turn clickable when the final turn lands. Leaving a thread aborts the stream. 17 new
+vitest tests (parser, merge, store: stream, fallback, abort). D540–D545.
+**Headless check:** uvicorn :8011 + a Celery worker (fake providers) + the real store under vitest
+against it: with the worker paused until the stream was open, the turn's text grew word by word
+(14 steps), then the final turn came with its citation; one `GET ask/<id>/stream/`, no polling.
+Note: with the fake provider an answer finishes in ~60 ms, so a normal send is already `done` when
+the stream opens (it then sends just the final event).
+**Left:** a real-browser pass (no browser in this session); the stream is not reopened after a drop
+(D544); a 401 on the stream falls to polling to refresh rather than refreshing itself.
+**Unsure:** `[n]` markers show as raw text while streaming (by design, D542).

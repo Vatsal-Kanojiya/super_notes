@@ -29,6 +29,9 @@ import {
   upsertConversation,
   type TurnError,
 } from '../lib/thread'
+import { openAskStream } from '../api/stream'
+import { applyStreamEvent, initialStream, isEnded } from '../lib/askStream'
+import { SseParser } from '../lib/sse'
 import { uuid4 } from '../lib/uuid'
 import { useAuthStore } from './auth'
 
@@ -61,6 +64,8 @@ export const useChatStore = defineStore('chat', () => {
   const sending = ref(false)
   const waiting = ref(false)
   const sendError = ref<TurnError | null>(null)
+  /** The text of pending turns as it streams in, by turn id. Gone once the turn finishes. */
+  const streaming = ref<Record<number, string>>({})
 
   const phase = computed(() => threadPhase(turns.value, { sending: sending.value, waiting: waiting.value }))
   const pending = computed(() => pendingTurn(turns.value))
@@ -75,9 +80,18 @@ export const useChatStore = defineStore('chat', () => {
   // The id of a conversation `send` just created and adopted: the view moving to its URL must not reload it.
   let fresh: Id | null = null
   const polling = new Set<string>() // `${id}:${epoch}`
+  // The open answer streams; aborted when the thread changes, so the server frees their slots.
+  let streamController: AbortController | null = null
+
+  function abortStream() {
+    streamController?.abort()
+    streamController = null
+  }
 
   function reset() {
     epoch++
+    abortStream()
+    streaming.value = {}
     currentId.value = null
     title.value = ''
     turns.value = []
@@ -149,7 +163,7 @@ export const useChatStore = defineStore('chat', () => {
     turns.value = mergeTurns([], detail.turns)
     conversations.value = upsertConversation(conversations.value, detail)
     const unfinished = pendingTurn(turns.value)
-    if (unfinished) void poll(unfinished.id)
+    if (unfinished) void follow(unfinished.id)
   }
 
   function putTurn(turn: AskQuery) {
@@ -188,12 +202,63 @@ export const useChatStore = defineStore('chat', () => {
     return false
   }
 
-  async function poll(id: Id) {
+  /**
+   * Read the turn's answer stream into `streaming`. Resolves true if the turn
+   * finished (the final turn is in the thread), false if the caller should
+   * poll: any stream error, a 404, a 429 `too_many_streams`, a stream that
+   * ended or timed out early, or the thread having changed.
+   */
+  async function streamTurn(id: Id, started: number): Promise<boolean> {
+    if (typeof TextDecoder === 'undefined') return false
+    const controller = new AbortController()
+    abortStream()
+    streamController = controller
+    try {
+      const body = await openAskStream(id, controller.signal)
+      if (!body || started !== epoch) return false
+      const reader = body.getReader()
+      const decoder = new TextDecoder()
+      const parser = new SseParser()
+      let state = initialStream()
+      while (!isEnded(state)) {
+        const { done, value } = await reader.read()
+        if (started !== epoch) return false
+        if (done) break
+        for (const event of parser.feed(decoder.decode(value, { stream: true }))) {
+          state = applyStreamEvent(state, event)
+          if (state.text) streaming.value = { ...streaming.value, [id]: state.text }
+          if (isEnded(state)) break
+        }
+      }
+      if (state.final) {
+        putTurn(state.final)
+        return true
+      }
+      return false
+    } catch {
+      return false
+    } finally {
+      if (streamController === controller) streamController = null
+      controller.abort() // a stream we stopped reading must not hold its slot
+      if (started === epoch) {
+        const { [id]: _gone, ...rest } = streaming.value
+        streaming.value = rest
+      }
+    }
+  }
+
+  /** Follow a pending turn: stream it, and poll if streaming is not available or breaks off. */
+  async function follow(id: Id) {
     const started = epoch
     const key = `${id}:${started}`
     if (polling.has(key)) return
     polling.add(key)
     try {
+      if (await streamTurn(id, started)) {
+        await refreshUsage()
+        return
+      }
+      if (started !== epoch) return
       if (await pollLoop(id, started)) await refreshUsage()
     } finally {
       polling.delete(key)
@@ -236,7 +301,7 @@ export const useChatStore = defineStore('chat', () => {
           if (started !== epoch) return undefined
           putTurn(turn)
           void refreshUsage()
-          if (isUnfinished(turn)) void poll(turn.id)
+          if (isUnfinished(turn)) void follow(turn.id)
           return undefined
         } catch (e) {
           if (!(e instanceof ApiError) || e.code !== 'turn_in_progress' || waits >= MAX_WAITS) throw e
@@ -314,6 +379,7 @@ export const useChatStore = defineStore('chat', () => {
     sending,
     waiting,
     sendError,
+    streaming,
     phase,
     pending,
     failedLast,
