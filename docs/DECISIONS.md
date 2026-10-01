@@ -2235,3 +2235,39 @@ it; "Turn off" and signing out unsubscribe and DELETE it (sign-out waits at most
 shared browser stops receiving the previous account's reminders. **Alternative:** leave the subscription
 on sign-out (the next account signing in on the browser takes it over, D171, but until then the old
 account's reminders pop up on someone else's screen).
+
+### D260. The web client locks the note while a format is made or looked at, and Format waits for pending saves (4-format)
+
+**Decided:** `FormatPanel` reports a phase to `NoteEditor`; from "saving" to "applying" the editor and
+title are read-only (`setEditable(false, false)`: the second argument matters, the default emits an
+update that autosaves a no-op and moves the version) and the preview replaces the editor on screen.
+Clicking Format with unsaved changes saves them first (`ensureSaved`) and only then starts the job,
+so `base_version` is the version the person sees; if the save fails or conflicts, nothing is
+formatted and the message says why. **Alternative:** leave the editor live and let Apply 409 whenever
+the person kept typing (a normal outcome of a feature that takes seconds).
+
+### D261. A 409 on Apply loads the server's copy and offers "Format again"; nothing is merged (4-format)
+
+**Decided:** everything the person typed was saved before the job started, so the 409's `current`
+is simply a newer note: the editor loads it, a notice says the note changed elsewhere and nothing
+was overwritten, and "Format again" starts a new job on it (a new use; the stale preview is dropped).
+**Alternative:** retry the PATCH on the new version (overwrites the other device's edit with a
+proposal made from older text).
+
+### D262. Job, poll, apply and error mapping are one pure module with injected API and clock (4-format)
+
+**Decided:** `web/src/lib/formatJob.ts` (`runFormat`, `pollFormatJob`, `applyFormat`,
+`describeStartError`, `describeJobFailure`, `whyDisabled`), tested without Vue or timers. Polling
+backs off 0.8 s to 5 s and gives up after 3 minutes (the server sweeps and refunds a stuck job); a
+POST with no answer or a 5xx retries with the same `Idempotency-Key`. A failed job shows its own
+`error` text (our wording only if it sent none); `format_note_gone` is the one code with no "Try
+again". **Alternative:** a Pinia store like asks (the state is per open note, so a component-local
+state with a pure core is simpler and cannot leak across accounts).
+
+### D263. The usage line and out-of-formats state come from `me/` `limits.format` (4-format)
+
+**Decided:** shown beside the button ("3 / 5 formats used · resets <date>"); at the limit the
+button is disabled with the reason, and a 429 `quota_exceeded` updates the stored usage from its
+body. `me/` is re-read after each job ends (a failed job is not counted). Dates use the existing
+`formatDate` (browser time zone, so a reset at midnight IST reads as the day before in UTC).
+**Alternative:** only react to the 429.

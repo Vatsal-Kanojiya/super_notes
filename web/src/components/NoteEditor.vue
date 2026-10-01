@@ -12,17 +12,18 @@
  * A newer copy arriving through sync replaces the editor's content only when
  * there is nothing unsaved; otherwise the next save meets the conflict prompt.
  */
-import TaskItem from '@tiptap/extension-task-item'
-import TaskList from '@tiptap/extension-task-list'
-import StarterKit from '@tiptap/starter-kit'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { ApiError, errorMessage } from '../api/client'
 import type { DocNode, Note, VersionConflictBody } from '../api/types'
+import { notesApi } from '../api/endpoints'
+import { editorExtensions } from '../lib/editorExtensions'
 import { formatRelative } from '../lib/format'
+import { isDocEmpty } from '../lib/formatJob'
 import { emptyDoc, useNotesStore } from '../stores/notes'
 import { useGoBack } from '../lib/nav'
 import ReminderPanel from './ReminderPanel.vue'
+import FormatPanel, { type FormatPhase } from './FormatPanel.vue'
 
 const props = defineProps<{ initial: Note }>()
 
@@ -54,14 +55,25 @@ function contentOf(note: Note): DocNode {
   return content && typeof content === 'object' && content.type === 'doc' ? content : emptyDoc(note.type)
 }
 
+/** Whether the note has any text (the Format button needs some). */
+const empty = ref(isDocEmpty(latestContent))
+
 const editor = useEditor({
-  extensions: [StarterKit, TaskList, TaskItem.configure({ nested: true })],
+  extensions: editorExtensions,
   content: latestContent,
   onUpdate: ({ editor }) => {
     latestContent = editor.getJSON() as DocNode
+    empty.value = isDocEmpty(latestContent)
     markDirty()
   },
 })
+
+// While a format is being made or looked at the note must not move on: an edit would take it past the
+// job's base_version and the Apply would meet a 409. The preview replaces the editor on screen.
+const formatPhase = ref<FormatPhase>('idle')
+const locked = computed(() => formatPhase.value !== 'idle')
+const previewing = computed(() => formatPhase.value === 'ready' || formatPhase.value === 'applying')
+watch(locked, (value) => editor.value?.setEditable(!value, false))
 
 function markDirty() {
   dirty = true
@@ -122,9 +134,48 @@ function load(note: Note) {
   base.value = note
   title.value = note.title
   latestContent = contentOf(note)
+  empty.value = isDocEmpty(latestContent)
   editor.value?.commands.setContent(latestContent, { emitUpdate: false })
   dirty = false
   status.value = 'saved'
+}
+
+/**
+ * Resolves true once nothing typed is waiting to be saved (saving it now if need be); false if the
+ * note cannot be saved (an error, a conflict, deleted). The Format button waits on this.
+ */
+async function ensureSaved(): Promise<boolean> {
+  for (let i = 0; i < 600; i++) {
+    if (conflict.value || deletedElsewhere.value) return false
+    if (saving) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      continue
+    }
+    if (!dirty) return true
+    if (status.value === 'error') {
+      // The last save failed: one more try now, not at the next timer.
+      await save()
+      if (dirty) return false
+      continue
+    }
+    await save()
+  }
+  return false
+}
+
+/** A format was applied: the server's copy is the note now. */
+function onFormatApplied(note: Note) {
+  load(note)
+}
+
+/** The apply met a 409: show the server's newer copy (everything of ours was saved before formatting). */
+async function onFormatStale(current: Note | null) {
+  try {
+    load(current ?? (await notesApi.get(id)))
+  } catch (e) {
+    saveError.value = errorMessage(e)
+  }
+  notes.upsert(base.value)
 }
 
 function keepMine() {
@@ -187,6 +238,14 @@ watch([status, deletedElsewhere], () =>
   notes.setUnsaved(id, status.value !== 'saved' && !deletedElsewhere.value),
 )
 
+const formatUnavailable = computed(() =>
+  deletedElsewhere.value
+    ? 'This note was deleted on another device.'
+    : conflict.value
+      ? 'Resolve the conflict above first.'
+      : '',
+)
+
 const statusText = computed(() => {
   if (deletedElsewhere.value) return 'Deleted'
   switch (status.value) {
@@ -231,11 +290,30 @@ function isActive(name: string, attrs?: Record<string, unknown>) {
       </div>
     </div>
 
-    <input v-model="title" class="title-input" type="text" placeholder="Title" aria-label="Title" maxlength="300" />
+    <input
+      v-model="title"
+      class="title-input"
+      type="text"
+      placeholder="Title"
+      aria-label="Title"
+      maxlength="300"
+      :readonly="locked"
+    />
 
     <ReminderPanel :note-id="id" />
 
-    <div v-if="editor" class="format-bar" role="toolbar" aria-label="Formatting">
+    <FormatPanel
+      :note-id="id"
+      :empty="empty"
+      :unavailable="formatUnavailable"
+      :ensure-saved="ensureSaved"
+      :before-doc="() => latestContent"
+      @phase="formatPhase = $event"
+      @applied="onFormatApplied"
+      @stale="onFormatStale"
+    />
+
+    <div v-if="editor && !previewing" class="format-bar" role="toolbar" aria-label="Formatting">
       <button
         type="button"
         :class="{ on: isActive('bold') }"
@@ -278,6 +356,6 @@ function isActive(name: string, attrs?: Record<string, unknown>) {
       </button>
     </div>
 
-    <EditorContent :editor="editor" class="editor" />
+    <EditorContent v-show="!previewing" :editor="editor" class="editor" />
   </main>
 </template>

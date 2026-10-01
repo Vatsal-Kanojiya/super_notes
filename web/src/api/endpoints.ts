@@ -9,6 +9,7 @@ import type {
   ChangesResponse,
   CursorPage,
   Device,
+  FormatJob,
   Id,
   Me,
   MeUpdateRequest,
@@ -92,4 +93,11 @@ export const pushApi = {
   subscribe: (body: PushSubscriptionRequest) => request<void>('me/push-subscriptions/', { method: 'POST', body }),
   unsubscribe: (endpoint: string) =>
     request<void>('me/push-subscriptions/', { method: 'DELETE', body: { endpoint } }),
+}
+
+export const formatApi = {
+  /** Starts a format job; the note is not changed. A fresh `Idempotency-Key` per request. */
+  create: (noteId: Id, idempotencyKey: string) =>
+    request<FormatJob>(`notes/${noteId}/format/`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey } }),
+  get: (id: Id) => request<FormatJob>(`format-jobs/${id}/`),
 }

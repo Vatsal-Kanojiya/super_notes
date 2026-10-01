@@ -10,7 +10,7 @@ import { computed, ref } from 'vue'
 import { ApiError, setAuthLostHandler } from '../api/client'
 import { authApi } from '../api/endpoints'
 import { clearTokens, getAccess, getRefresh, onTokensChangedElsewhere, setTokens } from '../api/tokens'
-import type { AskUsage, Me, MeUpdateRequest } from '../api/types'
+import type { AskUsage, LimitUsage, Me, MeUpdateRequest } from '../api/types'
 import { disableGoogleAutoSelect } from '../lib/gis'
 import { usePushStore } from './push'
 
@@ -84,6 +84,11 @@ export const useAuthStore = defineStore('auth', () => {
     if (user.value) user.value = { ...user.value, ask_usage: usage }
   }
 
+  /** The same for the `format` limit (from a 429 body). */
+  function setFormatUsage(usage: LimitUsage) {
+    if (user.value?.limits) user.value = { ...user.value, limits: { ...user.value.limits, format: usage } }
+  }
+
   async function signOut() {
     const refresh = getRefresh()
     // This browser must stop getting the account's push reminders; it needs the
@@ -101,5 +106,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { user, ready, notice, signedIn, init, loadMe, signIn, signOut, setAskUsage, updateMe }
+  return { user, ready, notice, signedIn, init, loadMe, signIn, signOut, setAskUsage, setFormatUsage, updateMe }
 })
