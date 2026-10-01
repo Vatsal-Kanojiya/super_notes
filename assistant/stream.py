@@ -1,9 +1,11 @@
 """An ask's answer as it is written, relayed as server-sent events (DECISIONS D370-D377).
 
 ``GET ask/<id>/stream/`` (assistant/api.py) checks who is asking and whose
-ask it is, then hands the response body to :func:`events`, an async
-generator that the ASGI server drives on its event loop: an open stream
-holds a Redis subscription and a coroutine, never a thread.
+ask it is, takes one of the user's ``STREAM_MAX_PER_USER`` stream slots
+(:func:`acquire_slot`), then hands the response body to :func:`events`, an
+async generator that the ASGI server drives on its event loop: an open
+stream holds a Redis subscription and a coroutine, never a thread -- and,
+between its reads of the row, no database connection either (D510).
 
 What the client receives, as ``event: <type>`` plus one ``data:`` line of
 JSON that repeats ``type``:
@@ -45,6 +47,7 @@ import redis.asyncio as aioredis
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db import connection
 
 from config.middleware import _request_id
 
@@ -131,6 +134,11 @@ async def subscribe(ask_id: int):
     except (redis.RedisError, OSError, Unavailable) as exc:
         await _close_quietly(subscription)
         raise Unavailable(repr(exc)) from exc
+    except BaseException:
+        # Cancelled while subscribing (the client went away): the
+        # connection is not the caller's yet, so close it here (D513).
+        await _close_quietly(subscription)
+        raise
     return subscription
 
 
@@ -141,7 +149,118 @@ async def _close_quietly(subscription) -> None:
         logger.warning("Could not close an answer stream's subscription", exc_info=True)
 
 
+# --- Open streams per user (D511) -----------------------------------------
+
+
+class TooManyStreams(Exception):
+    """The user already has STREAM_MAX_PER_USER streams open."""
+
+
+# A leaked count (a stream whose body never started, so its ``finally``
+# never ran) outlives every stream it could have counted by this much.
+SLOT_TTL_MARGIN_SECONDS = 60
+
+# INCR, and refuse past the cap. The TTL is set on a granted slot only, so
+# it runs from the last stream opened: a user retrying against a leaked
+# count does not keep it alive.
+_ACQUIRE = """
+local n = redis.call('INCR', KEYS[1])
+if n > tonumber(ARGV[1]) then
+  redis.call('DECR', KEYS[1])
+  return 0
+end
+redis.call('EXPIRE', KEYS[1], ARGV[2])
+return 1
+"""
+_RELEASE = """
+local n = redis.call('DECR', KEYS[1])
+if n <= 0 then
+  redis.call('DEL', KEYS[1])
+end
+return n
+"""
+
+
+def slots_key(user_id: int) -> str:
+    return f"ask-streams:{user_id}"
+
+
+class Slot:
+    """One counted stream of a user's; ``release`` (once, idempotent) gives it back."""
+
+    def __init__(self, url: str, user_id: int):
+        self.url = url
+        self.user_id = user_id
+        self.held = True
+
+    async def release(self) -> None:
+        if not self.held:
+            return
+        self.held = False
+        client = aioredis.Redis.from_url(
+            self.url,
+            socket_connect_timeout=ask_events.CONNECT_TIMEOUT_SECONDS,
+            socket_timeout=ask_events.SOCKET_TIMEOUT_SECONDS,
+        )
+        try:
+            await client.eval(_RELEASE, 1, slots_key(self.user_id))
+        except (redis.RedisError, OSError):
+            # The key's TTL clears the count instead.
+            logger.warning("Could not release a stream slot of user %s", self.user_id)
+        finally:
+            await client.aclose()
+
+
+class NoSlot:
+    """Nothing counted: the cap is off, or Redis could not count."""
+
+    held = False
+
+    async def release(self) -> None:
+        return None
+
+
+NO_SLOT = NoSlot()
+
+
+def acquire_slot(user_id: int):
+    """A :class:`Slot` for one more stream of the user's; raises :class:`TooManyStreams`.
+
+    Synchronous: the view calls it. Counted in Redis (``ASK_EVENTS_REDIS_URL``)
+    so every server process sees the same count. Fails open -- a
+    :class:`NoSlot` -- when the cap is off (``STREAM_MAX_PER_USER`` 0), live
+    events are off, or Redis cannot be reached: such a stream ends at once
+    with ``unavailable`` anyway. Tests replace this.
+    """
+    cap = settings.STREAM_MAX_PER_USER
+    client = ask_events.get_client()
+    if cap <= 0 or client is None:
+        return NO_SLOT
+    ttl = int(settings.ASK_STREAM_MAX_SECONDS) + SLOT_TTL_MARGIN_SECONDS
+    try:
+        granted = client.eval(_ACQUIRE, 1, slots_key(user_id), cap, ttl)
+    except (redis.RedisError, OSError):
+        logger.warning("Could not count user %s's open streams; not capped", user_id)
+        return NO_SLOT
+    if not granted:
+        raise TooManyStreams
+    return Slot(settings.ASK_EVENTS_REDIS_URL, user_id)
+
+
 # --- The row --------------------------------------------------------------
+
+
+def release_db_connection() -> None:
+    """Close this thread's database connection, unless it is inside a transaction.
+
+    Under ASGI the view and every ``read_row`` run in the request's one
+    thread-sensitive thread, whose connection Django would otherwise keep
+    until the response ends -- up to ASK_STREAM_MAX_SECONDS for a stream, a
+    connection per open stream (D510). The next read opens a fresh one.
+    Inside a transaction (a test's) there is nothing to give back.
+    """
+    if not connection.in_atomic_block:
+        connection.close()
 
 
 @dataclass
@@ -158,11 +277,14 @@ class Row:
 def _read_row(ask_id: int, user_id: int) -> Row | None:
     from .api import AskQuerySerializer, _visible_asks
 
-    ask = _visible_asks(user_id).filter(pk=ask_id).first()
-    if ask is None:
-        return None
-    data = AskQuerySerializer(ask).data if ask.finished else None
-    return Row(status=ask.status, partial=ask.partial_answer, data=data)
+    try:
+        ask = _visible_asks(user_id).filter(pk=ask_id).first()
+        if ask is None:
+            return None
+        data = AskQuerySerializer(ask).data if ask.finished else None
+        return Row(status=ask.status, partial=ask.partial_answer, data=data)
+    finally:
+        release_db_connection()
 
 
 read_row = sync_to_async(_read_row, thread_sensitive=True)
@@ -252,13 +374,14 @@ def _snapshot(text: str) -> str:
     return sse("snapshot", text=text, offset=len(text))
 
 
-async def events(ask_id: int, user_id: int, *, request_id: str = "-"):
+async def events(ask_id: int, user_id: int, *, request_id: str = "-", slot=NO_SLOT):
     """The ask's events as SSE text, for a StreamingHttpResponse under ASGI.
 
     Subscribes first and reads the row second, so nothing published in
     between is lost: either the row has it or the subscription does (and
     the Relay drops what is in both). The server cancelling the body (the
-    client went away) or closing the generator closes the subscription.
+    client went away) or closing the generator closes the subscription and
+    releases the user's stream ``slot``.
     """
     # The request id middleware has reset it by the time the body is sent;
     # this generator runs in the server's task for this request alone.
@@ -341,8 +464,11 @@ async def events(ask_id: int, user_id: int, *, request_id: str = "-"):
             if sent:
                 heartbeat_at = loop.time() + settings.ASK_STREAM_HEARTBEAT_SECONDS
     finally:
-        if subscription is not None:
-            await _close_quietly(subscription)
+        try:
+            if subscription is not None:
+                await _close_quietly(subscription)
+        finally:
+            await slot.release()
 
 
 def _check_interval(relay: Relay) -> float:

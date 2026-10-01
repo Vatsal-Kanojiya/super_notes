@@ -189,7 +189,8 @@ paths:
 
         A finished ask gets its `done` or `failed` at once. A `: keep-alive` comment line comes after
         15 seconds without an event. Opening a stream counts against the general request rate, not the
-        `ask` scope.
+        `ask` scope. At most 3 streams per user are open at once (`STREAM_MAX_PER_USER`); one more is a
+        429 `too_many_streams`: close one, or poll.
       summary: Stream an ask's answer
       parameters:
       - in: path
@@ -225,7 +226,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
-          description: '`throttled`.'
+          description: '`throttled`, or `too_many_streams`: the user already has `STREAM_MAX_PER_USER`
+            (3) streams open.'
   /api/v1/attachments/{id}/:
     get:
       operationId: attachments_retrieve

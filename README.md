@@ -90,8 +90,9 @@ Serve the API with uvicorn behind the reverse proxy, e.g.
 `GET ask/<id>/stream/` needs it. For that path the proxy must not buffer the response (the app
 sends `X-Accel-Buffering: no`, which nginx honours; others need `proxy_buffering off` or the
 like) and must allow at least 30 s between bytes (a keep-alive comment comes every 15 s). Each
-open stream holds one Redis connection for at most `ASK_STREAM_MAX_SECONDS` (5 minutes): size
-Redis' `maxclients` and the proxy's connection limits for the streams you expect. The hosting
+open stream holds one Redis connection for at most `ASK_STREAM_MAX_SECONDS` (5 minutes), and no
+database connection between its reads of the row; a user may have `STREAM_MAX_PER_USER` (3) open
+at once. Size Redis' `maxclients` and the proxy's connection limits for the streams you expect. The hosting
 target itself is still an open question (`docs/V2_PLAN.md`).
 
 ## Turning on the real services

@@ -642,6 +642,9 @@ ASK_STREAM_HEARTBEAT_SECONDS = env.float("ASK_STREAM_HEARTBEAT_SECONDS", default
 # How often an open stream reads its ask again, so one that ends without an
 # event (swept as stuck, or the worker could not reach Redis) still ends it.
 ASK_STREAM_RECHECK_SECONDS = env.float("ASK_STREAM_RECHECK_SECONDS", default=10)
+# Streams one user may have open at once, counted in ASK_EVENTS_REDIS_URL's
+# Redis (DECISIONS D511); one more is a 429 too_many_streams. 0 turns the cap off.
+STREAM_MAX_PER_USER = env.int("STREAM_MAX_PER_USER", default=3)
 
 # An ask still pending or running this long after it was made is failed by
 # assistant.tasks.sweep_stuck_asks. It must outlast every way a live ask
@@ -724,8 +727,6 @@ MEMORY_SUPERSEDED_RETENTION_DAYS = env.int("MEMORY_SUPERSEDED_RETENTION_DAYS", d
 MEMORY_SIMILAR_FACTS = env.int("MEMORY_SIMILAR_FACTS", default=10)
 # Operations one extraction reply may hold; a reply with more is dropped whole.
 MEMORY_MAX_OPERATIONS = env.int("MEMORY_MAX_OPERATIONS", default=5)
-# The answer the extraction call sees is cut to this (it is context only).
-MEMORY_ANSWER_MAX_CHARS = env.int("MEMORY_ANSWER_MAX_CHARS", default=2000)
 # The ceiling on an extraction reply: a few short JSON operations, with room
 # for reasoning tokens, as for the condenser.
 MEMORY_EXTRACT_MAX_OUTPUT_TOKENS = env.int("MEMORY_EXTRACT_MAX_OUTPUT_TOKENS", default=1024)
