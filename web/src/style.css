@@ -743,6 +743,30 @@ a.note-card {
   gap: 2px;
 }
 
+.fact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.fact-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.fact-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.memory-facts {
+  align-items: flex-start;
+}
+
 /* ------------------------------------------------------------ reminders -- */
 
 .reminders {

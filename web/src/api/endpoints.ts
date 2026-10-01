@@ -27,6 +27,7 @@ import type {
   SearchParams,
   SessionOpenResponse,
   SignInResponse,
+  UserFact,
   VapidKey,
 } from './types'
 
@@ -123,4 +124,10 @@ export const conversationsApi = {
       body: { question },
       headers: { 'Idempotency-Key': idempotencyKey },
     }),
+}
+
+export const memoryApi = {
+  list: (cursor?: string) => request<CursorPage<UserFact>>('memory/facts/', { query: { cursor } }),
+  forget: (id: Id) => request<void>(`memory/facts/${id}/`, { method: 'DELETE' }),
+  forgetAll: () => request<void>('memory/facts/', { method: 'DELETE' }),
 }

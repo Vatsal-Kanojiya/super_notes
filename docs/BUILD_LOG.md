@@ -444,3 +444,16 @@ only); streaming web (2.3), memory web (3.3), attachment summaries (6.3) and att
 **Owner to confirm:** the per-user `image_text` values (D520), showing `image_text` in `me/`
 (D529), facts keeping their numbers as `(n)` (D504).
 
+
+### V2 3 — memory (web)
+
+**Built:** a "What I remember about you" section in Settings (`web/src/components/MemoryFacts.vue`,
+store `web/src/stores/memory.ts`, `memoryApi` and `UserFact` type): the facts with Lasting /
+Temporary-until-date, delete per fact, "Forget everything" behind a confirm, an empty state, a
+"Show more" page button, and the text that facts come only from your questions, never your notes.
+The existing on/off switch is reused. Text only (D50). Decisions D546-D549.
+**Checks:** 221 web tests (5 new), `npm run build` clean. Headless check with Chrome over the
+real backend (`runserver 8012`): two facts listed (one containing `<b>`, shown as text), delete
+removed one, forget-all asked to confirm then emptied the list and the database.
+**Left:** nothing for 3.3; the branch checklist and merge are the conductor's.
+**Unsure:** `prettier --check` flags most files already (no project config), so it was not applied.

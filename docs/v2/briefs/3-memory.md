@@ -32,7 +32,7 @@
 - [x] 2. **Use in the prompt + API** (Sonnet) — top-5 facts into `chat-v1` (new version),
   `memory_used`, the memory endpoints, owner scoping; tests incl. a deleted fact never reaches a
   later prompt.
-- [ ] 3. **Web** (Sonnet) — a "Memory" section in Settings: the switch, the facts list with
+- [x] 3. **Web** (Sonnet) — a "Memory" section in Settings: the switch, the facts list with
   delete and "forget everything"; vitest; headless check.
 
 Done when the branch checklist in `CLAUDE.md` passes; BUILD_LOG entry "V2 3 — memory".
