@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { errorMessage } from '../api/client'
+import { onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { usePushStore } from '../stores/push'
+import PushToggle from './PushToggle.vue'
 
 const auth = useAuthStore()
+const push = usePushStore()
+onMounted(() => void push.start())
 const saving = ref(false)
 const error = ref('')
 
@@ -44,6 +49,11 @@ async function setMemory(enabled: boolean) {
         </span>
       </label>
       <p v-if="error" class="error small" role="alert">{{ error }}</p>
+    </section>
+
+    <section v-if="push.available" class="setting">
+      <strong>Notifications</strong>
+      <PushToggle />
     </section>
 
     <section v-if="auth.user" class="setting">

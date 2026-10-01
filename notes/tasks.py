@@ -1,4 +1,6 @@
-"""Formatting a note: prompt, complete, guard, store (DECISIONS D240-D249).
+"""Notes tasks: formatting a note, and delivering reminders.
+
+Formatting: prompt, complete, guard, store (DECISIONS D240-D249).
 
 The task owns the FormatJob's life after creation: pending -> running -> done
 or failed, and every way out of it ends in done or failed -- retries running
@@ -27,6 +29,7 @@ from django.utils import timezone
 from assistant import chat
 from limits import service as limits
 
+from . import delivery
 from .format_guard import check_format
 from .format_prompt import build_messages, prompt_version
 from .models import FormatJob, Note
@@ -226,3 +229,18 @@ def sweep_stuck_format_jobs() -> int:
     if failed:
         logger.warning("Failed %s stuck format job(s) older than %s", failed, cutoff)
     return failed
+
+
+# --- Reminder delivery (notes/delivery.py has the how and why) ---------------
+# Neither task retries: a claimed occurrence is sent at most once (D137).
+
+
+@shared_task
+def deliver_due_reminders() -> int:
+    """Beat, every minute: claim what is due and enqueue the sends."""
+    return len(delivery.sweep())
+
+
+@shared_task
+def send_reminder_task(delivery_id: int) -> None:
+    delivery.send(delivery_id)

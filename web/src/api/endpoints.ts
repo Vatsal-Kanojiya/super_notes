@@ -16,10 +16,15 @@ import type {
   NoteCreateRequest,
   NoteListParams,
   NoteUpdateRequest,
+  PushSubscriptionRequest,
+  Reminder,
+  ReminderInRange,
+  ReminderWriteRequest,
   SearchHit,
   SearchParams,
   SessionOpenResponse,
   SignInResponse,
+  VapidKey,
 } from './types'
 
 export const authApi = {
@@ -68,4 +73,23 @@ export const askApi = {
     request<AskQuery>('ask/', { method: 'POST', body, headers: { 'Idempotency-Key': idempotencyKey } }),
   get: (id: Id) => request<AskQuery>(`ask/${id}/`),
   list: (cursor?: string) => request<CursorPage<AskQuery>>('ask/', { query: { cursor } }),
+}
+
+export const remindersApi = {
+  create: (noteId: Id, body: ReminderWriteRequest & { due_at: string }) =>
+    request<Reminder>(`notes/${noteId}/reminders/`, { method: 'POST', body }),
+  update: (id: Id, body: ReminderWriteRequest) => request<Reminder>(`reminders/${id}/`, { method: 'PATCH', body }),
+  done: (id: Id) => request<Reminder>(`reminders/${id}/done/`, { method: 'POST' }),
+  remove: (id: Id) => request<void>(`reminders/${id}/`, { method: 'DELETE' }),
+  /** Reminders with a notification in [from, to) (at most 62 days), with those notifications. */
+  range: (from: string, to: string) =>
+    request<{ results: ReminderInRange[] }>('reminders/', { query: { from, to } }),
+}
+
+export const pushApi = {
+  /** 404 means web push is off on this server. */
+  vapidKey: () => request<VapidKey>('push/vapid-key/'),
+  subscribe: (body: PushSubscriptionRequest) => request<void>('me/push-subscriptions/', { method: 'POST', body }),
+  unsubscribe: (endpoint: string) =>
+    request<void>('me/push-subscriptions/', { method: 'DELETE', body: { endpoint } }),
 }

@@ -12,6 +12,7 @@ import { authApi } from '../api/endpoints'
 import { clearTokens, getAccess, getRefresh, onTokensChangedElsewhere, setTokens } from '../api/tokens'
 import type { AskUsage, Me, MeUpdateRequest } from '../api/types'
 import { disableGoogleAutoSelect } from '../lib/gis'
+import { usePushStore } from './push'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<Me | null>(null)
@@ -85,6 +86,9 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function signOut() {
     const refresh = getRefresh()
+    // This browser must stop getting the account's push reminders; it needs the
+    // token, so it goes before the reset. Best effort, and not worth a long wait.
+    await Promise.race([usePushStore().release(), new Promise((resolve) => setTimeout(resolve, 3000))])
     reset()
     disableGoogleAutoSelect()
     if (refresh) {

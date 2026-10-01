@@ -804,6 +804,73 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Not signed in.
+  /api/v1/me/push-subscriptions/:
+    post:
+      operationId: me_push_subscriptions_create
+      description: Upsert by endpoint. An endpoint registered to another account moves
+        to the caller (one browser profile, one owner). 404 when web push is off.
+      summary: Register a push subscription
+      tags:
+      - Account
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushSubscriptionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PushSubscriptionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PushSubscriptionRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid subscription.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Web push is off.
+    delete:
+      operationId: me_push_subscriptions_destroy
+      description: 'By endpoint, among the caller''s own. Removing one that is not
+        there (or is another account''s) is still 204: nothing to remove.'
+      summary: Remove a push subscription
+      tags:
+      - Account
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid request.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
   /api/v1/notes/:
     get:
       operationId: notes_list
@@ -1029,11 +1096,56 @@ paths:
                 $ref: '#/components/schemas/Message'
           description: '`system_limit_reached`: this feature is paused for everyone
             (a system-wide limit). Not the caller''s own quota; try again later.'
+  /api/v1/notes/{id}/reminders/:
+    post:
+      operationId: notes_reminders_create
+      description: 'Due at `due_at`, with a heads-up every day for `lead_days` days
+        before it, at the same time of day in your timezone: `lead_days + 1` notifications
+        in all. At most 20 reminders per note.'
+      summary: Add a reminder to a note
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reminders
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReminderWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReminderWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReminderWriteRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reminder'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: ''
   /api/v1/notes/changes/:
     get:
       operationId: notes_changes_retrieve
       description: 'Every note written after revision `after`, deleted ones included
         as tombstones (no title or content, `deleted_at` set), oldest write first.
+        A live note carries all its `reminders`; adding, changing, finishing or deleting
+        one sends its note again, so replace the note''s reminders with the ones sent.
         Store `latest_revision` and send it as `after` next time. If `has_more` is
         true, call again straight away with it: the batch was cut at `limit`. A first
         sync sends `after=0`.'
@@ -1065,6 +1177,156 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
+          description: ''
+  /api/v1/push/vapid-key/:
+    get:
+      operationId: push_vapid_key_retrieve
+      description: 404 when web push is not configured on this server.
+      summary: Web push public key
+      tags:
+      - Account
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VapidKey'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Web push is off.
+  /api/v1/reminders/:
+    get:
+      operationId: reminders_list
+      description: Every reminder with at least one notification in `[from, to)`,
+        with those notifications in `occurrences` and its note's title, earliest due
+        first. Done reminders are included (`reminder.status` says so). Both bounds
+        need an offset (`Z` works; a `+` must be URL-encoded as `%2B`); the range
+        is at most 62 days.
+      summary: Reminders in a date range (the calendar)
+      parameters:
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date-time
+        required: true
+      - in: query
+        name: to
+        schema:
+          type: string
+          format: date-time
+        required: true
+      tags:
+      - Reminders
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReminderRange'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: ''
+  /api/v1/reminders/{id}/:
+    patch:
+      operationId: reminders_partial_update
+      description: 'Any of `due_at`, `lead_days`, `channels`. Its status stays as
+        it is: a done reminder stays done.'
+      summary: Change a reminder
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reminders
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedReminderWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedReminderWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedReminderWriteRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reminder'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: ''
+    delete:
+      operationId: reminders_destroy
+      summary: Delete a reminder
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reminders
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/reminders/{id}/done/:
+    post:
+      operationId: reminders_done_create
+      description: Stops the rest of its notifications. Doing it twice is harmless.
+      summary: Mark a reminder done
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reminders
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reminder'
           description: ''
   /api/v1/search/:
     get:
@@ -1263,6 +1525,14 @@ components:
       - limit
       - resets_at
       - used
+    ChannelsEnum:
+      enum:
+      - email
+      - push
+      type: string
+      description: |-
+        * `email` - Email
+        * `push` - Push
     Citation:
       type: object
       properties:
@@ -1619,7 +1889,7 @@ components:
       - version
     NoteChange:
       oneOf:
-      - $ref: '#/components/schemas/Note'
+      - $ref: '#/components/schemas/NoteSync'
       - $ref: '#/components/schemas/NoteTombstone'
     NoteChanges:
       type: object
@@ -1659,6 +1929,56 @@ components:
           type: string
           maxLength: 500
         content: {}
+    NoteSync:
+      type: object
+      description: A live note in ``changes``, with its reminders (deleted ones left
+        out).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        title:
+          type: string
+          maxLength: 500
+        content: {}
+        content_text:
+          type: string
+          readOnly: true
+        version:
+          type: integer
+          readOnly: true
+        revision:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        reminders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reminder'
+          readOnly: true
+      required:
+      - content_text
+      - created_at
+      - deleted_at
+      - id
+      - reminders
+      - revision
+      - updated_at
+      - version
     NoteTombstone:
       type: object
       description: 'A deleted note in ``changes``: enough to drop it, none of its
@@ -1808,6 +2128,26 @@ components:
           type: string
           maxLength: 500
         content: {}
+    PatchedReminderWriteRequest:
+      type: object
+      description: POST notes/<id>/reminders/ and PATCH reminders/<id>/ (partial).
+      properties:
+        due_at:
+          type: string
+          format: date-time
+          description: When it is due, with an offset. Must be in the future.
+        lead_days:
+          type: integer
+          maximum: 30
+          minimum: 0
+          description: Daily heads-ups for this many days before, at the same local
+            time. 0-30, default 7.
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelsEnum'
+          description: Default both.
+          minItems: 1
     PlanEnum:
       enum:
       - free
@@ -1824,6 +2164,29 @@ components:
       description: |-
         * `web` - web
         * `android` - android
+    PushSubscriptionRequest:
+      type: object
+      description: The browser's `PushSubscription.toJSON()`, flattened.
+      properties:
+        endpoint:
+          type: string
+          minLength: 1
+          description: An https URL on a known push service (`PUSH_ENDPOINT_HOSTS`),
+            at most 1000 characters, else 400 `invalid_endpoint`.
+        p256dh:
+          type: string
+          minLength: 1
+          description: base64url, 65 bytes decoded.
+          maxLength: 200
+        auth:
+          type: string
+          minLength: 1
+          description: base64url, 16 to 32 bytes decoded.
+          maxLength: 200
+      required:
+      - auth
+      - endpoint
+      - p256dh
     QuotaExceeded:
       type: object
       description: 'A plain answer: what happened, and a stable code a client can
@@ -1878,6 +2241,118 @@ components:
       required:
       - access
       - refresh
+    Reminder:
+      type: object
+      description: |-
+        A reminder, as every endpoint returns it.
+
+        Keep this the only schema component with a reminder ``status``: the
+        schema's enums are named by field, and a second component carrying it
+        would collide with the asks' ``status`` (see ReminderInRangeSerializer).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        note:
+          type: integer
+          readOnly: true
+        due_at:
+          type: string
+          format: date-time
+          readOnly: true
+        lead_days:
+          type: integer
+          readOnly: true
+        channels:
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ReminderStatusEnum'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - channels
+      - created_at
+      - due_at
+      - id
+      - lead_days
+      - note
+      - status
+      - updated_at
+    ReminderInRange:
+      type: object
+      description: |-
+        A reminder in the calendar, with its notifications that fall in the range.
+
+        The reminder is nested, not flattened, so its fields (``status`` among
+        them) live in the one ``Reminder`` component (D129).
+      properties:
+        reminder:
+          allOf:
+          - $ref: '#/components/schemas/Reminder'
+          readOnly: true
+        note_title:
+          type: string
+          readOnly: true
+        occurrences:
+          type: array
+          items:
+            type: string
+            format: date-time
+          readOnly: true
+          description: Notification times inside the range, oldest first.
+      required:
+      - note_title
+      - occurrences
+      - reminder
+    ReminderRange:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReminderInRange'
+      required:
+      - results
+    ReminderStatusEnum:
+      enum:
+      - scheduled
+      - done
+      - cancelled
+      type: string
+      description: |-
+        * `scheduled` - Scheduled
+        * `done` - Done
+        * `cancelled` - Cancelled
+    ReminderWriteRequest:
+      type: object
+      description: POST notes/<id>/reminders/ and PATCH reminders/<id>/ (partial).
+      properties:
+        due_at:
+          type: string
+          format: date-time
+          description: When it is due, with an offset. Must be in the future.
+        lead_days:
+          type: integer
+          maximum: 30
+          minimum: 0
+          description: Daily heads-ups for this many days before, at the same local
+            time. 0-30, default 7.
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelsEnum'
+          description: Default both.
+          minItems: 1
+      required:
+      - due_at
     SearchHit:
       type: object
       description: One matching chunk of a note (retrieval.search.SearchHit), plus
@@ -2044,6 +2519,14 @@ components:
       - format
       - storage_bytes
       - summary
+    VapidKey:
+      type: object
+      properties:
+        public_key:
+          type: string
+          description: The VAPID public key, for `pushManager.subscribe`.
+      required:
+      - public_key
   securitySchemes:
     jwtAuth:
       type: http

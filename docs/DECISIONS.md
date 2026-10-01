@@ -2040,3 +2040,198 @@ the condenser passes `CHAT_CONDENSE_MAX_OUTPUT_TOKENS` (512). A question needs a
 but OpenAI's reasoning tokens count against the ceiling, and a reply cut off by it is a
 `ChatError` (D54), which would make every condense fall back. **Alternative:** the shared 2,048
 ceiling (no cap on a runaway rewrite); a second entry point (`condense()` in the chat package).
+
+### D124. A reminder write stamps its note's revision; `changes` sends the note with all its reminders (5, 2026-10-02)
+
+**Decided:** create, change, done and delete of a reminder take the owner lock and the next
+`notes_revision`, and set it on the note with a queryset update — the note's `version` and
+`updated_at` are untouched and nothing is re-indexed (its content did not change, so an open editor
+must not conflict). A live note in `changes` carries `reminders`: every non-deleted reminder of the
+note, any status, so the client replaces the note's set. Tombstones carry none. Deleting a note
+turns its `scheduled` reminders `cancelled` in the same transaction; `done` stays `done`.
+**Alternative:** a separate `revision` per reminder and a `reminders` list beside `results` (a
+second stream for the client to page and merge, for no gain while reminders belong to one note).
+
+### D125. Skipped and repeated local times in the schedule (5, 2026-10-02)
+
+**Decided:** `occurrences()` builds each heads-up from the due time's wall-clock time with
+`fold=0`: a time skipped by a spring change lands just after it (01:30 → 02:30 BST), a repeated
+autumn time is its first instance. The due-day occurrence is always `due_at` itself. **Alternative:**
+drop a heads-up whose local time does not exist (one fewer notification that week, silently).
+
+### D126. Reminder date-times must carry an offset, and a new `due_at` must be in the future (5, 2026-10-02)
+
+**Decided:** `due_at`, `from` and `to` without an offset are 400, not read in the server's zone.
+`due_at` in the past is 400 on create and on change (delivery would otherwise fire a stale
+notification at once). `channels` needs at least one of `email`, `push`; duplicates are dropped.
+**Alternative:** accept naive times in the user's timezone (a guess about what the client meant);
+allow past due dates as calendar records.
+
+### D127. Changing a reminder never changes its status (5, 2026-10-02)
+
+**Decided:** `PATCH reminders/<id>/` changes `due_at`, `lead_days`, `channels` only; a done reminder
+moved to a new date stays done. "Done" twice is a no-op that takes no revision. **Alternative:** a
+new `due_at` reopens the series (a product call — parked with D95's snooze/stop refinements).
+
+### D128. At most 20 live reminders per note (5, 2026-10-02)
+
+**Decided:** `REMINDERS_PER_NOTE_MAX = 20` in notes/services.py, counted under the owner lock;
+deleted reminders don't count; past it, 400 `too_many_reminders`. **Alternative:** no cap (the
+calendar query and the delivery sweep would be unbounded per note); a Limit row (the limits layer
+is for AI usage).
+
+### D129. The calendar returns `{reminder, note_title, occurrences}` items (5, 2026-10-02)
+
+**Decided:** `GET reminders/?from=&to=` (half-open, ≤ 62 days) returns `{"results": [...]}`, each
+item nesting the reminder rather than flattening it, unpaginated. Done reminders are listed;
+deleted ones and those of deleted notes are not. Nested so `status` lives in one schema component:
+a second component with a reminder `status` makes drf-spectacular's enum naming collide with the
+asks' `status` and the schema check fail. The asks' enum is now `AskQueryStatusEnum` (was
+`StatusEnum`; nothing referenced the name). **Alternative:** a flat item plus an
+`ENUM_NAME_OVERRIDES` entry in config/settings.py (outside this sub-task's files).
+
+### D134. A reminder occurrence is claimed by `INSERT ... ON CONFLICT DO NOTHING RETURNING id` (5, 2026-10-02)
+
+**Decided:** the minute sweep (`notes/delivery.py`, beat entry `deliver-due-reminders`, 60 s,
+`expires` 55 s) reads scheduled live reminders with `due_at` in `[now − grace, now + 31 days]`
+(the `(status, due_at)` index) and the last delivered occurrence of each, works out the due
+occurrence in Python (the schedule depends on each owner's timezone), and inserts its
+`ReminderDelivery`. A returned id means this sweep won: it enqueues the send on commit. Each claim is
+its own transaction, so a later failure in the sweep never re-opens claims whose sends are queued.
+A test holds two sweeps at a barrier after they read their candidates. With the unique constraint,
+one claim succeeds. With it dropped, both do. **Alternative:** catching `IntegrityError` in a
+savepoint per claim (Postgres logs an error for every lost race); `SELECT ... FOR UPDATE SKIP
+LOCKED` on reminders (guards one sweep, not a resend by a later one).
+
+### D135. Which occurrence is due: the latest passed one, after the last delivered and the last change (5, 2026-10-02)
+
+**Decided:** due now = the latest occurrence `≤ now` that is later than the last delivered one and
+not before the reminder's `updated_at`. After an outage only the latest missed heads-up goes out. A
+reminder created or moved after that day's time has passed does not fire a heads-up at once; the
+next one is tomorrow's. **Alternative:** replay every missed occurrence (a burst of stale mail), or
+send the passed heads-up on creation (a notification for something the user just did).
+
+### D136. An occurrence missed by more than 24 hours is not sent (5, 2026-10-02)
+
+**Decided:** `REMINDER_MISSED_GRACE_HOURS` (env, default 24). It also bounds the sweep: a reminder
+due more than that long ago is no longer read. **Alternative:** no limit (after a long outage, a
+"due now" mail days late; and every past reminder rescanned each minute for ever).
+
+### D137. At most once also at send time; a failed send is recorded, not retried (5, 2026-10-02)
+
+**Decided:** the send task first sets `sent_at` with `UPDATE ... WHERE sent_at IS NULL`. If no row
+changes, another run already has it (Celery's `acks_late` can hand a task out twice). Then it
+re-checks the reminder (scheduled, not deleted, note live: `{"skipped": "inactive"}` if not), sends
+each channel and records `channel_results` (`sent`, `failed`, `no_address`). No retries. A worker
+dying mid-send, or an SMTP error, loses that one notification; the next day's still comes.
+**Alternative:** retry transient mail errors (risks duplicates, which the plan rules out); set
+`sent_at` after sending (a redelivered task would send again).
+
+### D138. The reminder email: title, due date, relative day and a link, plain text, never the note body (5, 2026-10-02)
+
+**Decided:** subject `Reminder: <title> (due in N days | due tomorrow | due now)`. The title is put
+on one line (a newline in a subject is header injection), cut to 100 characters, and "Untitled
+note" when empty. The body has the title, `Due Tue 27 Oct 2026, 09:00 GMT.` in the owner's
+timezone, `<WEB_APP_URL>/notes/<id>` and one line on how to stop it. It is sent from
+`DEFAULT_FROM_EMAIL` (defaults to `SERVER_EMAIL`). **Alternative:** HTML mail (templates to
+maintain, for three lines); including an excerpt (note text leaving the app by email).
+
+### D139. New settings `WEB_APP_URL` and `DEFAULT_FROM_EMAIL`; push is recorded `unavailable` until it exists (5, 2026-10-02)
+
+**Decided:** `WEB_APP_URL` (default `http://localhost:5173`) is where mail links point; the deploy
+sets it with the hosting discussion. Until sub-task 3 adds push, a reminder with the `push`
+channel records `"push": "unavailable"` and sends its email as usual. **Alternative:** build links
+from the API host (the web client is served elsewhere in dev).
+*Note: D172 supersedes the push line above; push now sends when VAPID keys are set.*
+
+### D170. Web push: pywebpush, VAPID keys from env, on only when both keys are set (5, 2026-10-02)
+
+**Decided:** `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (URL-safe base64 raw keys, as
+`manage.py generate_vapid_keys` prints them) and `VAPID_SUBJECT` (default `mailto:<SERVER_EMAIL>`).
+Push is "on" when both keys are non-empty (`accounts/push.py: push_enabled`). Off: `GET
+push/vapid-key/` and `POST me/push-subscriptions/` are 404 and a reminder's `push` channel records
+`"push": "unavailable"`; `DELETE` still works so a client can clean up. **Alternative:** a separate
+`PUSH_ENABLED` flag (a second switch that can disagree with the keys).
+
+### D171. `PushSubscription`: endpoint unique across users, a re-register moves it (5, 2026-10-02)
+
+**Decided:** `accounts.PushSubscription` (`user`, unique `endpoint`, `p256dh`, `auth`, `user_agent`
+truncated to 200, `created_at`, `last_success_at`). `POST me/push-subscriptions/` is an
+`update_or_create` by endpoint, so a different account signing in on the same browser profile takes
+the row over; the old account stops getting pushes on that browser. `DELETE` (body `{endpoint}`)
+removes only the caller's row and is 204 either way, so it does not reveal whether an endpoint
+belongs to someone else. Keys are never returned. **Alternative:** a 409 for another user's
+endpoint (the new sign-in could never subscribe, and the old owner is no longer using it).
+
+### D172. The push payload is ids and the title; outcomes are strings in `channel_results` (5, 2026-10-02)
+
+**Decided:** payload `{type: "reminder", reminder_id, note_id, title}` (title cleaned and cut as in
+the email, D138), never note content: push services see the payload only encrypted, but the
+service worker shows it on a lock screen. Sent to every subscription of the owner with a 12-hour
+TTL. A 404 or 410 deletes the subscription (not a failure). Other errors are logged and leave the
+subscription. `channel_results["push"]` is `sent`, `partial`, `failed`, `no_subscriptions` or
+`unavailable`. No retries (D137). **Alternative:** deleting a subscription after repeated 5xx
+(a push-service outage would drop everyone's subscriptions).
+
+### D173. A push endpoint must be a known push service: https, allowlisted host, no userinfo or odd port (5, 2026-10-02)
+
+**Decided:** the endpoint is a client-supplied URL the server later POSTs to, so
+`POST me/push-subscriptions/` refuses (400, code `invalid_endpoint`) anything but: `https`, a host in
+`PUSH_ENDPOINT_HOSTS` (exact, or `*.suffix` for subdomains only; defaults FCM, Mozilla, Windows
+(WNS) and Apple), no userinfo, no port but 443, no whitespace or backslash, at most 1000
+characters. An IP literal never matches. `accounts.push.send_to_user` re-checks each row before
+sending and deletes one that fails (rows older than the check, or a shrunk allowlist). `p256dh`
+must be base64url decoding to 65 bytes and `auth` 16 to 32. **Alternative:** resolving the host and
+refusing private addresses (racy against DNS rebinding, and still lets a user aim us at any public
+host); the allowlist needs a setting change for a new browser's service.
+
+### D200. The web client reads and writes reminder times in the account's timezone, and mirrors the schedule rule for display only (5, 2026-10-02)
+
+**Decided:** the due-time input is a `datetime-local` read as wall-clock time in `User.timezone` (not the
+browser's) and sent as a UTC instant (`...Z`). `web/src/lib/schedule.ts` re-implements
+`notes/schedule.py` (daily at the due time's local time of day, repeated time = first, skipped time = the
+pre-change offset) so a note can say "8 notifications, next Fri 2 Oct, 09:00" without a round trip; the
+server stays the only source for what is actually sent, and the calendar shows the server's occurrences.
+Editing sends only the changed fields, so an untouched past due time is not refused. Lead days are a
+number input 0-30 (the API's limit, default 7). **Alternative:** the browser's timezone for the input
+(a reminder set while travelling would not match what the server sends); no client schedule (needs an
+endpoint just for the summary).
+
+### D201. Calendar: Monday-first, view and day in the URL, ranges cut at the account's midnights (5, 2026-10-02)
+
+**Decided:** `/calendar?view=month|week&d=YYYY-MM-DD`; going into a note and back lands on the same page.
+A month view is the whole Monday-to-Sunday weeks around the month (28-42 days), a week is 7; the API range is
+the start of the first day to the start of the day after the last in the account's timezone (always well
+under 62 days) and each occurrence is filed under its day in that zone. It reloads when a sync advances the
+revision. A month cell shows 3 entries then "+N more" and the day number opens that week; filled entries
+are due dates, light ones heads-ups, done reminders are struck through. **Alternative:** Sunday-first or a
+locale-driven week start (a setting to add later if asked).
+
+### D202. The service worker is for push only: no fetch handler, never cached, clicks go through the open tab (5, 2026-10-02)
+
+**Decided:** `web/public/sw.js` (emitted unhashed at `/sw.js`; served `no-cache`, registered with
+`updateViaCache: 'none'`) has install (`skipWaiting`), activate (`clients.claim`), `push` and
+`notificationclick` handlers and no `fetch` handler, so it cannot serve stale code (D89). A push shows the
+payload title (text only) with a per-reminder tag (today's replaces yesterday's). A click posts
+`{type: 'open-path', path}` to an open tab (the app routes there, no reload, so a half-typed note is not
+lost) or opens a new window; both ends accept only `/notes/<id>` or `/calendar`. **Alternative:**
+`client.navigate(url)` (a full page load over unsaved edits).
+
+### D203. Reminders ride on their note in the notes store, from `notes/changes/` (5, 2026-10-02)
+
+**Decided:** `Note.reminders` is filled only by `changes` (which sends a note again whenever one of its
+reminders changes); an `upsert` of a copy without them (a save, the list, one note) keeps the ones held.
+After its own write the client applies the API's answer to the note at once and the next sync confirms it.
+A note opened before the first sync shows "Loading reminders"; once synced, no reminders means none.
+**Alternative:** a separate reminders store with its own cursor (a second sync loop for data that already
+arrives with the note).
+
+### D204. Push on this device: hidden when the server has it off; sign-out removes the subscription (5, 2026-10-02)
+
+**Decided:** `GET push/vapid-key/` 404 hides every push control (settings section, reminder channel,
+subscribe hint); a browser without service workers/Push/Notifications gets one line saying email still
+works. "Turn on notifications" asks the browser's permission, subscribes with the server's key and POSTs
+it; "Turn off" and signing out unsubscribe and DELETE it (sign-out waits at most 3 s, best effort), so a
+shared browser stops receiving the previous account's reminders. **Alternative:** leave the subscription
+on sign-out (the next account signing in on the browser takes it over, D171, but until then the old
+account's reminders pop up on someone else's screen).

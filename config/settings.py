@@ -220,7 +220,19 @@ CELERY_BEAT_SCHEDULE = {
         "task": "notes.tasks.sweep_stuck_format_jobs",
         "schedule": 5 * 60,
     },
+    # Reminders notify on the minute (D95). A sweep claims each occurrence
+    # once (notes/delivery.py), so an overlapping or repeated run is
+    # harmless; one that waited past the next run is dropped.
+    "deliver-due-reminders": {
+        "task": "notes.tasks.deliver_due_reminders",
+        "schedule": 60,
+        "options": {"expires": 55},
+    },
 }
+
+# A reminder occurrence missed by more than this (the worker was down) is
+# not sent late at all (DECISIONS D136).
+REMINDER_MISSED_GRACE_HOURS = env.int("REMINDER_MISSED_GRACE_HOURS", default=24)
 
 
 # Upload size
@@ -282,6 +294,32 @@ ADMINS = [
 ]
 EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
 SERVER_EMAIL = env("SERVER_EMAIL", default="no-reply@super-notes.local")
+# The sender of mail to users (reminders); SERVER_EMAIL is for admin mail.
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=SERVER_EMAIL)
+
+# Where the web client is served, for links in mail ("open the note").
+# No trailing slash.
+WEB_APP_URL = env("WEB_APP_URL", default="http://localhost:5173").rstrip("/")
+
+# Web push (reminders, D87). Push is on only when both keys are set; make
+# a pair with ``manage.py generate_vapid_keys``. The subject is a mailto: or
+# https: contact the push service can reach.
+VAPID_PUBLIC_KEY = env("VAPID_PUBLIC_KEY", default="")
+VAPID_PRIVATE_KEY = env("VAPID_PRIVATE_KEY", default="")
+# Hosts a push endpoint may point at: the server POSTs to it, so an open
+# list would be an SSRF hole. Exact host, or ``*.suffix`` for subdomains.
+PUSH_ENDPOINT_HOSTS = env.list(
+    "PUSH_ENDPOINT_HOSTS",
+    default=[
+        "fcm.googleapis.com",
+        "updates.push.services.mozilla.com",
+        "*.push.services.mozilla.com",
+        "*.notify.windows.com",
+        "web.push.apple.com",
+        "*.push.apple.com",
+    ],
+)
+VAPID_SUBJECT = env("VAPID_SUBJECT", default=f"mailto:{SERVER_EMAIL}")
 
 
 # Logging
@@ -432,6 +470,12 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": r"/api/v1",
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    # Three models have a `status`: asks and format jobs share one choice set
+    # (StatusEnum); a reminder's is its own.
+    "ENUM_NAME_OVERRIDES": {
+        "StatusEnum": "assistant.models.AskQuery.Status",
+        "ReminderStatusEnum": "notes.models.Reminder.Status",
+    },
 }
 
 
