@@ -9,6 +9,7 @@ instance: the service is what takes the owner's lock and the next revision.
 """
 
 from django.contrib.auth import get_user_model
+from django.db.models import Prefetch
 from django.http import Http404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -25,7 +26,7 @@ from rest_framework.response import Response
 
 from config.api.common import MessageSerializer
 from notes import services
-from notes.models import Note
+from notes.models import Note, Reminder
 from notes.search import keyword_search
 
 from .serializers import (
@@ -34,8 +35,11 @@ from .serializers import (
     ChangesQuerySerializer,
     NoteListQuerySerializer,
     NoteSerializer,
+    NoteSyncSerializer,
     NoteTombstoneSerializer,
     NoteUpdateSerializer,
+    ReminderSerializer,
+    ReminderWriteSerializer,
 )
 
 User = get_user_model()
@@ -53,7 +57,7 @@ ConflictSerializer = inline_serializer(
 
 NoteChangeSerializer = PolymorphicProxySerializer(
     component_name="NoteChange",
-    serializers=[NoteSerializer, NoteTombstoneSerializer],
+    serializers=[NoteSyncSerializer, NoteTombstoneSerializer],
     resource_type_field_name=None,
     many=True,
 )
@@ -151,10 +155,45 @@ class NoteViewSet(
             raise Http404 from exc
 
     @extend_schema(
+        summary="Add a reminder to a note",
+        description=(
+            "Due at `due_at`, with a heads-up every day for `lead_days` days before it, at "
+            "the same time of day in your timezone: `lead_days + 1` notifications in all. "
+            f"At most {services.REMINDERS_PER_NOTE_MAX} reminders per note."
+        ),
+        tags=["Reminders"],
+        request=ReminderWriteSerializer,
+        responses={201: ReminderSerializer, 400: MessageSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="reminders")
+    def reminders(self, request, *args, **kwargs):
+        note = self.get_object()
+        payload = ReminderWriteSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            reminder = services.create_reminder(request.user, note.pk, **payload.validated_data)
+        except Note.DoesNotExist as exc:
+            # Deleted between get_object() and the lock.
+            raise Http404 from exc
+        except services.TooManyReminders:
+            return Response(
+                {
+                    "detail": (
+                        f"A note can have at most {services.REMINDERS_PER_NOTE_MAX} reminders."
+                    ),
+                    "code": "too_many_reminders",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(ReminderSerializer(reminder).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
         summary="What changed since a revision",
         description=(
             "Every note written after revision `after`, deleted ones included as tombstones "
-            "(no title or content, `deleted_at` set), oldest write first. Store "
+            "(no title or content, `deleted_at` set), oldest write first. A live note "
+            "carries all its `reminders`; adding, changing, finishing or deleting one sends "
+            "its note again, so replace the note's reminders with the ones sent. Store "
             "`latest_revision` and send it as `after` next time. If `has_more` is true, call "
             "again straight away with it: the batch was cut at `limit`. A first sync sends "
             "`after=0`."
@@ -199,10 +238,17 @@ class NoteViewSet(
         limit = params.validated_data["limit"]
 
         ceiling = User.objects.values_list("notes_revision", flat=True).get(pk=request.user.pk)
+        # A reminder write stamps its note's revision, so a note whose
+        # reminders changed is in this batch and carries them all (D124).
+        live_reminders = Prefetch(
+            "reminders",
+            queryset=Reminder.objects.filter(deleted_at__isnull=True).order_by("due_at", "id"),
+            to_attr="live_reminders",
+        )
         batch = list(
-            Note.objects.filter(
-                owner=request.user, revision__gt=after, revision__lte=ceiling
-            ).order_by("revision")[: limit + 1]
+            Note.objects.filter(owner=request.user, revision__gt=after, revision__lte=ceiling)
+            .order_by("revision")
+            .prefetch_related(live_reminders)[: limit + 1]
         )
         has_more = len(batch) > limit
         batch = batch[:limit]
@@ -211,7 +257,7 @@ class NoteViewSet(
         latest = batch[-1].revision if has_more else ceiling
 
         results = [
-            NoteTombstoneSerializer(note).data if note.deleted_at else NoteSerializer(note).data
+            NoteTombstoneSerializer(note).data if note.deleted_at else NoteSyncSerializer(note).data
             for note in batch
         ]
         return Response({"results": results, "latest_revision": latest, "has_more": has_more})

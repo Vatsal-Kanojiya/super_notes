@@ -8,13 +8,21 @@ tests assert they have no effect.
 """
 
 import json
+from datetime import datetime, timedelta
 
 from django.conf import settings
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import serializers
 
 from notes import services
 from notes.content import InvalidContent, validate_doc
-from notes.models import Note
+from notes.models import (
+    REMINDER_LEAD_DAYS_DEFAULT,
+    REMINDER_LEAD_DAYS_MAX,
+    Note,
+    Reminder,
+)
 
 
 def validate_content(value):
@@ -110,3 +118,128 @@ class ChangesQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         min_value=1, max_value=CHANGES_MAX_LIMIT, default=CHANGES_DEFAULT_LIMIT
     )
+
+
+# Reminders ---------------------------------------------------------------
+
+
+class AwareDateTimeField(serializers.DateTimeField):
+    """An ISO 8601 date-time that must carry its offset (D126).
+
+    DRF would read a bare ``2026-10-25T09:00`` in the server's timezone,
+    which for a reminder is a guess at what the user meant. Refusing it
+    makes the client say.
+    """
+
+    default_error_messages = {
+        "naive": "Include a timezone offset, e.g. 2026-10-25T09:00:00+01:00 or ...Z.",
+    }
+
+    def to_internal_value(self, value):
+        if isinstance(value, str):
+            parsed = parse_datetime(value.strip())
+            if parsed is not None and parsed.tzinfo is None:
+                self.fail("naive")
+        elif isinstance(value, datetime) and value.tzinfo is None:
+            self.fail("naive")
+        return super().to_internal_value(value)
+
+
+class ReminderSerializer(serializers.ModelSerializer):
+    """A reminder, as every endpoint returns it.
+
+    Keep this the only schema component with a reminder ``status``: the
+    schema's enums are named by field, and a second component carrying it
+    would collide with the asks' ``status`` (see ReminderInRangeSerializer).
+    """
+
+    class Meta:
+        model = Reminder
+        fields = [
+            "id",
+            "note",
+            "due_at",
+            "lead_days",
+            "channels",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class ReminderWriteSerializer(serializers.Serializer):
+    """POST notes/<id>/reminders/ and PATCH reminders/<id>/ (partial)."""
+
+    due_at = AwareDateTimeField(help_text="When it is due, with an offset. Must be in the future.")
+    lead_days = serializers.IntegerField(
+        min_value=0,
+        max_value=REMINDER_LEAD_DAYS_MAX,
+        required=False,
+        help_text=(
+            "Daily heads-ups for this many days before, at the same local time. "
+            f"0-{REMINDER_LEAD_DAYS_MAX}, default {REMINDER_LEAD_DAYS_DEFAULT}."
+        ),
+    )
+    channels = serializers.ListField(
+        child=serializers.ChoiceField(choices=Reminder.Channel.choices),
+        min_length=1,
+        required=False,
+        help_text="Default both.",
+    )
+
+    def validate_due_at(self, value):
+        if value <= timezone.now():
+            raise serializers.ValidationError("Must be in the future.", code="in_past")
+        return value
+
+    def validate_channels(self, value):
+        # Stored in one order, once each, whatever the client sent.
+        return [c for c in Reminder.Channel.values if c in value]
+
+
+REMINDER_RANGE_MAX_DAYS = 62
+
+
+class ReminderRangeQuerySerializer(serializers.Serializer):
+    """``GET reminders/?from=&to=``: a half-open range, at most 62 days."""
+
+    # ``from`` is a keyword, so the fields cannot be class attributes.
+    def get_fields(self):
+        return {"from": AwareDateTimeField(), "to": AwareDateTimeField()}
+
+    def validate(self, attrs):
+        start, end = attrs["from"], attrs["to"]
+        if end <= start:
+            raise serializers.ValidationError({"to": "Must be after 'from'."})
+        if end - start > timedelta(days=REMINDER_RANGE_MAX_DAYS):
+            raise serializers.ValidationError(
+                {"to": f"The range is at most {REMINDER_RANGE_MAX_DAYS} days."}
+            )
+        return attrs
+
+
+class ReminderInRangeSerializer(serializers.Serializer):
+    """A reminder in the calendar, with its notifications that fall in the range.
+
+    The reminder is nested, not flattened, so its fields (``status`` among
+    them) live in the one ``Reminder`` component (D129).
+    """
+
+    reminder = ReminderSerializer(source="*", read_only=True)
+    note_title = serializers.CharField(source="note.title", read_only=True)
+    occurrences = serializers.ListField(
+        child=serializers.DateTimeField(),
+        source="occurrences_in_range",
+        read_only=True,
+        help_text="Notification times inside the range, oldest first.",
+    )
+
+
+class NoteSyncSerializer(NoteSerializer):
+    """A live note in ``changes``, with its reminders (deleted ones left out)."""
+
+    reminders = ReminderSerializer(many=True, read_only=True, source="live_reminders")
+
+    class Meta(NoteSerializer.Meta):
+        fields = [*NoteSerializer.Meta.fields, "reminders"]
