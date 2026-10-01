@@ -24,7 +24,7 @@
   meanwhile gets V1's 409. The server never writes the note itself.
 
 ## Sub-tasks (conductor's checklist)
-- [ ] 1. **Backend** (Sonnet) — FormatJob model + migration, service (lock, limit, idempotency),
+- [x] 1. **Backend** (Sonnet) — FormatJob model + migration, service (lock, limit, idempotency),
   task (claim/finish/fail+refund), prompt, guardrail as a pure, heavily tested function, API,
   admin; tests incl. ~15 guardrail cases (dropped paragraph, invented date/number, changed
   amount, typo fix allowed, restructuring allowed), ownership, limit 429, refund on failure. The
