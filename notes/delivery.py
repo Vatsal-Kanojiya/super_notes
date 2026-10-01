@@ -41,6 +41,8 @@ from django.db import connection, transaction
 from django.db.models import Max
 from django.utils import timezone
 
+from accounts import push
+
 from .models import REMINDER_LEAD_DAYS_MAX, Reminder, ReminderDelivery
 from .schedule import occurrences, user_timezone
 
@@ -171,8 +173,27 @@ def _send_on(channel: str, reminder: Reminder, occurrence_at: datetime) -> str:
             logger.exception("Reminder %s: email failed", reminder.pk)
             return "failed"
         return "sent"
-    # Web push arrives in sub-task 3.
+    if channel == Reminder.Channel.PUSH:
+        return send_reminder_push(reminder)
     return "unavailable"
+
+
+def send_reminder_push(reminder: Reminder) -> str:
+    """Push to each of the owner's subscriptions; see accounts/push.py for the outcomes.
+
+    The payload is ids and the title, never note content (D170).
+    """
+    payload = {
+        "type": "reminder",
+        "reminder_id": reminder.pk,
+        "note_id": reminder.note_id,
+        "title": _clean_title(reminder.note.title),
+    }
+    try:
+        return push.send_to_user(reminder.owner, payload)
+    except Exception:
+        logger.exception("Reminder %s: push failed", reminder.pk)
+        return "failed"
 
 
 def _clean_title(title: str) -> str:

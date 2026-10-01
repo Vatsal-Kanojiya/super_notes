@@ -295,6 +295,26 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=SERVER_EMAIL)
 # No trailing slash.
 WEB_APP_URL = env("WEB_APP_URL", default="http://localhost:5173").rstrip("/")
 
+# Web push (reminders, D87). Push is on only when both keys are set; make
+# a pair with ``manage.py generate_vapid_keys``. The subject is a mailto: or
+# https: contact the push service can reach.
+VAPID_PUBLIC_KEY = env("VAPID_PUBLIC_KEY", default="")
+VAPID_PRIVATE_KEY = env("VAPID_PRIVATE_KEY", default="")
+# Hosts a push endpoint may point at: the server POSTs to it, so an open
+# list would be an SSRF hole. Exact host, or ``*.suffix`` for subdomains.
+PUSH_ENDPOINT_HOSTS = env.list(
+    "PUSH_ENDPOINT_HOSTS",
+    default=[
+        "fcm.googleapis.com",
+        "updates.push.services.mozilla.com",
+        "*.push.services.mozilla.com",
+        "*.notify.windows.com",
+        "web.push.apple.com",
+        "*.push.apple.com",
+    ],
+)
+VAPID_SUBJECT = env("VAPID_SUBJECT", default=f"mailto:{SERVER_EMAIL}")
+
 
 # Logging
 #

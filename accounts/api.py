@@ -16,6 +16,7 @@ accounts/ratelimit.py.
 import zoneinfo
 from functools import cache
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import update_last_login
 from django.db import transaction
@@ -25,7 +26,7 @@ from django.urls import path
 from django.views.decorators.debug import sensitive_variables
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import APIException, NotFound
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -38,9 +39,9 @@ from assistant import quota
 from assistant.api import AskUsageSerializer
 from config.api.common import RATE_LIMIT_RESPONSE, MessageSerializer
 
-from . import audit, devices, lifecycle, ratelimit, signals
+from . import audit, devices, lifecycle, push, ratelimit, signals
 from .google import GoogleSignInError, google_signin_enabled, sign_in_with_google
-from .models import SignedInDevice
+from .models import PushSubscription, SignedInDevice
 
 User = get_user_model()
 
@@ -500,7 +501,123 @@ class MemoryNoticeSeenView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class VapidKeySerializer(serializers.Serializer):
+    public_key = serializers.CharField(
+        help_text="The VAPID public key, for `pushManager.subscribe`."
+    )
+
+
+class PushSubscriptionSerializer(serializers.Serializer):
+    """The browser's `PushSubscription.toJSON()`, flattened."""
+
+    endpoint = serializers.CharField(
+        help_text="An https URL on a known push service (`PUSH_ENDPOINT_HOSTS`), at most 1000 "
+        "characters, else 400 `invalid_endpoint`."
+    )
+    p256dh = serializers.CharField(max_length=200, help_text="base64url, 65 bytes decoded.")
+    auth = serializers.CharField(max_length=200, help_text="base64url, 16 to 32 bytes decoded.")
+
+    def validate_p256dh(self, value):
+        if not push.valid_key(value, push.P256DH_BYTES):
+            raise serializers.ValidationError("Not a valid p256dh key.")
+        return value
+
+    def validate_auth(self, value):
+        if not push.valid_key(value, push.AUTH_BYTES):
+            raise serializers.ValidationError("Not a valid auth secret.")
+        return value
+
+
+class PushSubscriptionRemoveSerializer(serializers.Serializer):
+    endpoint = serializers.CharField(max_length=2000)
+
+
+class InvalidEndpoint(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "That is not an accepted push endpoint."
+    default_code = "invalid_endpoint"
+
+
+class VapidKeyView(APIView):
+    """The public key a browser subscribes with."""
+
+    @extend_schema(
+        tags=AUTH_TAG,
+        summary="Web push public key",
+        description="404 when web push is not configured on this server.",
+        responses={
+            200: VapidKeySerializer,
+            401: OpenApiResponse(MessageSerializer, description="Not signed in."),
+            404: OpenApiResponse(MessageSerializer, description="Web push is off."),
+        },
+    )
+    def get(self, request, *args, **kwargs):
+        if not push.push_enabled():
+            raise NotFound("Web push is not enabled.")
+        return Response({"public_key": settings.VAPID_PUBLIC_KEY})
+
+
+class PushSubscriptionView(APIView):
+    """Register or remove this browser's push subscription."""
+
+    @extend_schema(
+        tags=AUTH_TAG,
+        summary="Register a push subscription",
+        description="Upsert by endpoint. An endpoint registered to another account moves to "
+        "the caller (one browser profile, one owner). 404 when web push is off.",
+        request=PushSubscriptionSerializer,
+        responses={
+            204: None,
+            400: OpenApiResponse(MessageSerializer, description="Invalid subscription."),
+            401: OpenApiResponse(MessageSerializer, description="Not signed in."),
+            404: OpenApiResponse(MessageSerializer, description="Web push is off."),
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        if not push.push_enabled():
+            raise NotFound("Web push is not enabled.")
+        # Checked before anything else about the body: the server will POST here (D173).
+        endpoint = request.data.get("endpoint") if hasattr(request.data, "get") else None
+        if not push.endpoint_allowed(endpoint):
+            raise InvalidEndpoint()
+        data = PushSubscriptionSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        v = data.validated_data
+        PushSubscription.objects.update_or_create(
+            endpoint=v["endpoint"],
+            defaults={
+                "user": request.user,
+                "p256dh": v["p256dh"],
+                "auth": v["auth"],
+                "user_agent": request.META.get("HTTP_USER_AGENT", "")[:200],
+            },
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        tags=AUTH_TAG,
+        summary="Remove a push subscription",
+        description="By endpoint, among the caller's own. Removing one that is not there "
+        "(or is another account's) is still 204: nothing to remove.",
+        request=PushSubscriptionRemoveSerializer,
+        responses={
+            204: None,
+            400: OpenApiResponse(MessageSerializer, description="Invalid request."),
+            401: OpenApiResponse(MessageSerializer, description="Not signed in."),
+        },
+    )
+    def delete(self, request, *args, **kwargs):
+        data = PushSubscriptionRemoveSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        PushSubscription.objects.filter(
+            user=request.user, endpoint=data.validated_data["endpoint"]
+        ).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 urlpatterns = [
+    path("push/vapid-key/", VapidKeyView.as_view(), name="push-vapid-key"),
+    path("me/push-subscriptions/", PushSubscriptionView.as_view(), name="me-push-subscriptions"),
     path("auth/google/", GoogleLoginView.as_view(), name="auth-google"),
     path("auth/refresh/", RefreshView.as_view(), name="auth-refresh"),
     path("auth/logout/", LogoutView.as_view(), name="auth-logout"),

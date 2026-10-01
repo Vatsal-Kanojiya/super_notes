@@ -442,6 +442,73 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Not signed in.
+  /api/v1/me/push-subscriptions/:
+    post:
+      operationId: me_push_subscriptions_create
+      description: Upsert by endpoint. An endpoint registered to another account moves
+        to the caller (one browser profile, one owner). 404 when web push is off.
+      summary: Register a push subscription
+      tags:
+      - Account
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushSubscriptionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PushSubscriptionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PushSubscriptionRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid subscription.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Web push is off.
+    delete:
+      operationId: me_push_subscriptions_destroy
+      description: 'By endpoint, among the caller''s own. Removing one that is not
+        there (or is another account''s) is still 204: nothing to remove.'
+      summary: Remove a push subscription
+      tags:
+      - Account
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid request.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
   /api/v1/notes/:
     get:
       operationId: notes_list
@@ -672,6 +739,34 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: ''
+  /api/v1/push/vapid-key/:
+    get:
+      operationId: push_vapid_key_retrieve
+      description: 404 when web push is not configured on this server.
+      summary: Web push public key
+      tags:
+      - Account
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VapidKey'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Web push is off.
   /api/v1/reminders/:
     get:
       operationId: reminders_list
@@ -1432,6 +1527,29 @@ components:
       description: |-
         * `web` - web
         * `android` - android
+    PushSubscriptionRequest:
+      type: object
+      description: The browser's `PushSubscription.toJSON()`, flattened.
+      properties:
+        endpoint:
+          type: string
+          minLength: 1
+          description: An https URL on a known push service (`PUSH_ENDPOINT_HOSTS`),
+            at most 1000 characters, else 400 `invalid_endpoint`.
+        p256dh:
+          type: string
+          minLength: 1
+          description: base64url, 65 bytes decoded.
+          maxLength: 200
+        auth:
+          type: string
+          minLength: 1
+          description: base64url, 16 to 32 bytes decoded.
+          maxLength: 200
+      required:
+      - auth
+      - endpoint
+      - p256dh
     QuotaExceeded:
       type: object
       description: 'A plain answer: what happened, and a stable code a client can
@@ -1707,6 +1825,14 @@ components:
       description: |-
         * `text` - Text
         * `checklist` - Checklist
+    VapidKey:
+      type: object
+      properties:
+        public_key:
+          type: string
+          description: The VAPID public key, for `pushManager.subscribe`.
+      required:
+      - public_key
   securitySchemes:
     jwtAuth:
       type: http

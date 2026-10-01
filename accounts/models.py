@@ -175,3 +175,30 @@ class SignedInDevice(models.Model):
 
     def __str__(self):
         return f"Device {self.pk} for user {self.user_id}"
+
+
+class PushSubscription(models.Model):
+    """One browser's web push subscription, for reminder notifications (D87).
+
+    ``endpoint`` is unique across all users: a browser profile is one
+    subscription, and if a different account signs in on it the row moves to
+    that account (accounts/api.py). ``p256dh`` and ``auth`` are the keys the
+    payload is encrypted to; treat them as secrets and never show them back.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="push_subscriptions"
+    )
+    endpoint = models.TextField(unique=True)
+    p256dh = models.CharField(max_length=255)
+    auth = models.CharField(max_length=255)
+    # Untrusted text, truncated: lets a person tell their browsers apart.
+    user_agent = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(default=dj_timezone.now)
+    last_success_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"Push subscription {self.pk} for user {self.user_id}"
