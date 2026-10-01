@@ -246,19 +246,28 @@ citations, retrieved ids and scores, provider, model, prompt version and token c
   debugging, evaluation and cost.
 - **Errors:** missing key → 400 `idempotency_key_required`; malformed → 400
   `idempotency_key_invalid`; over quota → 429 `quota_exceeded` with `used`, `limit`, `resets_at`;
-  a key reused for a different question → 422 `idempotency_key_reused`.
+  a key reused for a different question → 422 `idempotency_key_reused`; the service-wide budget
+  used up → 503 `system_limit_reached`.
 
-### Quota and idempotency (D73, D75)
+### Quota and idempotency (D73, D75, D101-D104)
 
-`ASK_QUOTAS = {"free": 20, "premium": 500}` asks per calendar month in Asia/Kolkata. The count is
-this month's `AskQuery` rows that are not `failed` — the rows are the counter — so a vendor outage
-never costs the user a question. `me/` reports it as `ask_usage: {used, limit, resets_at}`.
+The quota is the `chat_turns` limit of the limits layer (`limits/`, D84, D91, D101): by default 20
+asks per calendar month in Asia/Kolkata on the free plan and 100 on premium, with 2,000 for the
+whole service, from `LIMIT_DEFAULTS` or the key's `Limit` row in the admin. Each new ask consumes
+one `chat_turns` `UsageEvent` linked to it. A failed ask is refunded in the same transaction that
+fails it, by the task or the stuck-ask sweeper (D102), so a vendor outage never costs the user a
+question. A finished ask writes its provider, model and token counts onto its event (D133). `me/`
+reports the count as `ask_usage: {used, limit, resets_at}` and, with the other user-facing keys,
+under `limits` (D132). When the whole service's budget is used up, `POST ask/` is a 503
+`system_limit_reached` for everyone (D130), and the admins are mailed once (D99).
 
 `create_ask` runs in one transaction holding the user's row lock: look the key up (a hit returns
 that ask, 200, counted once, never re-enqueued, even if the month has since filled up; a different
-question under it is the 422) → count → create → enqueue `answer_ask` on commit. The lock is what
-stops two asks at the quota edge both passing; `assistant/tests/test_concurrency.py` forces the
-race with the lock removed to show it. A failed ask stays failed under its key: ask again with a
+question under it is the 422) → create the ask → `limits.consume` checks the user's limit, then the
+system's under an advisory lock (D98), and records the event → enqueue `answer_ask` on commit. A
+refusal rolls the ask back with it. The user lock is what stops two asks at the quota edge both
+passing; `assistant/tests/test_concurrency.py` and `limits/tests/test_concurrency.py` force each
+race with its lock removed to show it. A failed ask stays failed under its key: ask again with a
 new key, which costs nothing.
 
 ### The task (D76)

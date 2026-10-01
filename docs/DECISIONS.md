@@ -1592,6 +1592,82 @@ rolled-back insert and one skipped id.
 **Reverse it if:** refusals become common enough that the wasted inserts matter. Until sub-task 3
 adds the 503 handler, a `SystemLimitExceeded` surfaces as a 500.
 
+### D130. A system limit is a 503 from the shared exception handler, saying no more than "paused"
+
+**Decided:** `config/api/exceptions.py` turns `limits.SystemLimitExceeded`, raised anywhere in a
+DRF view, into `503 {detail, code: "system_limit_reached"}` and marks the transaction for rollback,
+as DRF does for its own errors. The detail names neither the key nor the numbers, and the response
+has no `Retry-After`. `POST ask/` documents the 503 through `SYSTEM_LIMIT_RESPONSE` in
+`config/api/common.py`, which later features reuse.
+
+**Alternatives:** each view catches it (as `QuotaExceeded` is); a 429, like the user's own limit;
+a `Retry-After` set to the period's end.
+
+**Why:** every limited feature needs the same answer, and a feature that forgets to catch it would
+send a 500. 503 tells the client the service is unavailable, not that the user did something wrong.
+The key and the counts are for the admins (D99's mail). A period end is often weeks away, and the
+admin may raise the limit sooner, so a `Retry-After` would mislead.
+
+**Reverse it if:** clients need to tell features apart; then add the key to the body.
+
+### D131. Sign-ups consume `signups` inside the create; when full, a 403 `signups_closed` that is not a failed attempt
+
+**Decided:** `accounts.google._create_user` calls `limits.consume(None, "signups")` and inserts the
+user in one `transaction.atomic()`. An insert that loses the unique-constraint race rolls its
+sign-up back. When the day is full, `SignupsClosed` (a `GoogleSignInError` with reason
+`signups_closed`) is raised and nothing is created. There is one exception: if the account appeared
+meanwhile (the same person's double tap took the last place), they are signed in as it. The view
+answers `403 {detail, code: "signups_closed"}`, records `google_login_failed` with that reason, and
+does not count it towards the per-address failed-sign-in limit. Existing accounts never touch the
+limit.
+
+**Alternatives:** the generic 400 `google_failed` (D13's "say nothing" rule); 503
+`system_limit_reached`; counting it as a failure for `accounts/ratelimit.py`.
+
+**Why:** the token was good, so nothing about it is revealed, and a person refused at the door
+should know it is a daily cap and not a broken sign-in. 403, not 503: it is a policy refusal for
+this caller (a new account), and the service is otherwise up. Counting it as a failure would lock
+out an office's address for a reason that has nothing to do with forged tokens.
+
+**Reverse it if:** the cap starts being probed to learn whether an email has an account (today
+it reveals only that the caller has none, which signing in reveals anyway).
+
+### D132. `me/` reports the user-facing keys as a fixed object, counted in two queries
+
+**Decided:** `me/` gains `limits: {chat_turns, format, summary, storage_bytes}`, each
+`{used, limit, resets_at}` with `limit` and `resets_at` nullable (unlimited; never resets). The
+keys are `limits.serializers.USER_KEYS`, and system-only keys are left out. `limits.usage_many`
+reads the rules in one query and sums every key in one conditional aggregate. `ask_usage` keeps
+its shape, now nullable in the same two places, and is the same numbers as `limits.chat_turns`
+(computed once per serialisation).
+
+**Alternatives:** an open `{key: …}` map typed as a dict; one `usage()` call per key (8 queries
+on every `me/` and sign-in).
+
+**Why:** a typed object gives the generated client real field names. A new user-facing key is a
+deliberate API change anyway. `me/` is fetched on every app open, so its cost should not grow with
+the number of keys; a test pins it at two queries.
+
+**Reverse it if:** keys become per-deployment configuration; then switch to a map.
+
+### D133. A finished ask writes its provider, model and tokens onto its usage event
+
+**Decided:** `tasks._finish` is atomic. When its conditional update marks the ask done and the
+result came from a provider, `limits.describe_where({"ask_id": …}, provider, model,
+input_tokens, output_tokens)` fills them in. `describe_where` only accepts those fields. A floor
+answer (no provider call) leaves them empty and null. The backfill (D103) now copies them too, for
+answered asks, replacing D103's "not copied".
+
+**Alternatives:** read the cost from `AskQuery` when reporting (join per event); write the event
+only when the ask finishes.
+
+**Why:** the ledger is where cost reports and future token limits will look, for every feature
+(chat turns, format, summaries), and not every feature has an `AskQuery`. The event still exists
+from the moment of the ask, so the quota is right while it runs.
+
+**Reverse it if:** token use becomes a limit of its own; then consume a token key instead of
+annotating.
+
 
 ### D105. Lifecycle signals are sent with `send_robust`; `user_signed_in` is sent from `issue_tokens`
 
