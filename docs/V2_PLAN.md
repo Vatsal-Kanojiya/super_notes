@@ -98,7 +98,18 @@ This replaces V1's D1 (linear `master`, no feature branches) for V2 only.
 2 → email + web push (D87); 3 → S3 in production, local disk in development (D85); 4 → memory on
 by default, with recurring notices (D88). Also added by the owner: no stale cached JavaScript
 ever (D89) and lifecycle hooks for sign-in and app open/resume (D90), both in phase 0.
-Still open: 5 (Android timing).
+5 → Android after V2 (D97). Limit values D91, app-open rule D93, memory-notice cadence D94,
+reminder schedule D95, chat history kept until deleted D96. **All open questions are settled.**
+
+### Parked for an evening session (needs real discussion)
+
+1. **Hosting and deployment target** (VPS, a platform, …) — affects S3, `uvicorn`, web push
+   (VAPID, HTTPS), the Google client id origins and the release of `v2.0.0`.
+2. **Android in detail** — Play Store or sideload, signing, the Android Google client id
+   (after V2, D97).
+3. **Refinements the owner asked to revisit:** system limit multipliers (D91), the 5-hour idle
+   rule for "app open" (D93), the memory-notice cadence (D94), reminder snooze/stop and other
+   cadences (D95).
 
 1. **Quota model (before phase 1).** One monthly budget of *AI actions* shared by asks, chat
    turns, formatting and summaries (recommended: simpler to explain, one ledger), or a separate
@@ -118,11 +129,11 @@ Still open: 5 (Android timing).
 
 | Package | Phase | For | Alternative if refused |
 |---|---|---|---|
-| `uvicorn` | 2 | An ASGI server so an async view can hold a streaming response open without a worker thread each | `StreamingHttpResponse` under WSGI (one thread per open stream — acceptable for dev, not for users) |
+| `uvicorn` | 2 — **approved** (D92) | An ASGI server so an async view can hold a streaming response open without a worker thread each | `StreamingHttpResponse` under WSGI (one thread per open stream — acceptable for dev, not for users) |
 | `vue-router` (web) | 0 — **approved** (D86) | URLs for notes and conversations, the back button, deep links (Android needs them) | Keep D46's view store and hash-parse by hand |
 | `vitest` (web, dev) | 0 — **approved** (D86) | Unit tests for the client's sync loop, token refresh and citation rendering | None — the client stays untested |
 | `pywebpush` | 5 — **approved** (D87) | Web push delivery (VAPID signing, payload encryption) | Email-only reminders |
-| `pypdf` | 6 | Text from PDFs | Send PDFs to a vision model (costly, slower) |
+| `pypdf` | 6 — **approved** (D92) | Text from PDFs | Send PDFs to a vision model (costly, slower) |
 | `django-storages` + `boto3` | 6 — **approved** (D85) | S3-compatible storage | Local disk |
 
 No other new dependency without asking. Providers stay on plain `requests` (D37, D53).
@@ -132,7 +143,11 @@ No other new dependency without asking. Providers stay on plain `requests` (D37,
 ## 4. Data model changes
 
 **User** — add `timezone` (IANA name, default `Asia/Kolkata`; reminders and the quota month use
-it), `memory_enabled` (bool, default per open question 4).
+it), `memory_enabled` (default on, D88), `memory_choice_explicit`, `app_open_count`,
+`memory_notice_seen_at_open` (D94).
+
+**Limit** (`limits`) — `key`, `user_free`, `user_premium`, `system`, `period`, `enabled` (D84,
+values D91).
 
 **Conversation** (`assistant`)
 - `user` FK, `title` (derived from the first question, editable), `summary` (running summary of
@@ -164,11 +179,11 @@ it), `memory_enabled` (bool, default per open question 4).
 `error`, token fields, `idempotency_key`, `created_at`, `completed_at`.
 
 **Reminder** (`notes`)
-- `note` FK (CASCADE), `owner` FK, `remind_at` (UTC), `recurrence` (`none` | `daily` | `weekly` |
-  `monthly` — no free RRULE in V2), `channels` (JSON list: `email`, `push`), `status`
-  (`scheduled` | `sent` | `cancelled` | `failed`), `sent_at`, `attempts`, `created_at`,
-  `updated_at`, `deleted_at`.
-- Index `(status, remind_at)` for the due scan; `(owner, remind_at)` for the calendar.
+- `note` FK (CASCADE), `owner` FK, `due_at` (UTC), `lead_days` (default 7; D95), `channels`
+  (JSON list: `email`, `push`), `status` (`scheduled` | `done` | `cancelled`), `created_at`,
+  `updated_at`, `deleted_at`. Each notification of the series is a `ReminderDelivery`
+  (`reminder`, `occurrence_at`, unique together, `sent_at`, `channel_results`).
+- Index `(status, due_at)` for the due scan; `(owner, due_at)` for the calendar.
 - Reminder writes go through `notes/services.py`: they take the owner lock and bump
   `notes_revision`, so `changes` carries them (D5 unchanged).
 
@@ -217,7 +232,8 @@ Web:
 - `fetch(..., {keepalive: true})` for the save on tab close (BACKLOG).
 
 Added 2026-10-02:
-- **Limits layer** (D84) instead of a bare ledger: `Limit` keys with per-user (by plan) and
+- **Limits layer** (D84; values D91 — `chat_turns`, `format`, `summary`, `storage_bytes`,
+  `signups`, system-only `condense`, `memory_extract`) instead of a bare ledger: `Limit` keys with per-user (by plan) and
   system values, `UsageEvent` as the one counter, `429 quota_exceeded` / `503
   system_limit_reached`, admin mail on a system limit, `signups_per_day`.
 - **No stale JavaScript** (D89): hashed assets + `no-cache` index, build id and `app/version/`,
@@ -304,6 +320,7 @@ polling path still passes all V1 tests; a provider without streaming still answe
 - **Use:** the top 5 relevant, unexpired, non-superseded facts go into the chat prompt in their
   own delimited block, marked as "what you know about the user", never as a citation source.
   `AskQuery.memory_used` records which.
+- **Notices** (D88, D94): every 5 app opens, prominent until the user chooses, subtle after.
 - **Control:** `GET memory/facts/`, `DELETE memory/facts/<id>/`, `DELETE memory/facts/` (forget
   everything), `PATCH me/ {memory_enabled}`. Off means no extraction and no use.
 - **Expiry:** `dynamic` facts get `valid_until` (default 30 days); a daily beat task clears
@@ -332,14 +349,17 @@ paragraph or invents a date is refused; applying on a stale version conflicts; u
 
 ### Phase 5 — reminders and calendar · `v2-feat/5-reminders` · L · Opus for delivery, Sonnet for the calendar UI
 
+- **Schedule (D95):** a due date-time plus daily heads-ups from `lead_days` (default 7) before it,
+  at the same time of day, and on the due day. "Mark done" stops the rest of the series.
 - **API:** `POST notes/<id>/reminders/`, `PATCH/DELETE reminders/<id>/`,
-  `GET reminders/?from=&to=` (calendar range, expands recurrences within the range, capped).
+  `POST reminders/<id>/done/`, `GET reminders/?from=&to=` (calendar range; each reminder with its
+  heads-up dates in range).
   Times are sent and returned with an offset; stored in UTC; displayed in `User.timezone`.
-- **Delivery:** a beat task every minute selects due reminders with
-  `select_for_update(skip_locked=True)` in small batches, marks them `sent` in the same
-  transaction as enqueuing delivery (on commit), and schedules the next occurrence for recurring
-  ones. Idempotent: a reminder is delivered at most once per occurrence (a delivery row keyed by
-  `(reminder, occurrence_at)`).
+- **Delivery:** a beat task every minute finds occurrences that are due (computed from `due_at`
+  and `lead_days` in the user's timezone), claims each by inserting its `ReminderDelivery` row
+  (unique `(reminder, occurrence_at)` — a second worker's insert fails, so delivery is at most
+  once), and enqueues the sends on commit. Missed occurrences while the worker was down are sent
+  once, not replayed one by one.
 - **Channels:** email (Django email — console backend in dev), web push (`pywebpush`, VAPID keys
   in settings, a service worker in `web/public/sw.js`), subscribe/unsubscribe endpoints under
   `me/push-subscriptions/`. Dead subscriptions (404/410) are deleted.
@@ -349,10 +369,11 @@ paragraph or invents a date is refused; applying on a stale version conflicts; u
 - **Calendar** (web): month and week views of reminders; clicking opens the note.
 - **Sync:** reminders ride in `notes/changes/` (a `reminders` array per changed note).
 
-Acceptance: a due reminder is delivered exactly once even with two beat workers (TransactionTestCase
-with threads); a deleted note cancels its reminders; recurrence advances correctly across a DST
-change in a DST timezone (test with `Europe/London`); calendar range queries are owner-scoped;
-dead push subscriptions are removed.
+Acceptance: each occurrence is delivered exactly once even with two beat workers
+(TransactionTestCase with threads); a 7-day lead sends 8 notifications at the right local time,
+including across a DST change (`Europe/London`); "mark done" stops the series; a deleted note
+cancels its reminders; calendar range queries are owner-scoped; dead push subscriptions are
+removed.
 
 ### Phase 6 — attachments and summaries · `v2-feat/6-attachments` · L · Opus for upload security
 
@@ -483,10 +504,10 @@ builds it on its branch, merges, and ticks it here. Items marked **blocked** wai
 | 3 | `v2-feat/0d-web-platform` | vue-router + vitest (D86), stale-JS defences (D89), session/open + notices UI, timezone on sign-in | Sonnet | ready — brief: `docs/v2/briefs/0d-web-platform.md` |
 | 4 | `v2-feat/1-conversations` | Phase 1 | Opus | ready after 1–3 |
 | 5 | `v2-feat/4-format` | Phase 4 | Sonnet | ready after 1 |
-| 6 | `v2-feat/2-streaming` | Phase 2 (needs `uvicorn` approval) | Opus | **blocked**: approve `uvicorn` |
+| 6 | `v2-feat/2-streaming` | Phase 2 (needs `uvicorn` approval) | Opus | ready after 4 |
 | 7 | `v2-feat/3-memory` | Phase 3 | Opus | ready after 4 (#4) |
 | 8 | `v2-feat/5-reminders` | Phase 5 | Opus + Sonnet | ready after 1–3 |
-| 9 | `v2-feat/6-attachments` | Phase 6 (needs `pypdf` approval) | Opus | **blocked**: approve `pypdf` |
-| 10 | `v2-feat/7-mobile` | Phase 7 | Sonnet | **blocked**: V1 Android, open question 5 |
+| 9 | `v2-feat/6-attachments` | Phase 6 (needs `pypdf` approval) | Opus | ready after 1–3 |
+| 10 | `v2-feat/7-mobile` | Phase 7 | Sonnet | after V2 (D97) — planned in the evening session |
 
 Parallel-safe pairs: 4 ∥ 5, 6 ∥ 8, 7 ∥ 9 (different apps; shared files take additive blocks).

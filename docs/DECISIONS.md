@@ -1404,3 +1404,58 @@ feature can subscribe without touching the sender:
 **Why:** a single, reliable place to trigger notifications, validations and usage tracking on
 the events the owner relies on in mobile apps, with the same behaviour on web and Android.
 
+### D91. Limit values, per feature (owner, 2026-10-02)
+
+Each AI feature carries its own limit key (D84). Per month:
+
+| Key | Free | Premium (×5) | System |
+|---|---|---|---|
+| `chat_turns` (asks and chat turns) | 20 | 100 | 2,000 |
+| `format` | 5 | 25 | 500 |
+| `summary` | 2 | 10 | 200 |
+
+Storage: one file ≤ 10 MB; `storage_bytes` 1 GB per user (both plans), 20 GB system.
+`signups` 30 per day (system). Behind-the-scenes model calls (condensing a follow-up, memory
+extraction) cost the user nothing but are logged and capped by system keys (`condense`,
+`memory_extract`, defaults 10× `chat_turns`' system value).
+
+**Parked for refinement:** the owner said "system ×20". It is recorded as ×20 of the *premium*
+value; ×20 of free would let 21 free users exhaust the whole system. All values are rows in the
+admin-editable `Limit` table, so changing them needs no deploy.
+
+### D92. `uvicorn` and `pypdf` are approved (owner, 2026-10-02)
+
+Unblocks streaming (phase 2) and PDF text extraction (phase 6).
+
+### D93. "App open" means a real reopen, or coming back after 5 idle hours (owner, 2026-10-02)
+
+An app open (`session/open/`, D90) is sent when:
+- the app or browser window is **launched** with a valid session (a page load, a cold app start);
+- or it is **resumed**: the first user interaction after **5 hours without any** (no clicks,
+  keys, scrolls or touches). This covers a browser window left open for months: a new day of use
+  counts as a new open. Tab visibility alone does not count.
+
+The client keeps a `lastInteractionAt` in memory (and `localStorage` across reloads); the
+threshold is `APP_RESUME_IDLE_HOURS` (default 5). **Parked for refinement.**
+
+### D94. The memory notice is shown every 5 app opens (owner, 2026-10-02)
+
+Replaces D88's time interval: the server counts `app_opened` events per user
+(`User.app_open_count`, `memory_notice_seen_at_open`) and returns the memory notice on the first
+open and then every `MEMORY_NOTICE_EVERY_OPENS` (default 5) opens since the user last saw it.
+D88's prominent/subtle rule is unchanged. **Parked for refinement.**
+
+### D95. Reminders: a due date with daily heads-ups for the last 7 days (owner, 2026-10-02)
+
+A reminder has a **due date-time** (e.g. an expiry). Notifications go out **daily from
+`lead_days` (default 7) days before it**, at the reminder's time of day, and on the due day
+itself — 8 notifications for the default. `lead_days` 0 means a single notification at the due
+time. Replaces V2_PLAN's none/daily/weekly/monthly repeats. Delivered by email + web push (D87).
+**Parked for refinement:** snooze, "mark handled" to stop the series, other cadences.
+
+### D96. Chat history is kept until the user deletes it (owner, 2026-10-02)
+
+### D97. Android comes after V2 (owner, 2026-10-02)
+
+V1 Phase 7 and V2 Phase 7 (mobile) move after `v2.0.0`; planned in a dedicated session.
+

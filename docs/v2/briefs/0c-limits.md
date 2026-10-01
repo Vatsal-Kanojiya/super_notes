@@ -1,5 +1,7 @@
 # Brief — `v2-feat/0c-limits`: the limits layer (D84)
 
+Read D91 for the limit values.
+
 **Model:** Opus (concurrency-critical). **Checkpoint:** after Part 1. **Queue:** item 1.
 
 ## Read
@@ -14,8 +16,10 @@
 ## Part 1 — a new `limits` app
 - `Limit`: `key` (unique slug), `user_free`, `user_premium`, `system` (nullable int; null =
   unlimited), `period` (`month` | `day` | `total`), `enabled`, `updated_at`. Admin-editable.
-  Defaults in a `LIMIT_DEFAULTS` setting (e.g. `ai_actions` 20 / 500 / system 20000 per month;
-  `signups` system 200 per day); a DB row overrides its default.
+  Defaults in a `LIMIT_DEFAULTS` setting with the owner's values (D91): per month `chat_turns`
+  20 / 100 / system 2000, `format` 5 / 25 / 500, `summary` 2 / 10 / 200; `storage_bytes` 1 GB per
+  user (both plans) / 20 GB system, period `total`; `signups` system 30 per day; system-only
+  `condense` and `memory_extract` 20000 per month. A DB row overrides its default.
 - `UsageEvent`: `user` (nullable for system-only keys), `key`, `amount`, `refunded`, `ask` FK
   (nullable), `provider`, `model`, `input_tokens`, `output_tokens`, `created_at`. Indexes
   `(user, key, created_at)` and `(key, created_at)`.
@@ -36,7 +40,7 @@
 **Stop and report.**
 
 ## Part 2 — wire it in
-- `create_ask` consumes `ai_actions` (linked to the ask) under its existing lock; a failed ask (in
+- `create_ask` consumes `chat_turns` (linked to the ask) under its existing lock; a failed ask (in
   the task or by the sweeper) refunds it. V1 behaviour holds: failed asks don't count; a replayed
   idempotency key consumes once. Data migration: one event per existing non-failed `AskQuery`.
   `assistant/quota.py` becomes a thin wrapper or goes (record which). V1 quota, concurrency and
@@ -46,5 +50,5 @@
 - `me/`: `ask_usage` unchanged in shape; add `limits: {key: {used, limit, resets_at}}`.
 - `find_or_create_user` consumes `signups` (system-only) before creating an account; exhausted →
   new accounts refused with `signups_closed`; existing users still sign in.
-- Done when the branch checklist in `CLAUDE.md` passes. Decisions from D91. BUILD_LOG entry
+- Done when the branch checklist in `CLAUDE.md` passes. Decisions from the next free number (D98+ as of 2026-10-02). BUILD_LOG entry
   "V2 0c — limits"; update the quota paragraph in `docs/RAG.md`.
