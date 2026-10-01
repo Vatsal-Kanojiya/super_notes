@@ -4,10 +4,10 @@ import { errorMessage } from '../api/client'
 import type { Note, NoteType } from '../api/types'
 import { formatRelative } from '../lib/format'
 import { useNotesStore } from '../stores/notes'
-import { useViewStore } from '../stores/view'
+import { useRouter } from 'vue-router'
 
 const notes = useNotesStore()
-const view = useViewStore()
+const router = useRouter()
 const error = ref('')
 const creating = ref(false)
 
@@ -32,7 +32,7 @@ async function create(type: NoteType) {
   error.value = ''
   try {
     const note = await notes.create(type)
-    view.openNote(note.id)
+    void router.push(`/notes/${note.id}`)
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -82,14 +82,14 @@ function snippet(note: Note): string {
 
     <ul class="note-list">
       <li v-for="note in notes.visibleNotes" :key="note.id">
-        <button type="button" class="note-card" @click="view.openNote(note.id)">
+        <router-link class="note-card" :to="`/notes/${note.id}`">
           <span class="note-card-head">
             <span class="note-title">{{ heading(note) }}</span>
             <span v-if="note.type === 'checklist'" class="badge">Checklist</span>
           </span>
           <span v-if="snippet(note)" class="note-snippet">{{ snippet(note) }}</span>
           <span class="muted small">{{ formatRelative(note.updated_at) }}</span>
-        </button>
+        </router-link>
       </li>
     </ul>
 

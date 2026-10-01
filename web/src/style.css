@@ -609,3 +609,29 @@ input.title-input:focus-visible {
     margin-left: auto;
   }
 }
+
+/* Router links styled like the buttons they replaced. */
+a.note-card {
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+.tabs a {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  min-height: 36px;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  font-weight: 600;
+}
+.tabs a.active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.menu-link {
+  color: var(--accent);
+  font-weight: 500;
+}

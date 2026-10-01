@@ -21,7 +21,7 @@ import { ApiError, errorMessage } from '../api/client'
 import type { DocNode, Note, VersionConflictBody } from '../api/types'
 import { formatRelative } from '../lib/format'
 import { emptyDoc, useNotesStore } from '../stores/notes'
-import { useViewStore } from '../stores/view'
+import { useGoBack } from '../lib/nav'
 
 const props = defineProps<{ initial: Note }>()
 
@@ -29,7 +29,7 @@ const AUTOSAVE_MS = 1000
 const RETRY_MS = 5000
 
 const notes = useNotesStore()
-const view = useViewStore()
+const { goBack, backLabel } = useGoBack()
 const id = props.initial.id
 
 /** The server copy this edit is on top of: its `version` goes with the next PATCH. */
@@ -162,14 +162,10 @@ async function removeNote() {
   dirty = false
   try {
     await notes.remove(id)
-    view.back()
+    goBack()
   } catch (e) {
     saveError.value = errorMessage(e)
   }
-}
-
-function back() {
-  view.back()
 }
 
 // Leaving the tab (or the app, on a phone) is the moment to save, not later.
@@ -204,7 +200,7 @@ function isActive(name: string, attrs?: Record<string, unknown>) {
 <template>
   <main class="page editor-page">
     <div class="editor-bar">
-      <button type="button" class="link" @click="back">← {{ view.returnTo === 'ask' ? 'Answer' : 'Notes' }}</button>
+      <button type="button" class="link" @click="goBack">← {{ backLabel }}</button>
       <span class="muted small" aria-live="polite">{{ statusText }}</span>
       <button type="button" class="link danger" @click="removeNote">Delete</button>
     </div>

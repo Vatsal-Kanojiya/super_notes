@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
-import { useViewStore } from '../stores/view'
+import { useRoute } from 'vue-router'
 import DevicesList from './DevicesList.vue'
 
 const auth = useAuthStore()
-const view = useViewStore()
+const route = useRoute()
 const menuOpen = ref(false)
 const menuEl = ref<HTMLElement | null>(null)
 
@@ -31,22 +31,8 @@ onBeforeUnmount(() => {
   <header class="app-header">
     <span class="brand">Super Notes</span>
     <nav class="tabs" aria-label="Sections">
-      <button
-        type="button"
-        :class="{ active: view.screen !== 'ask' }"
-        :aria-current="view.screen !== 'ask' ? 'page' : undefined"
-        @click="view.showList()"
-      >
-        Notes
-      </button>
-      <button
-        type="button"
-        :class="{ active: view.screen === 'ask' }"
-        :aria-current="view.screen === 'ask' ? 'page' : undefined"
-        @click="view.showAsk()"
-      >
-        Ask
-      </button>
+      <router-link to="/notes" :class="{ active: route.path.startsWith('/notes') }">Notes</router-link>
+      <router-link to="/ask" :class="{ active: route.path === '/ask' }">Ask</router-link>
     </nav>
     <div ref="menuEl" class="account">
       <button
@@ -72,6 +58,7 @@ onBeforeUnmount(() => {
           <span class="muted small">{{ auth.user?.email }}</span>
           <span class="badge">{{ auth.user?.plan }}</span>
         </div>
+        <router-link to="/settings" class="menu-link" @click="menuOpen = false">Settings</router-link>
         <DevicesList />
         <button type="button" class="secondary full" @click="auth.signOut()">Sign out</button>
       </div>
