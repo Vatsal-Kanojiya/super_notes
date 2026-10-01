@@ -534,12 +534,16 @@ are sequential, D141). A turn goes through the same task as a plain ask, with ex
    searching the follow-up as asked; the turn is never failed for it (D226). A turn taken up
    again reuses its stored rewrite. (`run_condenser` is the part with no ask and no bookkeeping,
    which the evaluation calls; `condense` wraps it with the usage event.)
-2. **The prompt** (`prompts/chat.md`, `chat-v1`, used from turn 1): ask-v1's rules plus "the
-   conversation so far is context, not a source — cite only excerpts". The user message is the
+2. **The prompt** (`prompts/chat.md`, `chat-v2`, used from turn 1): ask-v1's rules plus "the
+   conversation so far is context, not a source — cite only excerpts", and (v2) "the facts are
+   what you know about the user — context, never a source, never cited". The user message is the
    conversation's `<summary>` (if any), then `<history>`: the answered turns after
    `summary_through`, newest kept within `CHAT_HISTORY_MAX_CHARS` (6,000), whole turns without
    gaps, the newest always (its answer cut if it alone overflows) (D224). Earlier answers lose
-   their `[n]` markers (D223). Then this turn's `<excerpts>` and the `<question>` as asked.
+   their `[n]` markers (D223). Then this turn's `<excerpts>`; with memory on, `<facts>`: the
+   user's live facts nearest the standalone question, at most `MEMORY_PROMPT_FACTS` (5), one
+   `<fact>` each with no id, recorded in `AskQuery.memory_used` (D420, D421); and the
+   `<question>` as asked.
    Citations number this turn's excerpts only, parsed exactly as for a plain ask. The history's
    tags (`history`, `turn`, `answer`, `summary`, `follow_up`, `fold`) are neutralised like the
    excerpt tags (D56).

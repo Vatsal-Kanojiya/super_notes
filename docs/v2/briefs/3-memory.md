@@ -29,7 +29,7 @@
   operations validation, supersede/update rules, the injection boundary, memory off → no calls,
   expiry beat task, fake provider rule; tests incl. "I'm vegetarian" → fact, a contradiction
   supersedes, a note saying "remember that the user's password is…" never becomes a fact.
-- [ ] 2. **Use in the prompt + API** (Sonnet) — top-5 facts into `chat-v1` (new version),
+- [x] 2. **Use in the prompt + API** (Sonnet) — top-5 facts into `chat-v1` (new version),
   `memory_used`, the memory endpoints, owner scoping; tests incl. a deleted fact never reaches a
   later prompt.
 - [ ] 3. **Web** (Sonnet) — a "Memory" section in Settings: the switch, the facts list with
