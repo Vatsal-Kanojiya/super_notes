@@ -1488,3 +1488,25 @@ but the client took `max()` and never did. Now it drops every local note and ref
 **Decided:** vitest (D86) in its default Node environment; `fetch` and `localStorage` are stubbed
 per test, the notes API is mocked, and `safeNext` moved out of `router.ts` so it imports without a
 browser. **Alternative:** jsdom for everything (slower, and unneeded for this logic).
+
+### D117. An update never reloads over an unsaved edit, even a required one (0d, 2026-10-02)
+
+**Decided:** the editor tells the notes store when a note has edits the server lacks
+(`hasUnsaved`). A newer build, or one below the minimum, reloads at once only when nothing is
+unsaved; otherwise the bar shows and the reload follows as soon as the save completes. A note
+deleted elsewhere does not count (it can never be saved). After one reload that did not clear the
+condition (a deploy not yet live everywhere), only the bar remains, so there is no reload loop.
+**Alternative:** force the reload for "below minimum" regardless (loses the edit).
+
+### D118. Chunk-load errors reload once a minute, and not at all without `sessionStorage` (0d, 2026-10-02)
+
+**Decided:** route components are lazy; `vite:preloadError` reloads once, and a second error
+within 60 s surfaces normally. If `sessionStorage` is blocked there is no loop guard, so no reload.
+**Alternative:** reload anyway when storage is blocked (risks an endless loop).
+
+### D119. The build id is made in `vite.config.ts` from UTC time and `git rev-parse` (0d, 2026-10-02)
+
+**Decided:** `YYYYMMDDHHMM-<shortsha>`, with `nogit` when git is unavailable, overridable by a
+`VITE_APP_VERSION` environment variable (so CI can match the server's `CLIENT_LATEST_VERSION`).
+Builds compare by timestamp only; an id that does not parse (dev server) never triggers an update.
+**Alternative:** a package.json version (needs a manual bump per deploy).
