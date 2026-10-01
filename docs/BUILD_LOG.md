@@ -401,3 +401,15 @@ condensed 0.900, human standalone 0.933 (MRR 0.532 / 0.668 / 0.710). Web: `/chat
 retry of a failed turn; `/ask` redirects to a new conversation and the old Ask panel is gone.
 Left: real-provider numbers and prompt quality need an API key; `summarize_history` at
 5000/month is a guess; streaming (phase 2) and memory (phase 3) build on this.
+
+### Paused — 2026-10-01 (remote session, branch `claude/friendly-clarke-blov3x`)
+
+Paused by the owner at clean sub-task boundaries; everything below is merged here and green
+(1381 backend tests, 213 web tests). Resume from each brief's checklist:
+- `2-streaming`: 1-2 done; **next: 3 (web streaming)**.
+- `3-memory`: 1-2 done; **next: 3 (web memory settings)**.
+- `6-attachments`: 1-2 done; **next: 3 (summaries)**, then 4 (web).
+- Done this session: queue items 4 (conversations), 5 (format), 8 (reminders).
+Owner to confirm: Monday-first calendar week (D201), memory only from chat turns (D401),
+superseded facts kept 30 days (D406), real image reading and the `image_text` limit (D343,
+D344), the extraction caps (D340).
