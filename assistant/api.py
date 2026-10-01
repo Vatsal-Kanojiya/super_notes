@@ -429,7 +429,8 @@ Each event is `event: <type>` and one `data:` line of JSON that repeats `type`:
 
 A finished ask gets its `done` or `failed` at once. A `: keep-alive` comment line comes after
 15 seconds without an event. Opening a stream counts against the general request rate, not the
-`ask` scope."""
+`ask` scope. At most 3 streams per user are open at once (`STREAM_MAX_PER_USER`); one more is a
+429 `too_many_streams`: close one, or poll."""
 
 
 class AskStreamView(APIView):
@@ -438,8 +439,10 @@ class AskStreamView(APIView):
     A DRF view, so authentication, throttles, the error shape and the
     schema are the API's own (DECISIONS D370). It is synchronous: under
     ASGI, Django runs it in a worker thread, and it does no more than an
-    ownership check. The body it returns is an async generator that the
-    ASGI server drives on its event loop for as long as the stream is open.
+    ownership check and taking a stream slot (D511). It closes its database
+    connection before it returns (D510). The body it returns is an async
+    generator that the ASGI server drives on its event loop for as long as
+    the stream is open.
     """
 
     renderer_classes = [JSONRenderer]
@@ -455,16 +458,31 @@ class AskStreamView(APIView):
             ),
             401: UNAUTHORIZED,
             404: OpenApiResponse(MessageSerializer, description="No such ask of yours."),
-            429: OpenApiResponse(MessageSerializer, description="`throttled`."),
+            429: OpenApiResponse(
+                MessageSerializer,
+                description="`throttled`, or `too_many_streams`: the user already has "
+                "`STREAM_MAX_PER_USER` (3) streams open.",
+            ),
         },
     )
     def get(self, request, pk):
         if not _visible_asks(request.user).filter(pk=pk).exists():
             return _not_found()
         if isinstance(request._request, ASGIRequest):
-            body = stream.events(pk, request.user.pk, request_id=get_request_id())
+            try:
+                slot = stream.acquire_slot(request.user.pk)
+            except stream.TooManyStreams:
+                return _problem(
+                    "You have too many answers streaming at once. Close one, or poll.",
+                    "too_many_streams",
+                    status.HTTP_429_TOO_MANY_REQUESTS,
+                )
+            body = stream.events(pk, request.user.pk, request_id=get_request_id(), slot=slot)
         else:
             body = stream.catch_up(pk, request.user.pk)
+        # The stream outlives this thread's work by minutes: give its
+        # database connection back now, not when the response ends (D510).
+        stream.release_db_connection()
         response = StreamingHttpResponse(body, content_type="text/event-stream; charset=utf-8")
         response["Cache-Control"] = "no-cache"
         # nginx: pass each event on as it comes, not when its buffer fills.

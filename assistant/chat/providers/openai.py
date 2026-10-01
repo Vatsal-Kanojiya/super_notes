@@ -170,12 +170,17 @@ def check_status(data: dict, **cost) -> None:
     """BilledChatError unless the response's status is a finished answer.
 
     A response came back, so the call was accepted and may have generated
-    tokens: kept as billed, with ``cost`` on the error (DECISIONS D500).
+    tokens: kept as billed, with ``cost`` on the error (DECISIONS D500) --
+    except a ``failed`` whose error is worth retrying (``TRANSIENT_ERRORS``,
+    D512), which is a TransientChatError like the same failure as a 429/5xx.
     """
     status = data.get("status")
     if status == "failed":
-        message = (data.get("error") or {}).get("message", "unknown error")
-        raise BilledChatError(f"OpenAI failed to answer: {message}", **cost)
+        error = data.get("error") if isinstance(data.get("error"), dict) else {}
+        message = f"OpenAI failed to answer: {error.get('message', 'unknown error')}"
+        if error.get("code") in TRANSIENT_ERRORS or error.get("type") in TRANSIENT_ERRORS:
+            raise TransientChatError(message)
+        raise BilledChatError(message, **cost)
     if status == "incomplete":
         reason = (data.get("incomplete_details") or {}).get("reason")
         if reason == "content_filter":

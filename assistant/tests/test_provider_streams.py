@@ -359,6 +359,22 @@ class OpenAIStreamTests(StreamingMixin, SimpleTestCase):
                 with self.assertRaisesMessage(ChatError, message):
                     self.stream(StreamResponse(body))
 
+    def test_a_failed_end_event_with_a_transient_error_is_retried(self):
+        # D512: response.failed with a server error is what a 5xx would have been.
+        cases = [
+            ({"code": "server_error", "message": "oops"}, TransientChatError),
+            ({"code": "rate_limit_exceeded", "message": "slow"}, TransientChatError),
+            ({"code": "invalid_prompt", "message": "no"}, ChatError),
+        ]
+        for error, expected in cases:
+            with self.subTest(error=error):
+                response = {"status": "failed", "error": error}
+                body = self.events(
+                    ("response.failed", {"type": "response.failed", "response": response})
+                )
+                with self.assertRaises(expected):
+                    self.stream(StreamResponse(body))
+
     def test_a_refusal_is_a_chat_error(self):
         refusal = {"type": "response.refusal.delta", "delta": "I can't help with that."}
         with self.assertRaisesMessage(ChatError, "declined"):

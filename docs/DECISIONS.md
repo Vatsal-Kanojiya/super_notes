@@ -2637,6 +2637,9 @@ question refers to, which the plan wants); a lexical check that each fact's word
 question (drops paraphrases a real model rightly makes: "I don't eat meat" -> "User is
 vegetarian").
 
+**Amended (D514):** the extraction no longer gets the answer at all; `memory-v2` sends the
+facts and the question only. The alternative above ("the question only") is now the decision.
+
 ### D401. Extraction follows a done conversation turn, queued on commit; memory off is checked three times (3-memory 1, 2026-10-01)
 
 **Decided:** `_finish` queues `extract_memory` with `transaction.on_commit` the way the fold is
@@ -2656,6 +2659,9 @@ embedding model are sent, owner-scoped in SQL with `hnsw.ef_search` raised as th
 does (D68). The ids sent are the only ids an operation may name. **Alternative:** always
 vector-search (an embedding call per turn, and HNSW's post-filter can miss a user's few facts
 among many users'); send every fact (a prompt that grows without bound).
+
+**Amended (D517):** the nearest facts are found by an exact sort of the user's live facts, not
+through the HNSW index; `hnsw.ef_search` is no longer set for this query.
 
 ### D403. A fact that looks like a secret is dropped in code, whoever stated it (3-memory 1, 2026-10-01)
 
@@ -2685,6 +2691,9 @@ with their text. Nothing is retried. **Alternative:** reject the whole reply for
 "User is vegetarian" it superseded goes with it. **Alternative:** SET_NULL (the replaced fact
 comes back to life: deleting one fact would resurrect an older, contradicted one); PROTECT
 (a fact could not be deleted while it has history).
+
+**Amended (D516):** expiry is the exception: a static fact is never deleted because a dynamic
+fact that superseded it expired (and D515 stops a dynamic fact superseding a static one).
 
 ### D406. The daily purge: expired dynamic facts, and superseded ones 30 days after they were replaced (3-memory 1, 2026-10-01)
 
@@ -2720,6 +2729,9 @@ ignoring case. A target superseded or expired since the call is dropped, so of t
 racing on one fact only the first supersedes it. **Alternative:** no lock (two extractions could
 both supersede one fact, leaving two live successors); fuzzy duplicate detection (the model is
 shown the similar facts and is the better judge).
+
+**Amended (D515):** an `update` or `supersede` with kind dynamic whose target is static is
+written as an `add`; an update never turns a static fact dynamic.
 
 ### D409. The fake extractor: "I'm X" / "my X is Y" in the question, superseding by subject (3-memory 1, 2026-10-01)
 
@@ -2890,12 +2902,18 @@ JWT), throttles, the `{detail, code}` errors and the schema are the API's own. U
 runs it in a worker thread (so nothing blocks the event loop), and it does only the ownership
 check; it returns a `StreamingHttpResponse` whose body is an async generator
 (`assistant/stream.py`) that the server drives on its event loop, so an open stream holds a
-coroutine and a Redis connection, never a thread. Errors are JSON whatever the client's `Accept`
+coroutine and a Redis connection, never a thread -- and, since D510, no database connection
+between its reads of the row (before it, the request thread's connection stayed open with it). Errors are JSON whatever the client's `Accept`
 says (a content negotiation that always picks JSON), so `Accept: text/event-stream` cannot turn a
 404 into a 406. Opening a stream counts against the general `user` rate, like polling, not the
 `ask` scope. **Alternative:** an `async def` view that re-implements bearer auth, throttling and
 the error shape through `sync_to_async` (more code to keep in step, and drf-spectacular would not
 see it).
+
+**Amended (D510):** as first written this said only "a coroutine and a Redis connection", which
+was wrong: under ASGI the view and every row read run in the request's thread-sensitive thread,
+whose database connection Django kept until the response ended -- up to 5 minutes per stream. The
+view now closes it before returning, and each row read closes it after itself.
 
 ### D371. The client gets contiguous deltas: the server dedupes by offset (2-streaming 2, 2026-10-01)
 
@@ -3046,3 +3064,87 @@ the lost turn instead (two answers could race if the message was only slow, not 
 no-answer case in a kind no longer inflates it.
 **Alternative:** show answerable and no-answer counts side by side (wider table, for a case the
 fixtures do not have yet).
+
+**Amended (D511):** there is now a per-user cap, `STREAM_MAX_PER_USER` (3), counted in Redis.
+
+### D510. A stream gives its database connection back; it reconnects for each row read (review fixes, 2026-10-01)
+
+**Decided:** `AskStreamView` calls `stream.release_db_connection()` before returning the
+`StreamingHttpResponse`, and `_read_row` calls it in a `finally`. Under ASGI both run in the
+request's thread-sensitive thread, so this closes the one connection the stream would otherwise hold
+for up to `ASK_STREAM_MAX_SECONDS`. It does nothing inside a transaction (a `TestCase`), where
+closing would break the test's own connection. Each re-check (every 10 s, or every 0.5 s while a gap
+waits on the row) opens a fresh connection. The test counts the test database's backends while a
+stream is open under Django's own ASGI handler. **Alternative:** an `async` row read on the event loop
+(Django's async ORM still runs in a thread, with the same connection); `CONN_MAX_AGE`/pooling
+(keeps connections open by design, the opposite of the goal).
+
+### D511. At most `STREAM_MAX_PER_USER` (3) open streams per user, counted in Redis; one more is a 429 (review fixes, 2026-10-01)
+
+**Decided:** the view takes a slot before it builds the body: a Lua `INCR` of `ask-streams:<user>`
+in `ASK_EVENTS_REDIS_URL`'s Redis, refused past the cap (`429 too_many_streams`, JSON like the other
+errors). The body's `finally` releases it (`DECR`; the key is deleted at 0) when the stream ends, is
+closed, or is cancelled because the client went away; a release happens once. The safety net is
+the key's TTL, `ASK_STREAM_MAX_SECONDS` + 60 s, set only when a slot is granted, so a count leaked
+by a body that never started expires after every stream it could have counted, and a user retrying
+against a leaked count does not keep it alive. It fails open: cap 0, live events off, or Redis
+unreachable means no count (such a stream ends with `unavailable` at once anyway). Only the ASGI
+path counts; the WSGI catch-up answers at once. **Alternative:** a per-process counter (each
+uvicorn worker would allow 3); the general request rate alone (D377: does not bound open streams);
+failing closed when Redis is down (no stream could open, though polling works).
+
+### D512. A `failed` OpenAI response with a transient error is retried (review fixes, 2026-10-01)
+
+**Decided:** `check_status` raises `TransientChatError` for `status: "failed"` whose
+`error.code` or `error.type` is in `TRANSIENT_ERRORS` (server error, rate limit, overloaded...),
+as it already did for an `error` event; any other failure stays a `ChatError`. This covers both
+`complete` and a stream's `response.failed`. **Alternative:** retry every failed response (an
+invalid prompt would be paid for five times).
+
+### D513. A subscription cancelled while subscribing is closed before the cancel goes on (review fixes, 2026-10-01)
+
+**Decided:** `subscribe` closes the half-open Redis client quietly on any `BaseException`
+(the client going away cancels the body mid-`SUBSCRIBE`) and re-raises it; until it returns,
+the caller has nothing to close. **Alternative:** rely on garbage collection (redis' asyncio
+client warns and may leak the socket until then).
+
+### D514. The memory extraction gets the question only; `memory-v2` (review fixes, 2026-10-01)
+
+**Decided:** `build_memory_messages(question, facts)`: `<facts>` and `<question>`, no `<answer>`.
+The answer quotes notes and attachments, which may hold text pasted from anywhere; a prompt rule
+("context only") was the whole defence, and now the text is simply not sent. The prompt says the
+call does not see the answer or the notes, and that text the question only quotes teaches
+nothing. `MEMORY_ANSWER_MAX_CHARS` is removed. The cost: a short question that leans on the answer
+("yes, that one is mine") teaches less. **Alternative:** keep the answer behind the prompt rule
+(D400 as it was).
+
+### D515. A dynamic fact never updates or supersedes a static one: it is added beside it (review fixes, 2026-10-01)
+
+**Decided:** in `apply_operations`, an `update` or `supersede` with kind dynamic whose target is
+static is written as an `add` of the dynamic fact; the static fact is untouched and both stay live
+("User lives in Pune." and "User is in Goa."). The prompt says so too. A static update or
+supersede of either kind, and a dynamic one of a dynamic fact, are unchanged. **Alternative:** keep
+the target static and apply the new text (a passing state would be remembered for ever); drop the
+operation (loses what the user said).
+
+### D516. The purge never deletes a static fact because its replacement expired (review fixes, 2026-10-01)
+
+**Decided:** `superseded_by` stays CASCADE (D405: deleting a fact by hand still takes what it
+replaced). Before deleting expired facts, the purge clears `superseded_by` on static facts whose
+replacement has expired, so they are live again; and the retention purge skips a static fact
+superseded by a dynamic one. After D515 such pairs exist only from before it. Done in one
+transaction. No migration. **Alternative:** `SET_NULL` (deleting a fact by hand would bring back
+the contradicted one it replaced, D405's reason); delete such pairs whole (the lasting fact lost).
+
+### D517. The nearest facts are an exact sort of the user's live facts, never the HNSW index (review fixes, 2026-10-01)
+
+**Decided:** `similar_facts_queryset` orders by `distance + 0`, which the HNSW index cannot serve,
+so the planner reads the user's facts through the owner index (or a scan) and sorts them exactly.
+HNSW returns its `ef_search` nearest of every user's facts and filters after, so a user with a few
+facts among many users' close ones could get none. A user's live facts are few (at most 5 written
+per turn, dynamic ones expire, superseded ones are purged). The test drops the other indexes and
+disables sequential scans inside its transaction so HNSW is the planner's only cheap choice, with
+400 of another user's facts nearer the question. **Alternative:** `SET LOCAL enable_indexscan =
+off` (also turns off the owner index: a full-table scan); pgvector's iterative index scans (needs
+pgvector 0.8 and still stops at a tuple limit). The chunk search (D68) has the same shape and is not
+changed here.

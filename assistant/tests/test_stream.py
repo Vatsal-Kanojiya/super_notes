@@ -17,6 +17,7 @@ from unittest import mock
 import redis
 from asgiref.sync import sync_to_async
 from django.core.handlers.asgi import ASGIHandler
+from django.db import connection
 from django.test import (
     SimpleTestCase,
     TestCase,
@@ -83,6 +84,17 @@ class FakeSubscription:
         self.closed = True
 
 
+class FakeSlot:
+    """What stream.acquire_slot returns, counting its releases."""
+
+    def __init__(self, user_id):
+        self.user_id = user_id
+        self.releases = 0
+
+    async def release(self):
+        self.releases += 1
+
+
 # --- Relay ----------------------------------------------------------------
 
 
@@ -141,6 +153,16 @@ class StreamTestCase(TestCase):
             return self.subscription
 
         patcher = mock.patch("assistant.stream.subscribe", subscribe)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        self.slots = []
+
+        def acquire_slot(user_id):
+            self.slots.append(FakeSlot(user_id))
+            return self.slots[-1]
+
+        patcher = mock.patch("assistant.stream.acquire_slot", acquire_slot)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -245,6 +267,8 @@ class LiveTests(StreamTestCase):
         await self.assert_closed(body)
         self.assertTrue(self.subscription.closed)
         self.assertEqual(self.subscribed, [self.ask.pk])
+        # The stream's slot, taken for alice, is given back once (D511).
+        self.assertEqual([(s.user_id, s.releases) for s in self.slots], [(self.alice.pk, 1)])
 
     async def test_an_overlapping_delta_sends_only_what_is_new(self):
         await self.aset_row(status="running", partial_answer="Hello wor")
@@ -337,10 +361,30 @@ class TimeTests(StreamTestCase):
         # task waiting on the body.
         waiting = asyncio.ensure_future(anext(body))
         await asyncio.sleep(0.05)
+        self.assertEqual(self.slots[0].releases, 0)
         waiting.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await waiting
         self.assertTrue(self.subscription.closed)
+        self.assertEqual(self.slots[0].releases, 1)
+
+    async def test_a_timeout_and_unavailable_release_the_slot_too(self):
+        await self.aset_row(status="running")
+        with self.settings(ASK_STREAM_MAX_SECONDS=0.1):
+            _, body = await self.open()
+            await self.next_event(body)
+            self.assertEqual(await self.next_event(body), {"type": "timeout"})
+            await self.assert_closed(body)
+
+        async def down(ask_id):
+            raise stream.Unavailable("no Redis")
+
+        with mock.patch("assistant.stream.subscribe", down):
+            _, body = await self.open()
+            await self.next_event(body)
+            self.assertEqual(await self.next_event(body), {"type": "unavailable"})
+            await self.assert_closed(body)
+        self.assertEqual([s.releases for s in self.slots], [1, 1])
 
 
 class UnavailableTests(StreamTestCase):
@@ -403,6 +447,7 @@ class UnavailableTests(StreamTestCase):
             [{"type": "snapshot", "text": "So far", "offset": 6}, {"type": "unavailable"}],
         )
         self.assertEqual(self.subscribed, [])
+        self.assertEqual(self.slots, [])  # answered at once: nothing to cap
 
 
 class AccessTests(StreamTestCase):
@@ -435,6 +480,19 @@ class AccessTests(StreamTestCase):
             url(self.ask.pk + 1000), headers={**self.auth, "Accept": "text/event-stream"}
         )
         await self.assert_problem(response, 404, "not_found")
+
+    async def test_over_the_stream_cap_is_a_429_and_no_stream(self):
+        def full(user_id):
+            raise stream.TooManyStreams
+
+        with mock.patch("assistant.stream.acquire_slot", full):
+            response = await self.async_client.get(url(self.ask.pk), headers=self.auth)
+        await self.assert_problem(response, 429, "too_many_streams")
+
+    async def test_another_users_ask_takes_no_slot(self):
+        bob = await sync_to_async(lambda: bearer(make_user("bob")))()
+        await self.async_client.get(url(self.ask.pk), headers=bob)
+        self.assertEqual(self.slots, [])
 
     async def test_unauthenticated_is_a_401(self):
         response = await self.async_client.get(url(self.ask.pk))
@@ -534,6 +592,7 @@ class ASGIDisconnectTests(TransactionTestCase):
         )
         auth = bearer(alice)
         subscription = FakeSubscription()
+        slot = FakeSlot(alice.pk)
 
         async def subscribe(ask_id):
             return subscription
@@ -543,7 +602,10 @@ class ASGIDisconnectTests(TransactionTestCase):
             return {"type": "http.disconnect"}
 
         async def scenario():
-            with mock.patch("assistant.stream.subscribe", subscribe):
+            with (
+                mock.patch("assistant.stream.subscribe", subscribe),
+                mock.patch("assistant.stream.acquire_slot", lambda user_id: slot),
+            ):
                 return await asyncio.wait_for(
                     call_asgi(url(ask.pk), auth, disconnect_once_streaming), 5
                 )
@@ -552,6 +614,52 @@ class ASGIDisconnectTests(TransactionTestCase):
         self.assertEqual(sent[0]["status"], 200)
         self.assertEqual(body_events(sent), [{"type": "snapshot", "text": "", "offset": 0}])
         self.assertTrue(subscription.closed)
+        self.assertEqual(slot.releases, 1)
+
+    def test_an_open_stream_holds_no_database_connection(self):
+        # D510: under ASGI the view and the row reads share the request's
+        # thread; its connection would stay open for the whole stream.
+        alice = make_user("alice")
+        ask = AskQuery.objects.create(
+            user=alice, question="q", idempotency_key="k", status="running"
+        )
+        auth = bearer(alice)
+
+        async def subscribe(ask_id):
+            return FakeSubscription()
+
+        def other_backends():
+            # A connection of its own (a pool thread), closed after.
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT pid FROM pg_stat_activity"
+                        " WHERE datname = current_database() AND pid <> pg_backend_pid()"
+                    )
+                    return {row[0] for row in cursor.fetchall()}
+            finally:
+                connection.close()
+
+        seen = {}
+
+        async def measure_once_streaming(started, sent):
+            await asyncio.wait_for(started.wait(), READ_TIMEOUT)  # the snapshot is out
+            seen["streaming"] = await sync_to_async(other_backends, thread_sensitive=False)()
+            return {"type": "http.disconnect"}
+
+        async def scenario():
+            seen["before"] = await sync_to_async(other_backends, thread_sensitive=False)()
+            with (
+                mock.patch("assistant.stream.subscribe", subscribe),
+                mock.patch("assistant.stream.acquire_slot", FakeSlot),
+            ):
+                return await asyncio.wait_for(
+                    call_asgi(url(ask.pk), auth, measure_once_streaming), 5
+                )
+
+        sent = asyncio.run(scenario())
+        self.assertEqual(sent[0]["status"], 200)
+        self.assertEqual(seen["streaming"], seen["before"])
 
 
 @override_settings(**QUIET, ALLOWED_HOSTS=["testserver"])
@@ -611,3 +719,104 @@ class RealRedisTests(TransactionTestCase):
         self.assertEqual(received[3]["type"], "done")
         self.assertEqual(received[3]["ask"]["answer"], "Your passport expires.")
         self.assertEqual(len(received), 4)
+        # The stream's slot, counted in Redis, was given back.
+        client = redis.Redis.from_url(self.URL)
+        self.assertFalse(client.exists(stream.slots_key(alice.pk)))
+
+
+class SubscribeCancelTests(SimpleTestCase):
+    def test_a_cancel_while_subscribing_closes_the_connection(self):
+        # D513: the client went away while Redis had not confirmed yet.
+        closed = []
+
+        class Hanging:
+            def __init__(self, url, channel):
+                pass
+
+            async def open(self):
+                await asyncio.Event().wait()
+
+            async def close(self):
+                closed.append(True)
+
+        async def scenario():
+            with (
+                override_settings(ASK_EVENTS_REDIS_URL="redis://localhost:6379/15"),
+                mock.patch("assistant.stream.RedisSubscription", Hanging),
+            ):
+                task = asyncio.ensure_future(REAL_SUBSCRIBE(1))
+                await asyncio.sleep(0.05)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+
+        asyncio.run(scenario())
+        self.assertEqual(closed, [True])
+
+
+@override_settings(STREAM_MAX_PER_USER=2, ASK_STREAM_MAX_SECONDS=300)
+class SlotTests(SimpleTestCase):
+    """The per-user stream cap, counted in the local Redis, database 15 (D511)."""
+
+    URL = "redis://localhost:6379/15"
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            redis.Redis.from_url(cls.URL, socket_connect_timeout=0.2).ping()
+        except redis.RedisError:
+            raise unittest.SkipTest("no Redis at localhost:6379") from None
+        super().setUpClass()
+
+    def setUp(self):
+        self.client = redis.Redis.from_url(self.URL)
+        # Shared by every test run: a user id no other run is likely to use.
+        self.user_id = random.randint(10**9, 2 * 10**9)
+        self.key = stream.slots_key(self.user_id)
+        self.addCleanup(self.client.delete, self.key)
+        settings = override_settings(ASK_EVENTS_REDIS_URL=self.URL)
+        settings.enable()
+        self.addCleanup(settings.disable)
+
+    def count(self):
+        value = self.client.get(self.key)
+        return None if value is None else int(value)
+
+    def test_the_cap_refuses_one_more_until_a_stream_ends(self):
+        first = stream.acquire_slot(self.user_id)
+        second = stream.acquire_slot(self.user_id)
+        with self.assertRaises(stream.TooManyStreams):
+            stream.acquire_slot(self.user_id)
+        self.assertEqual(self.count(), 2)
+        # The safety net: the stream cap plus a margin.
+        self.assertTrue(300 < self.client.ttl(self.key) <= 300 + stream.SLOT_TTL_MARGIN_SECONDS)
+
+        asyncio.run(first.release())
+        asyncio.run(first.release())  # once only
+        self.assertEqual(self.count(), 1)
+        third = stream.acquire_slot(self.user_id)
+        asyncio.run(second.release())
+        asyncio.run(third.release())
+        self.assertIsNone(self.count())  # gone, not left at 0
+
+    def test_a_refused_open_does_not_renew_the_safety_net(self):
+        # Two leaked slots: retrying must not keep them alive.
+        self.client.set(self.key, 2, ex=5)
+        with self.assertRaises(stream.TooManyStreams):
+            stream.acquire_slot(self.user_id)
+        self.assertEqual(self.count(), 2)
+        self.assertLessEqual(self.client.ttl(self.key), 5)
+
+    @override_settings(STREAM_MAX_PER_USER=0)
+    def test_a_cap_of_zero_is_no_cap(self):
+        self.assertIs(stream.acquire_slot(self.user_id), stream.NO_SLOT)
+        self.assertIsNone(self.count())
+
+    def test_an_unreachable_redis_fails_open(self):
+        # Nothing listens on port 1.
+        with override_settings(ASK_EVENTS_REDIS_URL="redis://127.0.0.1:1/15"):
+            self.assertIs(stream.acquire_slot(self.user_id), stream.NO_SLOT)
+
+    @override_settings(ASK_EVENTS_REDIS_URL="")
+    def test_live_events_off_is_no_cap(self):
+        self.assertIs(stream.acquire_slot(self.user_id), stream.NO_SLOT)

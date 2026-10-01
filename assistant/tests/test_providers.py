@@ -258,6 +258,20 @@ class OpenAIProviderTests(ErrorTranslationMixin, SimpleTestCase):
                 self.assertEqual((cost["provider"], cost["model"]), ("openai", body["model"]))
                 self.assertEqual((cost["input_tokens"], cost["output_tokens"]), (90, 40))
 
+    def test_a_failed_response_with_a_transient_error_is_retried(self):
+        # D512: a server error or a rate limit is worth a retry, not a failed ask.
+        cases = (
+            ({"code": "server_error", "message": "oops"}, TransientChatError),
+            ({"code": "rate_limit_exceeded", "message": "slow"}, TransientChatError),
+            ({"type": "server_error", "code": None, "message": "x"}, TransientChatError),
+            ({"code": "invalid_prompt", "message": "no"}, ChatError),
+        )
+        for error, expected in cases:
+            body = openai_body(status="failed", error=error)
+            with self.subTest(error=error), patch(POST, return_value=http(200, body)):
+                with self.assertRaises(expected):
+                    self.call()
+
 
 def gemini_body(finish_reason="STOP", parts=None, **extra):
     body = {
