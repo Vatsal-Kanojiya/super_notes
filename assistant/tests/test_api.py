@@ -20,6 +20,8 @@ from notes import services
 from notes.tests.helpers import doc, make_user
 from retrieval.indexing import index_note
 
+from .helpers import chat_turns, record_usage
+
 ASK = "/api/v1/ask/"
 ME = "/api/v1/me/"
 
@@ -165,7 +167,7 @@ class FlowTests(AskAPITestCase):
         self.assertEqual(response.json()["code"], "idempotency_key_reused")
 
 
-@override_settings(ASK_QUOTAS={"free": 1, "premium": 10})
+@override_settings(LIMIT_DEFAULTS=chat_turns(1, 10))
 class QuotaTests(AskAPITestCase):
     def test_over_quota_is_a_429_with_usage(self):
         self.assertEqual(self.post().status_code, 202)
@@ -188,12 +190,14 @@ class QuotaTests(AskAPITestCase):
         self.assertIsNone(view.throttle_scope)
 
 
-@override_settings(ASK_QUOTAS={"free": 20, "premium": 500})
+@override_settings(LIMIT_DEFAULTS=chat_turns(20, 500))
 class MeUsageTests(AskAPITestCase):
     def test_me_reports_this_months_usage(self):
-        AskQuery.objects.create(user=self.alice, question="a", idempotency_key="a")
-        AskQuery.objects.create(
-            user=self.alice, question="b", idempotency_key="b", status=AskQuery.Status.FAILED
+        record_usage(AskQuery.objects.create(user=self.alice, question="a", idempotency_key="a"))
+        record_usage(
+            AskQuery.objects.create(
+                user=self.alice, question="b", idempotency_key="b", status=AskQuery.Status.FAILED
+            )
         )
 
         usage = self.client.get(ME).json()["ask_usage"]

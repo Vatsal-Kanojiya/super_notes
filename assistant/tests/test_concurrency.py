@@ -12,14 +12,17 @@ from django.contrib.auth import get_user_model
 from django.db import connections
 from django.test import TransactionTestCase, override_settings
 
-from assistant import quota, services
+from assistant import services
 from assistant.models import AskQuery
 from assistant.services import QuotaExceeded, create_ask
 from assistant.tasks import answer_ask
+from limits import service as limits
 from notes.tests.helpers import make_user
 
+from .helpers import chat_turns, record_usage
 
-@override_settings(ASK_QUOTAS={"free": 2, "premium": 10})
+
+@override_settings(LIMIT_DEFAULTS=chat_turns(2, 10))
 class ConcurrentAskTests(TransactionTestCase):
     def setUp(self):
         self.alice = make_user("alice")
@@ -52,7 +55,9 @@ class ConcurrentAskTests(TransactionTestCase):
         return results, errors
 
     def test_parallel_asks_at_the_edge_cannot_both_pass(self):
-        AskQuery.objects.create(user=self.alice, question="earlier", idempotency_key="earlier")
+        record_usage(
+            AskQuery.objects.create(user=self.alice, question="earlier", idempotency_key="earlier")
+        )
 
         results, errors = self._run_in_threads(
             lambda i: create_ask(self.alice, f"Question {i}?", f"key-{i}"), 6
@@ -80,19 +85,24 @@ class ConcurrentAskTests(TransactionTestCase):
         create one. (With the real lock this interleaving cannot happen --
         the second thread waits at the lock, not at the barrier.)
         """
-        AskQuery.objects.create(user=self.alice, question="earlier", idempotency_key="earlier")
+        record_usage(
+            AskQuery.objects.create(user=self.alice, question="earlier", idempotency_key="earlier")
+        )
         counted = threading.Barrier(2)
-        real_usage = quota.usage
+        real_used = limits._used
 
-        def usage_then_wait(user, now=None):
-            result = real_usage(user, now)
-            counted.wait(timeout=10)
+        def used_then_wait(key, start, end, user=None):
+            result = real_used(key, start, end, user=user)
+            # Only the per-user count: the system count runs under its own
+            # advisory lock (limits, D98), where a barrier would deadlock.
+            if user is not None:
+                counted.wait(timeout=10)
             return result
 
         User = get_user_model()
         with (
             mock.patch.object(services, "_lock_user", lambda user: User.objects.get(pk=user.pk)),
-            mock.patch.object(quota, "usage", usage_then_wait),
+            mock.patch.object(limits, "_used", used_then_wait),
         ):
             results, errors = self._run_in_threads(
                 lambda i: create_ask(self.alice, f"Question {i}?", f"key-{i}"), 2

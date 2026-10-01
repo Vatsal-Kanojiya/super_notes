@@ -477,8 +477,7 @@ CHAT_TIMEOUT_SECONDS = env.int("CHAT_TIMEOUT_SECONDS", default=60)
 # queueing behind a backlog, so a slow ask is never failed under a worker.
 ASK_STUCK_AFTER_SECONDS = env.int("ASK_STUCK_AFTER_SECONDS", default=60 * 60)
 
-# Asks per calendar month, by User.plan. Failed asks do not count.
-ASK_QUOTAS = {"free": 20, "premium": 500}
+# Asks per month are the chat_turns limit in LIMIT_DEFAULTS (DECISIONS D101).
 # How many chunks retrieval hands the prompt.
 ASK_RETRIEVAL_K = env.int("ASK_RETRIEVAL_K", default=8)
 # Below this retrieval score nothing counts as relevant, and the ask is

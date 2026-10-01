@@ -11,9 +11,9 @@ class AskQuery(models.Model):
 
     The job shape the reference uses: the API creates the row as pending and
     returns at once, the task moves it to running and then done or failed,
-    and the client polls. Every row that is not failed is one ask against
-    the month's quota (assistant/quota.py) -- the rows *are* the counter, so
-    there is no second number to drift from them.
+    and the client polls. Each ask consumes one ``chat_turns`` use in the
+    limits ledger when it is made, refunded if it fails (assistant/quota.py,
+    DECISIONS D101-D102).
     """
 
     class Status(models.TextChoices):
@@ -57,7 +57,7 @@ class AskQuery(models.Model):
             ),
         ]
         indexes = [
-            # The quota count: this user's asks since the start of the month.
+            # This user's asks by date (V1's quota count; the ledger counts now).
             models.Index(fields=["user", "created_at"], name="ask_user_created"),
             # GET ask/: this user's asks, newest id first (the cursor).
             models.Index(fields=["user", "-id"], name="ask_user_id"),

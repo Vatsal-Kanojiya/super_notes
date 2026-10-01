@@ -10,13 +10,19 @@ The idempotency lookup comes first, under the same lock: a retried POST
 gets back the ask it already made -- counted once, and returned even if the
 month has filled up since -- and two requests racing with one key cannot
 both miss it and then trip the unique constraint.
+
+The quota is the ``chat_turns`` limit of limits/ (DECISIONS D84, D101): a
+new ask consumes one, linked to the ask, and a failed ask is refunded
+(assistant/tasks.py). The system-wide limit raises SystemLimitExceeded
+through this function untouched.
 """
 
 from datetime import datetime
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.utils import timezone
+
+from limits import service as limits
 
 from . import quota
 from .models import AskQuery
@@ -27,8 +33,9 @@ User = get_user_model()
 class QuotaExceeded(Exception):
     """The month's asks are used up. The API answers 429 with these fields."""
 
-    def __init__(self, used: int, limit: int, resets_at: datetime):
-        super().__init__(f"{used} of {limit} asks used; resets {resets_at.isoformat()}.")
+    def __init__(self, used: int, limit: int, resets_at: datetime | None):
+        when = resets_at.isoformat() if resets_at else "never"
+        super().__init__(f"{used} of {limit} asks used; resets {when}.")
         self.used, self.limit, self.resets_at = used, limit, resets_at
 
 
@@ -55,7 +62,7 @@ def _lock_user(user):
 
 @transaction.atomic
 def create_ask(user, question: str, idempotency_key: str) -> tuple[AskQuery, bool]:
-    """(ask, created). Raises QuotaExceeded or IdempotencyKeyReused.
+    """(ask, created). Raises QuotaExceeded, IdempotencyKeyReused or SystemLimitExceeded.
 
     A new ask is enqueued on commit, so the worker never looks for a row
     that is not visible yet, and a rolled-back create is never answered.
@@ -69,12 +76,13 @@ def create_ask(user, question: str, idempotency_key: str) -> tuple[AskQuery, boo
             raise IdempotencyKeyReused(existing)
         return existing, False
 
-    now = timezone.now()
-    usage = quota.usage(locked, now)
-    if usage["used"] >= usage["limit"]:
-        raise QuotaExceeded(**usage)
-
+    # Made before the check so the event can point at it; a refusal raises
+    # out of this transaction and takes the row with it.
     ask = AskQuery.objects.create(user=locked, question=question, idempotency_key=idempotency_key)
+    try:
+        limits.consume(locked, quota.KEY, ask=ask)
+    except limits.UserLimitExceeded as exceeded:
+        raise QuotaExceeded(exceeded.used, exceeded.limit, exceeded.resets_at) from exceeded
 
     # Imported here: the task module imports retrieval and the chat stack,
     # none of which creating a row needs.

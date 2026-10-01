@@ -305,7 +305,9 @@ class MeTests(AuthApiTestCase):
         )
         self.assertEqual(body["plan"], "premium")
         # The quota follows the plan (assistant/tests/test_api.py covers the count).
-        self.assertEqual(body["ask_usage"]["limit"], settings.ASK_QUOTAS["premium"])
+        self.assertEqual(
+            body["ask_usage"]["limit"], settings.LIMIT_DEFAULTS["chat_turns"]["user_premium"]
+        )
 
 
 # --- @sensitive_variables() ------------------------------------------------

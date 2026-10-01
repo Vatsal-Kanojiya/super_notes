@@ -7,9 +7,10 @@ from .models import AskQuery
 class AskQueryAdmin(admin.ModelAdmin):
     """Read-only, for support and debugging.
 
-    The rows are the quota counter (assistant/quota.py): an edited status or
-    a deleted row would silently hand an ask back or take one away. To give
-    a user more asks, change their plan.
+    The quota is counted in the limits ledger (assistant/quota.py), and a
+    failed status is what refunds an ask: an edited status would hand one
+    back without a refund, or the reverse. To give a user more asks, change
+    their plan or the chat_turns limit.
     """
 
     list_display = ["id", "user", "status", "provider", "model", "created_at", "completed_at"]

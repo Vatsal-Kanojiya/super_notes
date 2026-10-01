@@ -18,11 +18,14 @@ from assistant.chat import ChatError, ChatResult, TransientChatError
 from assistant.models import AskQuery
 from assistant.prompt import prompt_version
 from assistant.tasks import answer_ask, is_relevant, sweep_stuck_asks
+from limits.models import UsageEvent
 from notes import services
 from notes.tests.helpers import doc, make_user
 from retrieval.embeddings import EmbeddingError
 from retrieval.indexing import index_note
 from retrieval.search import SearchHit
+
+from .helpers import record_usage
 
 COMPLETE = "assistant.chat.complete"
 
@@ -284,7 +287,7 @@ class SweepStuckAsksTests(TestCase):
         AskQuery.objects.filter(pk=row.pk).update(
             created_at=timezone.now() - timedelta(seconds=seconds)
         )
-        return row
+        return record_usage(row)
 
     def test_default_cutoff_outlasts_the_full_retry_span(self):
         attempts = answer_ask.max_retries + 1
@@ -345,3 +348,90 @@ class SweepStuckAsksTests(TestCase):
         self.assertEqual(quota.used(self.user), 0)
         row.refresh_from_db()
         self.assertEqual(row.status, AskQuery.Status.FAILED)
+
+
+class RefundTests(TestCase):
+    """A failed ask hands its chat_turns use back, exactly once (DECISIONS D102)."""
+
+    def setUp(self):
+        self.alice = make_user("alice")
+        write(self.alice, "Passport", "My passport expires in March 2027.")
+        self.query = record_usage(ask(self.alice, "When does my passport expire?"))
+
+    def assert_refunded(self, refunded):
+        event = UsageEvent.objects.get(ask=self.query)
+        self.assertEqual(event.refunded, refunded)
+        self.assertEqual(quota.used(self.alice), 0 if refunded else 1)
+
+    def test_an_answered_ask_keeps_counting(self):
+        answer_ask.delay(self.query.pk)
+        self.assert_refunded(False)
+
+    def test_a_provider_refusal_refunds(self):
+        with mock.patch(COMPLETE, side_effect=ChatError("no")), self.assertLogs("assistant.tasks"):
+            answer_ask.delay(self.query.pk)
+        self.assert_refunded(True)
+
+    def test_a_search_failure_refunds(self):
+        with (
+            mock.patch.object(tasks, "search", side_effect=EmbeddingError("no")),
+            self.assertLogs("assistant.tasks"),
+        ):
+            answer_ask.delay(self.query.pk)
+        self.assert_refunded(True)
+
+    def test_giving_up_after_the_last_retry_refunds(self):
+        with (
+            mock.patch(COMPLETE, side_effect=TransientChatError("503")),
+            self.assertLogs("assistant.tasks", "ERROR"),
+        ):
+            answer_ask.apply((self.query.pk,), retries=answer_ask.max_retries)
+        self.assert_refunded(True)
+
+    def test_a_retry_does_not_refund(self):
+        with mock.patch(COMPLETE, side_effect=TransientChatError("503")), self.assertRaises(Retry):
+            answer_ask.apply((self.query.pk,), retries=0)
+        self.assert_refunded(False)
+
+    def test_an_unexpected_error_refunds(self):
+        with (
+            mock.patch(COMPLETE, side_effect=RuntimeError("bug")),
+            self.assertLogs("assistant.tasks", "ERROR"),
+            self.assertRaises(RuntimeError),
+        ):
+            answer_ask.delay(self.query.pk)
+        self.assert_refunded(True)
+
+    def test_only_the_call_that_fails_the_ask_refunds(self):
+        tasks._fail(self.query.pk, "first")
+        # Count the event again, as if still owed: a second fail (a duplicate
+        # run, or the sweeper racing the task) did not fail the ask, so it
+        # must not refund anything.
+        UsageEvent.objects.filter(ask=self.query).update(refunded=False)
+        tasks._fail(self.query.pk, "second")
+
+        self.assert_refunded(False)
+        self.query.refresh_from_db()
+        self.assertEqual(self.query.error, "first")
+
+    def test_failing_a_finished_ask_refunds_nothing(self):
+        tasks._finish(self.query.pk, answer="done")
+        tasks._fail(self.query.pk, "late")
+        self.assert_refunded(False)
+
+    @override_settings(ASK_STUCK_AFTER_SECONDS=100)
+    def test_the_sweeper_refunds_what_it_fails_and_only_that(self):
+        AskQuery.objects.filter(pk=self.query.pk).update(
+            created_at=timezone.now() - timedelta(seconds=200)
+        )
+        finished = record_usage(ask(self.alice, "Finished long ago", AskQuery.Status.DONE))
+        AskQuery.objects.filter(pk=finished.pk).update(
+            created_at=timezone.now() - timedelta(seconds=200)
+        )
+
+        self.assertEqual(sweep_stuck_asks(), 1)
+        self.assertEqual(sweep_stuck_asks(), 0)
+
+        self.assertTrue(UsageEvent.objects.get(ask=self.query).refunded)
+        self.assertFalse(UsageEvent.objects.get(ask=finished).refunded)
+        self.assertEqual(quota.used(self.alice), 1)

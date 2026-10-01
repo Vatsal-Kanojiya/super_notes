@@ -1,46 +1,38 @@
-"""The monthly ask quota, counted from AskQuery rows.
+"""The monthly ask quota: the ``chat_turns`` limit, read through limits/ (DECISIONS D101).
 
-A month is a calendar month in settings.TIME_ZONE (Asia/Kolkata), the
-users' own: counting in UTC would reset the quota at 05:30 on the 1st.
-Failed asks are not counted -- a vendor outage should not cost the user
-their questions.
+A thin wrapper kept so callers that think in "asks this month" (``me/``'s
+``ask_usage``) need not know the key. The count is the non-refunded
+``chat_turns`` events of limits/, and the limit is that key's value for the
+user's plan (LIMIT_DEFAULTS, or its row in the admin). A failed ask is
+refunded (assistant/tasks.py), so it does not count -- a vendor outage
+should not cost the user their questions.
 
-usage() is only a *count*. Deciding whether one more ask fits must happen
-under the user's row lock (assistant/services.py), or two asks at the edge
-could both see room for one.
+usage() is only a *count*. Deciding whether one more ask fits happens in
+limits.consume(), under the user's row lock (assistant/services.py).
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from django.conf import settings
 from django.utils import timezone
 
-from .models import AskQuery
+from limits import service as limits
+
+KEY = "chat_turns"
 
 
 def month_bounds(now: datetime | None = None) -> tuple[datetime, datetime]:
     """[start, end) of the calendar month containing ``now``, in the local zone."""
-    local = timezone.localtime(now or timezone.now())
-    start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    # Day 28 + 4 days is always in the next month, whatever this month's length.
-    end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    return start, end
+    return limits.period_bounds("month", now or timezone.now())
 
 
-def limit_for(user) -> int:
-    return settings.ASK_QUOTAS[user.plan]
+def limit_for(user) -> int | None:
+    return limits.get_rule(KEY).for_user(user)
 
 
 def used(user, now: datetime | None = None) -> int:
-    start, end = month_bounds(now)
-    return (
-        AskQuery.objects.filter(user=user, created_at__gte=start, created_at__lt=end)
-        .exclude(status=AskQuery.Status.FAILED)
-        .count()
-    )
+    return limits.usage(user, KEY, now)["used"]
 
 
 def usage(user, now: datetime | None = None) -> dict:
     """``{used, limit, resets_at}``, as `me/` and a 429 report it."""
-    now = now or timezone.now()
-    return {"used": used(user, now), "limit": limit_for(user), "resets_at": month_bounds(now)[1]}
+    return limits.usage(user, KEY, now)
