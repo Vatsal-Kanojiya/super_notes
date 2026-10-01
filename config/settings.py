@@ -214,7 +214,19 @@ CELERY_BEAT_SCHEDULE = {
         "task": "assistant.tasks.sweep_stuck_asks",
         "schedule": 5 * 60,
     },
+    # Reminders notify on the minute (D95). A sweep claims each occurrence
+    # once (notes/delivery.py), so an overlapping or repeated run is
+    # harmless; one that waited past the next run is dropped.
+    "deliver-due-reminders": {
+        "task": "notes.tasks.deliver_due_reminders",
+        "schedule": 60,
+        "options": {"expires": 55},
+    },
 }
+
+# A reminder occurrence missed by more than this (the worker was down) is
+# not sent late at all (DECISIONS D136).
+REMINDER_MISSED_GRACE_HOURS = env.int("REMINDER_MISSED_GRACE_HOURS", default=24)
 
 
 # Upload size
@@ -276,6 +288,12 @@ ADMINS = [
 ]
 EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
 SERVER_EMAIL = env("SERVER_EMAIL", default="no-reply@super-notes.local")
+# The sender of mail to users (reminders); SERVER_EMAIL is for admin mail.
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=SERVER_EMAIL)
+
+# Where the web client is served, for links in mail ("open the note").
+# No trailing slash.
+WEB_APP_URL = env("WEB_APP_URL", default="http://localhost:5173").rstrip("/")
 
 
 # Logging

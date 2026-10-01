@@ -144,7 +144,9 @@ class ReminderDelivery(models.Model):
 
     The unique ``(reminder, occurrence_at)`` is the at-most-once guarantee: a
     second worker's insert for the same occurrence fails. ``sent_at`` is set
-    when sending finishes; ``channel_results`` records each channel's outcome.
+    when sending *starts*, by a conditional update, so a task run twice sends
+    once; ``channel_results`` records each channel's outcome after (D137).
+    notes/delivery.py does all of this.
     """
 
     reminder = models.ForeignKey(Reminder, on_delete=models.CASCADE, related_name="deliveries")
