@@ -16,6 +16,7 @@ from rest_framework.test import APIClient
 from assistant import quota
 from assistant.api import AskListView
 from assistant.models import AskQuery
+from limits.models import Limit, UsageEvent
 from notes import services
 from notes.tests.helpers import doc, make_user
 from retrieval.indexing import index_note
@@ -207,3 +208,56 @@ class MeUsageTests(AskAPITestCase):
         self.assertEqual(resets_at, quota.month_bounds()[1])
         self.assertEqual(resets_at.day, 1)
         self.assertEqual(resets_at.utcoffset(), datetime.now(ZoneInfo("Asia/Kolkata")).utcoffset())
+
+
+class SystemLimitTests(AskAPITestCase):
+    def test_a_full_system_is_a_503_and_makes_no_ask(self):
+        Limit.objects.create(
+            key="chat_turns", user_free=20, user_premium=100, system=0, period="month"
+        )
+
+        with self.assertLogs("limits.service", "WARNING"):
+            response = self.post()
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["code"], "system_limit_reached")
+        self.assertIn("detail", response.json())
+        self.assertFalse(AskQuery.objects.exists())
+        self.assertFalse(UsageEvent.objects.exists())
+
+
+class MeLimitsTests(AskAPITestCase):
+    def test_limits_lists_the_user_facing_keys(self):
+        self.post()
+
+        body = self.client.get(ME).json()
+        limits = body["limits"]
+
+        self.assertEqual(set(limits), {"chat_turns", "format", "summary", "storage_bytes"})
+        self.assertEqual(limits["chat_turns"], body["ask_usage"])
+        self.assertEqual((limits["chat_turns"]["used"], limits["chat_turns"]["limit"]), (1, 20))
+        self.assertEqual((limits["summary"]["used"], limits["summary"]["limit"]), (0, 2))
+        self.assertEqual(limits["storage_bytes"]["limit"], 1024**3)
+        self.assertIsNone(limits["storage_bytes"]["resets_at"])
+
+    def test_an_unlimited_key_reports_null(self):
+        Limit.objects.create(key="chat_turns", period="total")
+
+        body = self.client.get(ME).json()
+
+        self.assertEqual(body["ask_usage"], {"used": 0, "limit": None, "resets_at": None})
+        self.assertEqual(body["limits"]["chat_turns"], body["ask_usage"])
+
+    def test_a_refunded_ask_is_not_counted(self):
+        ask = record_usage(
+            AskQuery.objects.create(user=self.alice, question="a", idempotency_key="a")
+        )
+        UsageEvent.objects.filter(ask=ask).update(refunded=True)
+
+        self.assertEqual(self.client.get(ME).json()["limits"]["chat_turns"]["used"], 0)
+
+    def test_me_counts_in_a_fixed_number_of_queries(self):
+        # One for the limit rows, one aggregate for every key, shared by
+        # ask_usage and limits. Authentication is forced, so no user query.
+        with self.assertNumQueries(2):
+            self.client.get(ME)

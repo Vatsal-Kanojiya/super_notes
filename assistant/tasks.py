@@ -165,15 +165,24 @@ def _retrieved(hit: SearchHit) -> dict:
     }
 
 
+COST_FIELDS = ("provider", "model", "input_tokens", "output_tokens")
+
+
+@transaction.atomic
 def _finish(ask_id, **fields) -> None:
     """Store a result and mark the ask done -- only if it is still unfinished.
 
     Conditional, so a late duplicate run can never overwrite an answer
-    already given, or revive a failed ask.
+    already given, or revive a failed ask. The ask's usage event gets the
+    provider, model and token counts in the same commit, for cost reports
+    (DECISIONS D133); a floor answer made no provider call and has none.
     """
-    AskQuery.objects.filter(pk=ask_id, status__in=UNFINISHED).update(
+    done = AskQuery.objects.filter(pk=ask_id, status__in=UNFINISHED).update(
         status=AskQuery.Status.DONE, completed_at=timezone.now(), error="", **fields
     )
+    cost = {name: fields[name] for name in COST_FIELDS if name in fields}
+    if done and cost:
+        limits.describe_where({"ask_id": ask_id}, **cost)
 
 
 @transaction.atomic

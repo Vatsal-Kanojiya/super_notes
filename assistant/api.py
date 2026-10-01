@@ -18,7 +18,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import generics, serializers, status
 from rest_framework.response import Response
 
-from config.api.common import MessageSerializer
+from config.api.common import SYSTEM_LIMIT_RESPONSE, MessageSerializer
 
 from .models import QUESTION_MAX_CHARS, AskQuery
 from .services import IdempotencyKeyReused, QuotaExceeded, create_ask
@@ -76,12 +76,14 @@ class AskCreateSerializer(serializers.Serializer):
 
 
 class AskUsageSerializer(serializers.Serializer):
-    """This month's asks. Failed asks are not counted."""
+    """This month's asks: the `chat_turns` limit. Failed asks are not counted."""
 
     used = serializers.IntegerField()
-    limit = serializers.IntegerField()
+    limit = serializers.IntegerField(allow_null=True, help_text="Null: unlimited.")
     resets_at = serializers.DateTimeField(
-        help_text="When `used` goes back to 0: the start of next month, Asia/Kolkata."
+        allow_null=True,
+        help_text="When `used` goes back to 0: the start of next month, Asia/Kolkata. "
+        "Null if it never resets.",
     )
 
 
@@ -132,7 +134,9 @@ class AskListView(generics.ListAPIView):
             "Send a fresh `Idempotency-Key` per question. Resending one (a retry after a "
             "dropped connection) returns the ask it already made, with 200, and does not count "
             "again. Reusing it for a different question is a 422.\n\n"
-            "Each ask that does not fail counts against the month's quota (see `me/`)."
+            "Each ask that does not fail counts against the month's quota (see `me/`). When "
+            "the service-wide monthly budget is used up, asking pauses for everyone: 503 "
+            "`system_limit_reached`."
         ),
         parameters=[
             OpenApiParameter(
@@ -161,6 +165,7 @@ class AskListView(generics.ListAPIView):
                 QuotaExceededSerializer,
                 description="`quota_exceeded` (with usage), or `throttled`.",
             ),
+            503: SYSTEM_LIMIT_RESPONSE,
         },
     )
     def post(self, request, *args, **kwargs):

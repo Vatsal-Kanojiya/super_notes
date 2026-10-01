@@ -435,3 +435,42 @@ class RefundTests(TestCase):
         self.assertTrue(UsageEvent.objects.get(ask=self.query).refunded)
         self.assertFalse(UsageEvent.objects.get(ask=finished).refunded)
         self.assertEqual(quota.used(self.alice), 1)
+
+
+class CostTests(TestCase):
+    """A finished ask's usage event records what it cost (DECISIONS D133)."""
+
+    def setUp(self):
+        self.alice = make_user("alice")
+        write(self.alice, "Passport", "My passport expires in March 2027.")
+        self.query = record_usage(ask(self.alice, "When does my passport expire?"))
+
+    def test_an_answer_records_provider_model_and_tokens(self):
+        result = ChatResult(
+            text="March 2027 [1].",
+            provider="claude",
+            model="m-1",
+            input_tokens=120,
+            output_tokens=8,
+        )
+        with mock.patch(COMPLETE, return_value=result):
+            answer_ask.delay(self.query.pk)
+
+        event = UsageEvent.objects.get(ask=self.query)
+        self.assertEqual(
+            (event.provider, event.model, event.input_tokens, event.output_tokens),
+            ("claude", "m-1", 120, 8),
+        )
+
+    def test_a_floor_answer_records_no_cost(self):
+        with mock.patch.object(tasks, "search", return_value=[]):
+            answer_ask.delay(self.query.pk)
+
+        event = UsageEvent.objects.get(ask=self.query)
+        self.assertEqual((event.provider, event.input_tokens), ("", None))
+
+    def test_a_late_duplicate_finish_changes_nothing(self):
+        tasks._fail(self.query.pk, "gone")
+        tasks._finish(self.query.pk, answer="late", provider="claude", model="m", input_tokens=1)
+
+        self.assertEqual(UsageEvent.objects.get(ask=self.query).provider, "")
