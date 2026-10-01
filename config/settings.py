@@ -593,6 +593,16 @@ ASK_EVENTS_REDIS_URL = env("ASK_EVENTS_REDIS_URL", default=CELERY_BROKER_URL)
 # The text streamed so far is saved on the ask (partial_answer) at most this
 # often, so a reader that connects mid-answer can catch up from the row.
 ASK_PARTIAL_SAVE_SECONDS = env.float("ASK_PARTIAL_SAVE_SECONDS", default=0.5)
+# GET ask/<id>/stream/ (assistant/stream.py, DECISIONS D370-D377), served
+# under uvicorn. A stream closes with a "timeout" event after this long, and
+# the client goes on by polling: the answer task can take minutes, but an
+# open stream should not outlive it by much.
+ASK_STREAM_MAX_SECONDS = env.float("ASK_STREAM_MAX_SECONDS", default=300)
+# A comment line after this long without output, so a proxy keeps it open.
+ASK_STREAM_HEARTBEAT_SECONDS = env.float("ASK_STREAM_HEARTBEAT_SECONDS", default=15)
+# How often an open stream reads its ask again, so one that ends without an
+# event (swept as stuck, or the worker could not reach Redis) still ends it.
+ASK_STREAM_RECHECK_SECONDS = env.float("ASK_STREAM_RECHECK_SECONDS", default=10)
 
 # An ask still pending or running this long after it was made is failed by
 # assistant.tasks.sweep_stuck_asks. It must outlast every way a live ask

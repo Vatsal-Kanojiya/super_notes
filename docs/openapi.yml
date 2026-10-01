@@ -165,6 +165,67 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: No such ask of yours.
+  /api/v1/ask/{id}/stream/:
+    get:
+      operationId: ask_stream_retrieve
+      description: |-
+        The answer as it is written, as server-sent events (`text/event-stream`). Read it with
+        `fetch` and a streaming body reader (an `EventSource` cannot send the `Authorization` header).
+        Polling `GET ask/<id>/` keeps working and stays the source of truth: on any error, or a stream
+        that ends without `done` or `failed`, poll (or open the stream again: it catches up).
+
+        Each event is `event: <type>` and one `data:` line of JSON that repeats `type`:
+
+        - `snapshot` `{text, offset}`: the answer so far; replaces what you have. `offset` is its
+          length. First, for an unfinished ask.
+        - `delta` `{offset, text}`: append `text`. Deltas are contiguous: `offset` is always the length
+          of the text so far (in code points).
+        - `reset`: the answer is starting over (a retry); clear the text.
+        - `done` / `failed` `{ask}`: the ask exactly as `GET ask/<id>/` returns it, citations
+          included. Last.
+        - `timeout`: the stream reached its time limit (5 minutes by default). Last: poll.
+        - `unavailable`: live events are off or unreachable, or the server is not running under ASGI.
+          Last: poll.
+
+        A finished ask gets its `done` or `failed` at once. A `: keep-alive` comment line comes after
+        15 seconds without an event. Opening a stream counts against the general request rate, not the
+        `ask` scope.
+      summary: Stream an ask's answer
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Ask
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            text/event-stream:
+              schema:
+                type: string
+          description: Server-sent events until the ask ends.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such ask of yours.
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`throttled`.'
   /api/v1/attachments/{id}/:
     get:
       operationId: attachments_retrieve
