@@ -187,7 +187,8 @@ class PushSubscription(models.Model):
 
     ``endpoint`` is unique across all users: a browser profile is one
     subscription, and if a different account signs in on it the row moves to
-    that account (accounts/api.py). ``p256dh`` and ``auth`` are the keys the
+    that account -- only when it posts the same keys, which only that
+    browser holds (accounts/api.py, D526). ``p256dh`` and ``auth`` are the keys the
     payload is encrypted to; treat them as secrets and never show them back.
     """
 

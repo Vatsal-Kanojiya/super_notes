@@ -86,10 +86,24 @@ class EndpointTests(TestCase):
         self.client_a.post(url("me-push-subscriptions"), body, format="json")
         self.assertEqual(PushSubscription.objects.get().p256dh, "C" + "A" * 86)
 
-    def test_an_endpoint_registered_to_another_user_moves_to_the_caller(self):
+    def test_an_endpoint_registered_to_another_user_moves_with_the_same_keys(self):
         self.client_a.post(url("me-push-subscriptions"), sub_body(), format="json")
-        self.client_b.post(url("me-push-subscriptions"), sub_body(), format="json")
+        response = self.client_b.post(url("me-push-subscriptions"), sub_body(), format="json")
+        self.assertEqual(response.status_code, 204)
         self.assertEqual(PushSubscription.objects.get().user, self.bob)
+
+    def test_another_users_endpoint_with_other_keys_is_409_and_unchanged(self):
+        self.client_a.post(url("me-push-subscriptions"), sub_body(), format="json")
+        for body in (
+            {**sub_body(), "p256dh": "C" + "A" * 86},
+            {**sub_body(), "auth": "B" * 22},
+        ):
+            with self.subTest(body=body):
+                response = self.client_b.post(url("me-push-subscriptions"), body, format="json")
+                self.assertEqual(response.status_code, 409)
+                self.assertEqual(response.json()["code"], "endpoint_in_use")
+                sub = PushSubscription.objects.get()
+                self.assertEqual((sub.user, sub.p256dh, sub.auth), (self.alice, P256DH, AUTH))
 
     def test_unsafe_endpoints_are_refused(self):
         cases = {
@@ -225,6 +239,12 @@ class PushChannelTests(TestCase):
         self.assertNotIn(SECRET, kwargs["data"])
         sub.refresh_from_db()
         self.assertIsNotNone(sub.last_success_at)
+
+    def test_the_push_service_call_has_a_timeout(self):
+        self.subscribe()
+        with mock.patch("accounts.push.webpush") as wp:
+            self.deliver()
+        self.assertEqual(wp.call_args.kwargs["timeout"], 10)
 
     def test_sent_to_every_subscription_of_the_owner_only(self):
         self.subscribe("https://fcm.googleapis.com/a")

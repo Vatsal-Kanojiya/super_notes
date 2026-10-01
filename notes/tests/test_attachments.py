@@ -1,5 +1,6 @@
 """Attachments: sniffing and names, the upload/download/delete API, sync, the admin."""
 
+import io
 import os
 from unittest import mock
 
@@ -7,12 +8,16 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.storage import storages
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.files.uploadhandler import FileUploadHandler
+from django.core.handlers.asgi import ASGIRequest
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
 from django.utils import timezone
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, force_authenticate
 
 from limits.models import UsageEvent
 from notes import services
+from notes.api.attachments import NoteAttachmentsView
 from notes.attachments import (
     AttachmentStorage,
     attachment_path,
@@ -632,3 +637,61 @@ class AttachmentAdminTests(AttachmentApiTestCase):
         self.client.post(f"{self.base}{self.attachment.pk}/change/", {"original_name": "x"})
 
         self.assertEqual(Attachment.objects.get().original_name, "receipt.pdf")
+
+
+@override_settings(ATTACHMENT_MAX_BYTES=2000, ATTACHMENT_UPLOAD_HEADROOM_BYTES=500)
+class UploadCapHandlerTests(AttachmentApiTestCase):
+    """The upload counts its bytes, whatever Content-Length says (D528).
+
+    Built as uvicorn hands a request to Django (an ASGIRequest over the whole
+    body), with a Content-Length that lies: the middleware lets it through,
+    and without the handler the parser would read every byte.
+    """
+
+    def asgi_post(self, content, declared_length):
+        body = encode_multipart(BOUNDARY, {"file": upload(content)})
+        headers = [(b"content-type", MULTIPART_CONTENT.encode())]
+        if declared_length is not None:
+            headers.append((b"content-length", str(declared_length).encode()))
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": f"{NOTES}{self.note.pk}/attachments/",
+            "query_string": b"",
+            "headers": headers,
+        }
+        request = ASGIRequest(scope, io.BytesIO(body))
+        seen = []
+
+        class Counting(FileUploadHandler):
+            def receive_data_chunk(self, raw_data, start):
+                seen.append(len(raw_data))
+                return raw_data
+
+            def file_complete(self, file_size):
+                return None
+
+        # Ahead of the defaults; the view then puts its cap ahead of this.
+        request.upload_handlers.insert(0, Counting(request))
+        force_authenticate(request, user=self.alice)
+        response = NoteAttachmentsView.as_view()(request, pk=self.note.pk)
+        return response, sum(seen)
+
+    def test_a_body_past_the_cap_is_stopped_while_parsing(self):
+        big = PDF + b"x" * 200_000
+        response, parsed = self.asgi_post(big, declared_length=100)
+
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.data["code"], "too_large")
+        # Far less than the 200 KB sent: the parse stopped at the cap.
+        self.assertLessEqual(parsed, 2500)
+        self.assertFalse(Attachment.objects.exists())
+
+    def test_a_file_within_the_cap_still_uploads(self):
+        response, _ = self.asgi_post(PDF, declared_length=None)
+        # No Content-Length: Django reads no body at all, so there is no file.
+        self.assertEqual(response.status_code, 400)
+
+        body = encode_multipart(BOUNDARY, {"file": upload(PDF)})
+        response, _ = self.asgi_post(PDF, declared_length=len(body))
+        self.assertEqual(response.status_code, 201, response.data)
