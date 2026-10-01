@@ -346,3 +346,21 @@ Concurrency is proven at the user edge and the system edge (exactly N pass), and
 - The "mail once" marker lives in the cache, so it is best effort (D99).
 - `enabled` off on a limit means "not enforced"; this is parked for the owner (D100).
 - During a rolling deploy, asks made by old code after the migration get no event (D103). Rerun the backfill if that happens.
+
+### V2 4 — format my note
+
+`v2-feat/4-format` (D240-D249, D260-D263). `FormatJob` on notes, the ask job shape: `POST
+notes/<id>/format/` (Idempotency-Key) makes it under the owner lock, consuming one `format` use
+(refunded on any failure); a Celery task sends the TipTap JSON with `prompts/format.md`
+(`format-v1`) and keeps the proposal only if the guardrail passes — at least 90% of the
+original's words kept, 80% of the result's words from the original, numbers identical, no new
+month or weekday, the same ticked checkboxes — else `format_changed_content`. A note edited
+before the task runs fails `format_note_changed` without a provider call. `GET
+format-jobs/<id>/` polls; there is no apply endpoint: the client PATCHes at `base_version`, so
+an edit meanwhile is the usual 409. A sweeper fails stuck jobs. Web: a Format button (waits for
+pending saves), spinner with cancel, a before/after preview, Apply / Discard, 409 → reload the
+server copy and "Format again", the 429 state from `me/` `limits.format`; the editor is locked
+while a format is made or previewed. 111 web tests; checked headless against the real backend
+with a worker and the fake provider, including the 409 and 429 paths.
+Left: thresholds and prompt untested on a real model (number reformatting such as 4500 →
+4,500 is refused on purpose); no retention purge of `proposed_content`; no undo after Apply.

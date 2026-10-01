@@ -29,7 +29,7 @@
   admin; tests incl. ~15 guardrail cases (dropped paragraph, invented date/number, changed
   amount, typo fix allowed, restructuring allowed), ownership, limit 429, refund on failure. The
   fake chat provider path: mock `complete` in tests with canned outputs.
-- [ ] 2. **Web** (Sonnet) — a "Format" button on a note, polling, a before/after preview, "Apply"
+- [x] 2. **Web** (Sonnet) — a "Format" button on a note, polling, a before/after preview, "Apply"
   via PATCH with `base_version` (conflict prompt on 409), usage shown from `me/` `limits.format`;
   vitest; headless check.
 
