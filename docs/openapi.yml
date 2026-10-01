@@ -58,7 +58,7 @@ paths:
 
         Send a fresh `Idempotency-Key` per question. Resending one (a retry after a dropped connection) returns the ask it already made, with 200, and does not count again. Reusing it for a different question is a 422.
 
-        Each ask that does not fail counts against the month's quota (see `me/`).
+        Each ask that does not fail counts against the month's quota (see `me/`). When the service-wide monthly budget is used up, asking pauses for everyone: 503 `system_limit_reached`.
       summary: Ask your notes a question
       parameters:
       - in: header
@@ -120,6 +120,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/QuotaExceeded'
           description: '`quota_exceeded` (with usage), or `throttled`.'
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`system_limit_reached`: this feature is paused for everyone
+            (a system-wide limit). Not the caller''s own quota; try again later.'
   /api/v1/ask/{id}/:
     get:
       operationId: ask_retrieve
@@ -218,7 +225,9 @@ paths:
       operationId: auth_google_create
       description: Verifies the ID token (signature, audience = any configured client
         id, expiry, issuer, verified email), finds or creates the account, and returns
-        a token pair. Every refusal is the same `google_failed`, whatever the cause.
+        a token pair. Every refusal of the token or the account is the same `google_failed`,
+        whatever the cause. A first sign-in when the day's new accounts are used up
+        is a 403 `signups_closed`; existing accounts still sign in.
       summary: Sign in with Google
       tags:
       - Account
@@ -249,6 +258,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Google sign-in failed.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`signups_closed`: no new accounts today.'
         '404':
           content:
             application/json:
@@ -792,16 +807,21 @@ components:
       - status
     AskUsage:
       type: object
-      description: This month's asks. Failed asks are not counted.
+      description: 'This month''s asks: the `chat_turns` limit. Failed asks are not
+        counted.'
       properties:
         used:
           type: integer
         limit:
           type: integer
+          nullable: true
+          description: 'Null: unlimited.'
         resets_at:
           type: string
           format: date-time
-          description: 'When `used` goes back to 0: the start of next month, Asia/Kolkata.'
+          nullable: true
+          description: 'When `used` goes back to 0: the start of next month, Asia/Kolkata.
+            Null if it never resets.'
       required:
       - limit
       - resets_at
@@ -888,6 +908,25 @@ components:
       description: |-
         * `update` - update
         * `memory` - memory
+    LimitUsage:
+      type: object
+      properties:
+        used:
+          type: integer
+          description: Used this period (bytes for `storage_bytes`).
+        limit:
+          type: integer
+          nullable: true
+          description: 'Null: unlimited.'
+        resets_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When `used` goes back to 0. Null if it never resets.
+      required:
+      - limit
+      - resets_at
+      - used
     Me:
       type: object
       description: The signed-in account, as a client shows it.
@@ -927,13 +966,20 @@ components:
           allOf:
           - $ref: '#/components/schemas/AskUsage'
           readOnly: true
-          description: This month's asks, counted from AskQuery rows (assistant/quota.py).
+          description: 'This month''s asks: the same numbers as `limits.chat_turns`
+            (assistant/quota.py), kept for V1 clients.'
+        limits:
+          allOf:
+          - $ref: '#/components/schemas/UserLimits'
+          readOnly: true
+          description: Use and limit of each user-facing limit key (DECISIONS D84).
       required:
       - ask_usage
       - avatar_url
       - date_joined
       - email
       - id
+      - limits
       - memory_choice_explicit
       - memory_enabled
       - name
@@ -1188,10 +1234,14 @@ components:
           type: integer
         limit:
           type: integer
+          nullable: true
+          description: 'Null: unlimited.'
         resets_at:
           type: string
           format: date-time
-          description: 'When `used` goes back to 0: the start of next month, Asia/Kolkata.'
+          nullable: true
+          description: 'When `used` goes back to 0: the start of next month, Asia/Kolkata.
+            Null if it never resets.'
       required:
       - code
       - detail
@@ -1350,6 +1400,31 @@ components:
       description: |-
         * `text` - Text
         * `checklist` - Checklist
+    UserLimits:
+      type: object
+      description: One entry per user-facing limit key (DECISIONS D84, D91).
+      properties:
+        chat_turns:
+          allOf:
+          - $ref: '#/components/schemas/LimitUsage'
+          description: Asks and chat turns, per month.
+        format:
+          allOf:
+          - $ref: '#/components/schemas/LimitUsage'
+          description: Format my note, per month.
+        summary:
+          allOf:
+          - $ref: '#/components/schemas/LimitUsage'
+          description: Attachment summaries, per month.
+        storage_bytes:
+          allOf:
+          - $ref: '#/components/schemas/LimitUsage'
+          description: Attachment storage in bytes, all time.
+      required:
+      - chat_turns
+      - format
+      - storage_bytes
+      - summary
   securitySchemes:
     jwtAuth:
       type: http

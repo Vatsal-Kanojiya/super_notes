@@ -91,6 +91,7 @@ class GoogleSignInTests(AuthApiTestCase):
                 "memory_enabled": True,
                 "memory_choice_explicit": False,
                 "ask_usage": pair["user"]["ask_usage"],
+                "limits": pair["user"]["limits"],
             },
         )
         self.assertFalse(user.has_usable_password())
@@ -301,11 +302,14 @@ class MeTests(AuthApiTestCase):
                 "memory_enabled",
                 "memory_choice_explicit",
                 "ask_usage",
+                "limits",
             },
         )
         self.assertEqual(body["plan"], "premium")
         # The quota follows the plan (assistant/tests/test_api.py covers the count).
-        self.assertEqual(body["ask_usage"]["limit"], settings.ASK_QUOTAS["premium"])
+        self.assertEqual(
+            body["ask_usage"]["limit"], settings.LIMIT_DEFAULTS["chat_turns"]["user_premium"]
+        )
 
 
 # --- @sensitive_variables() ------------------------------------------------

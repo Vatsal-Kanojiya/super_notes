@@ -1459,6 +1459,215 @@ time. Replaces V2_PLAN's none/daily/weekly/monthly repeats. Delivered by email +
 
 V1 Phase 7 and V2 Phase 7 (mobile) move after `v2.0.0`; planned in a dedicated session.
 
+## V2 0c — limits
+
+### D98. The system limit is serialised by a transaction-scoped advisory lock per key
+
+**Decided:** `limits.consume` checks the user's limit under the caller's user-row lock, then, only
+when the key has a system limit, takes `pg_advisory_xact_lock(0x4C494D, hashtext(key))` before
+summing everyone's events. The lock is released when the caller's transaction ends. `consume`
+refuses to run outside `transaction.atomic()` (the lock would be released at once). The user check
+comes first, so a user already over their own limit never queues on the global lock.
+
+**Alternatives:** `select_for_update` on the `Limit` row (there is none while a key uses its
+default); a counter row per key and period updated with `F()` (a second source of truth, D73);
+`SERIALIZABLE` isolation (retries everywhere).
+
+**Why:** the advisory lock needs no row to exist and leaves usage counted from one ledger. A test
+forces two threads past the count with the lock removed and the limit is breached; with it, exactly
+the limit passes. The two-key form keeps it out of any other advisory lock's space; a `hashtext`
+collision between two keys only makes them wait for each other.
+
+**Reverse it if:** one key's system checks become a measured bottleneck (every chat turn
+serialises on it for the length of the caller's transaction); then keep a per-period counter row.
+Callers should consume one system-limited key per transaction: two in opposite orders could
+deadlock (Postgres detects it and fails one).
+
+### D99. The admins are mailed on the first refusal per key, period and limit, deduplicated in the cache
+
+**Decided:** when a system limit refuses a request, `consume` does `cache.add` on
+`limits:system-alerted:<key>:<period start>:<limit>` (expiring at the period's end) and, if it
+was new, queues `limits.tasks.mail_system_limit_reached`. A queueing failure deletes the marker so
+the next refusal retries. Raising the limit gives a new marker, so filling the raised limit mails
+again.
+
+**Alternatives:** a marker row in the database (it would roll back with the refused request's
+transaction, so it could never be written on refusal); mailing when the event that fills the limit
+is recorded (misses amounts larger than one unit and a limit lowered below current usage); mailing
+synchronously (SMTP latency while holding the system lock).
+
+**Why:** the refusal is the moment the feature is paused, and the cache is the store that is not
+rolled back with the request. "Once" is best effort: a flushed or evicted cache, or LocMemCache
+across several processes (development only; `check --deploy` warns, `config/checks.py`), can mail twice, which
+is harmless.
+
+**Reverse it if:** duplicate mails become a nuisance; then record the alert from a separate
+connection or a periodic check task.
+
+### D100. Limit rows override every value of a key; `enabled` off means not enforced; deleted accounts keep counting
+
+**Decided:** a `Limit` row replaces all of its key's defaults (not field by field), so a null in the
+row means unlimited. `enabled=False` stops enforcing the key at both levels while still recording
+usage. `Limit.clean` refuses a key absent from `LIMIT_DEFAULTS`; `consume` raises `KeyError` for
+one. `UsageEvent.user` and `.ask` are `SET_NULL`: deleting an account or an ask keeps its usage
+counted for the system. `created_at` is the instant `consume` checked against, so an event made
+across a period boundary lands in the period it was counted in.
+
+**Alternatives:** per-field override (null meaning "use the default", which then cannot express
+"unlimited"); `enabled=False` as a kill switch that refuses everyone; `CASCADE` on the user.
+
+**Why:** what the admin sees in a row is exactly what applies. A kill switch is a different
+product decision, left to the owner. With `CASCADE`, deleting and recreating accounts would reset the
+system count, the abuse D84 guards against.
+
+**Reverse it if:** the owner wants a per-feature kill switch; add a separate flag rather than
+reusing `enabled`. **Needs the owner:** confirm `enabled` off = "not enforced".
+
+### D101. `assistant/quota.py` stays as a thin wrapper over the `chat_turns` limit; `ASK_QUOTAS` goes
+
+**Decided:** `quota.py` keeps its names (`usage`, `used`, `limit_for`, `month_bounds`) but each one
+reads `limits` for the key `chat_turns`. `ASK_QUOTAS` is removed from settings, so the values come
+from `LIMIT_DEFAULTS["chat_turns"]` (or its admin row). Premium therefore drops from V1's 500 to
+D91's 100. V1 tests that overrode `ASK_QUOTAS` now override `LIMIT_DEFAULTS` through
+`assistant/tests/helpers.chat_turns(free, premium)`.
+
+**Alternatives:** delete `quota.py` and have `me/` and the tests call `limits` directly; keep
+`ASK_QUOTAS` as the source of `chat_turns`' per-user values.
+
+**Why:** `me/`'s `ask_usage` and V1's tests keep working unchanged, and sub-task 3 changes `me/`
+anyway. Two settings for one number would drift.
+
+**Reverse it if:** nothing reads `quota` but `me/`; then inline it there and delete the module.
+
+### D102. A failed ask is refunded in the transaction that fails it, and only by the call that fails it
+
+**Decided:** `tasks._fail` is atomic: its conditional update (still pending or running → failed)
+and `limits.refund_where(ask_id=…)` commit together, and the refund runs only if that update
+changed the row. `sweep_stuck_asks` is atomic too. It locks the stuck rows (`select_for_update`),
+fails them with the same status-checked update, and refunds exactly those asks. A done ask is
+never refunded; a retry that has not given up refunds nothing.
+
+**Alternatives:** refund every failed ask's unrefunded events on each sweep (self-healing, but a
+join over all failed asks every five minutes); refund through a signal on `AskQuery` status.
+
+**Why:** "failed asks don't count" (V1) must stay exact. With the refund in the same commit, an ask
+is never failed but still counted, or refunded but not failed. Refunding only from the call that
+made the change means a duplicate run (`acks_late`) or the task racing the sweeper hands back one
+ask, not two. Tests remove each refund, and the guard, and fail.
+
+**Reverse it if:** asks gain partial costs (tokens) that should stay counted after a failure.
+
+### D103. The backfill copies each non-failed ask's user and time, and lives in `limits`
+
+**Decided:** `limits/migrations/0002_backfill_ask_usage` creates one `chat_turns` event (amount 1)
+per `AskQuery` that is not failed, with the ask's `user` and `created_at` and linked to the ask.
+It skips asks that already have an event, so a second run adds nothing. Reversing deletes the
+`chat_turns` events linked to an ask. Provider, model and tokens are not copied, because new ask
+events don't carry them yet either (not in scope).
+
+**Alternatives:** a migration in `assistant`; copying token counts.
+
+**Why:** with the original `created_at`, this month's count is the same number before and after
+the deploy, and V1's months stay in the right periods. The ledger owns its data, so the migration
+lives in `limits`.
+
+**Reverse it if:** never. Note: during a rolling deploy, asks made by old code after the migration
+ran get no event and don't count. Run the migration with the new code, or rerun the backfill
+afterwards (it is safe to repeat).
+
+### D104. `create_ask` makes the row, then consumes; a system refusal passes through untouched
+
+**Decided:** under the user lock, after the idempotency lookup, `create_ask` creates the
+`AskQuery` and then calls `limits.consume(locked, "chat_turns", ask=ask)`. `UserLimitExceeded`
+becomes V1's `QuotaExceeded` (same fields, so the 429 body is unchanged). `SystemLimitExceeded`
+passes through as it is. Either refusal rolls back the ask with the transaction. A replay returns
+before `consume`, so it uses nothing.
+
+**Alternatives:** consume first, then attach the ask to the event (one more UPDATE on every
+successful ask); a nullable link filled later.
+
+**Why:** the event is linked from birth, which is what refunds look up. A refused ask costs one
+rolled-back insert and one skipped id.
+
+**Reverse it if:** refusals become common enough that the wasted inserts matter. Until sub-task 3
+adds the 503 handler, a `SystemLimitExceeded` surfaces as a 500.
+
+### D130. A system limit is a 503 from the shared exception handler, saying no more than "paused"
+
+**Decided:** `config/api/exceptions.py` turns `limits.SystemLimitExceeded`, raised anywhere in a
+DRF view, into `503 {detail, code: "system_limit_reached"}` and marks the transaction for rollback,
+as DRF does for its own errors. The detail names neither the key nor the numbers, and the response
+has no `Retry-After`. `POST ask/` documents the 503 through `SYSTEM_LIMIT_RESPONSE` in
+`config/api/common.py`, which later features reuse.
+
+**Alternatives:** each view catches it (as `QuotaExceeded` is); a 429, like the user's own limit;
+a `Retry-After` set to the period's end.
+
+**Why:** every limited feature needs the same answer, and a feature that forgets to catch it would
+send a 500. 503 tells the client the service is unavailable, not that the user did something wrong.
+The key and the counts are for the admins (D99's mail). A period end is often weeks away, and the
+admin may raise the limit sooner, so a `Retry-After` would mislead.
+
+**Reverse it if:** clients need to tell features apart; then add the key to the body.
+
+### D131. Sign-ups consume `signups` inside the create; when full, a 403 `signups_closed` that is not a failed attempt
+
+**Decided:** `accounts.google._create_user` calls `limits.consume(None, "signups")` and inserts the
+user in one `transaction.atomic()`. An insert that loses the unique-constraint race rolls its
+sign-up back. When the day is full, `SignupsClosed` (a `GoogleSignInError` with reason
+`signups_closed`) is raised and nothing is created. There is one exception: if the account appeared
+meanwhile (the same person's double tap took the last place), they are signed in as it. The view
+answers `403 {detail, code: "signups_closed"}`, records `google_login_failed` with that reason, and
+does not count it towards the per-address failed-sign-in limit. Existing accounts never touch the
+limit.
+
+**Alternatives:** the generic 400 `google_failed` (D13's "say nothing" rule); 503
+`system_limit_reached`; counting it as a failure for `accounts/ratelimit.py`.
+
+**Why:** the token was good, so nothing about it is revealed, and a person refused at the door
+should know it is a daily cap and not a broken sign-in. 403, not 503: it is a policy refusal for
+this caller (a new account), and the service is otherwise up. Counting it as a failure would lock
+out an office's address for a reason that has nothing to do with forged tokens.
+
+**Reverse it if:** the cap starts being probed to learn whether an email has an account (today
+it reveals only that the caller has none, which signing in reveals anyway).
+
+### D132. `me/` reports the user-facing keys as a fixed object, counted in two queries
+
+**Decided:** `me/` gains `limits: {chat_turns, format, summary, storage_bytes}`, each
+`{used, limit, resets_at}` with `limit` and `resets_at` nullable (unlimited; never resets). The
+keys are `limits.serializers.USER_KEYS`, and system-only keys are left out. `limits.usage_many`
+reads the rules in one query and sums every key in one conditional aggregate. `ask_usage` keeps
+its shape, now nullable in the same two places, and is the same numbers as `limits.chat_turns`
+(computed once per serialisation).
+
+**Alternatives:** an open `{key: …}` map typed as a dict; one `usage()` call per key (8 queries
+on every `me/` and sign-in).
+
+**Why:** a typed object gives the generated client real field names. A new user-facing key is a
+deliberate API change anyway. `me/` is fetched on every app open, so its cost should not grow with
+the number of keys; a test pins it at two queries.
+
+**Reverse it if:** keys become per-deployment configuration; then switch to a map.
+
+### D133. A finished ask writes its provider, model and tokens onto its usage event
+
+**Decided:** `tasks._finish` is atomic. When its conditional update marks the ask done and the
+result came from a provider, `limits.describe_where({"ask_id": …}, provider, model,
+input_tokens, output_tokens)` fills them in. `describe_where` only accepts those fields. A floor
+answer (no provider call) leaves them empty and null. The backfill (D103) now copies them too, for
+answered asks, replacing D103's "not copied".
+
+**Alternatives:** read the cost from `AskQuery` when reporting (join per event); write the event
+only when the ask finishes.
+
+**Why:** the ledger is where cost reports and future token limits will look, for every feature
+(chat turns, format, summaries), and not every feature has an `AskQuery`. The event still exists
+from the moment of the ask, so the quota is right while it runs.
+
+**Reverse it if:** token use becomes a limit of its own; then consume a token key instead of
+annotating.
+
 
 ### D105. Lifecycle signals are sent with `send_robust`; `user_signed_in` is sent from `issue_tokens`
 

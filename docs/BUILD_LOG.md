@@ -325,3 +325,24 @@ a memory on/off toggle, and the browser timezone sent for users still on the def
 Checked in headless Chrome against the real backend: guarded redirect, deep link, refresh, back,
 unknown path, prominent banner on the first open, settings toggle (`PATCH me/`), timezone set to
 Europe/Berlin, and the update bar with `CLIENT_LATEST_VERSION` set to a future build.
+
+
+### V2 0c — limits
+
+`v2-feat/0c-limits` (D84, D91, D98-D104, D130-D133). **Built:**
+- **A new `limits` app.** `Limit` rows in the admin override `LIMIT_DEFAULTS` per key. `UsageEvent` is the one ledger. `limits.service.consume` checks the user's limit by plan (under the caller's user lock), then the system limit (under a per-key Postgres advisory lock), and records the event. A system refusal mails the admins once per key, period and limit.
+- **The Ask quota on the ledger.** `create_ask` consumes `chat_turns` linked to the ask. Failed asks are refunded, exactly once, by the task or the sweeper. A finished ask writes its provider, model and tokens onto its event. A data migration gives every existing non-failed ask its event. `assistant/quota.py` is now a thin wrapper, and `ASK_QUOTAS` is gone, so premium drops from 500 to D91's 100.
+- **A 503 `system_limit_reached`** from the shared exception handler, for any feature.
+- **`me/`** gains `limits` for `chat_turns`, `format`, `summary` and `storage_bytes`, in two queries. `ask_usage` is unchanged, with `limit` and `resets_at` now nullable.
+- **A daily cap on new accounts.** `signups`, 30 a day: a 403 `signups_closed` that does not count as a failed sign-in, and existing users are unaffected.
+
+Concurrency is proven at the user edge and the system edge (exactly N pass), and each lock, refund and guard has a test that fails when it is removed. 739 tests.
+
+**Went wrong:** nothing serious. The first lock-removal test for asks needed reworking: pausing threads inside the system lock deadlocks, so it now pauses only on the per-user count.
+
+**Left:** `format`, `summary`, `storage_bytes`, `condense` and `memory_extract` are defined but nothing consumes them yet (phases 1, 3, 4 and 6). The `ask_user_created` index on `AskQuery` no longer serves the quota. It is kept for now; drop it if nothing else needs it.
+
+**Unsure:**
+- The "mail once" marker lives in the cache, so it is best effort (D99).
+- `enabled` off on a limit means "not enforced"; this is parked for the owner (D100).
+- During a rolling deploy, asks made by old code after the migration get no event (D103). Rerun the backfill if that happens.

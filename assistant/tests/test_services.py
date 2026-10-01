@@ -9,7 +9,11 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from assistant import quota
 from assistant.models import AskQuery
 from assistant.services import IdempotencyKeyReused, QuotaExceeded, create_ask
+from limits.models import Limit, UsageEvent
+from limits.service import SystemLimitExceeded
 from notes.tests.helpers import make_user
+
+from .helpers import chat_turns, record_usage
 
 IST = ZoneInfo("Asia/Kolkata")
 UTC = ZoneInfo("UTC")
@@ -23,7 +27,7 @@ def ask_row(user, key, status=AskQuery.Status.DONE, created_at=None):
     if created_at is not None:
         # auto_now_add ignores a value passed to create().
         AskQuery.objects.filter(pk=ask.pk).update(created_at=created_at)
-    return ask
+    return record_usage(ask)
 
 
 class MonthBoundsTests(SimpleTestCase):
@@ -44,7 +48,7 @@ class MonthBoundsTests(SimpleTestCase):
         self.assertEqual(end, datetime(2027, 3, 1, tzinfo=IST))
 
 
-@override_settings(ASK_QUOTAS={"free": 3, "premium": 10})
+@override_settings(LIMIT_DEFAULTS=chat_turns(3, 10))
 class UsageTests(TestCase):
     def setUp(self):
         self.alice = make_user("alice")
@@ -70,7 +74,7 @@ class UsageTests(TestCase):
         self.assertEqual(quota.usage(self.alice, self.now)["limit"], 10)
 
 
-@override_settings(ASK_QUOTAS={"free": 2, "premium": 10})
+@override_settings(LIMIT_DEFAULTS=chat_turns(2, 10))
 class CreateAskTests(TestCase):
     def setUp(self):
         self.alice = make_user("alice")
@@ -152,3 +156,57 @@ class CreateAskTests(TestCase):
         theirs, created = create_ask(make_user("bob"), "When is the launch?", "key-1")
         self.assertTrue(created)
         self.assertNotEqual(mine.pk, theirs.pk)
+
+
+@override_settings(LIMIT_DEFAULTS=chat_turns(2, 10))
+class CreateAskUsageTests(TestCase):
+    """create_ask on the limits ledger (DECISIONS D101)."""
+
+    def setUp(self):
+        self.alice = make_user("alice")
+
+    def test_a_new_ask_consumes_one_chat_turn_linked_to_it(self):
+        ask, _ = create_ask(self.alice, "When is the launch?", "key-1")
+
+        event = UsageEvent.objects.get()
+        self.assertEqual(
+            (event.user, event.key, event.amount, event.ask), (self.alice, "chat_turns", 1, ask)
+        )
+        self.assertFalse(event.refunded)
+
+    def test_a_replay_consumes_nothing(self):
+        create_ask(self.alice, "When is the launch?", "key-1")
+        create_ask(self.alice, "When is the launch?", "key-1")
+        with self.assertRaises(IdempotencyKeyReused):
+            create_ask(self.alice, "Another question?", "key-1")
+
+        self.assertEqual(UsageEvent.objects.count(), 1)
+
+    def test_a_refusal_leaves_no_ask_and_no_event(self):
+        create_ask(self.alice, "One?", "a")
+        create_ask(self.alice, "Two?", "b")
+
+        with self.assertRaises(QuotaExceeded):
+            create_ask(self.alice, "Three?", "c")
+
+        self.assertEqual((AskQuery.objects.count(), UsageEvent.objects.count()), (2, 2))
+
+    def test_the_admins_limit_row_is_the_quota(self):
+        Limit.objects.create(
+            key="chat_turns", user_free=1, user_premium=1, system=None, period="month"
+        )
+        create_ask(self.alice, "One?", "a")
+
+        with self.assertRaises(QuotaExceeded) as caught:
+            create_ask(self.alice, "Two?", "b")
+        self.assertEqual(caught.exception.limit, 1)
+
+    def test_the_system_limit_passes_through_and_leaves_nothing(self):
+        Limit.objects.create(
+            key="chat_turns", user_free=5, user_premium=5, system=1, period="month"
+        )
+        create_ask(make_user("bob"), "Bob's?", "a")
+
+        with self.assertLogs("limits.service", "WARNING"), self.assertRaises(SystemLimitExceeded):
+            create_ask(self.alice, "Mine?", "b")
+        self.assertFalse(AskQuery.objects.filter(user=self.alice).exists())

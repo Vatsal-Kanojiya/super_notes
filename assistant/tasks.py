@@ -4,6 +4,8 @@ The task owns the AskQuery's life after creation: pending → running → done
 or failed. Every way out of it ends in done or failed, including retries
 running out, the soft time limit and bugs (DECISIONS D76): a row left
 "running" would poll forever and, never failing, count against the quota.
+Failing an ask refunds its ``chat_turns`` use in the same transaction
+(DECISIONS D102), here and in the sweeper.
 """
 
 import logging
@@ -11,8 +13,10 @@ from datetime import timedelta
 
 from celery import shared_task
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
+from limits import service as limits
 from retrieval.embeddings import EmbeddingError, EmbeddingTransientError
 from retrieval.search import SearchHit, search
 
@@ -161,40 +165,71 @@ def _retrieved(hit: SearchHit) -> dict:
     }
 
 
+COST_FIELDS = ("provider", "model", "input_tokens", "output_tokens")
+
+
+@transaction.atomic
 def _finish(ask_id, **fields) -> None:
     """Store a result and mark the ask done -- only if it is still unfinished.
 
     Conditional, so a late duplicate run can never overwrite an answer
-    already given, or revive a failed ask.
+    already given, or revive a failed ask. The ask's usage event gets the
+    provider, model and token counts in the same commit, for cost reports
+    (DECISIONS D133); a floor answer made no provider call and has none.
     """
-    AskQuery.objects.filter(pk=ask_id, status__in=UNFINISHED).update(
+    done = AskQuery.objects.filter(pk=ask_id, status__in=UNFINISHED).update(
         status=AskQuery.Status.DONE, completed_at=timezone.now(), error="", **fields
     )
+    cost = {name: fields[name] for name in COST_FIELDS if name in fields}
+    if done and cost:
+        limits.describe_where({"ask_id": ask_id}, **cost)
 
 
+@transaction.atomic
 def _fail(ask_id, message: str) -> None:
-    AskQuery.objects.filter(pk=ask_id, status__in=UNFINISHED).update(
+    """Fail the ask if it is still unfinished, and refund it with the same commit.
+
+    Only the call that actually fails it refunds, and a refund never
+    refunds twice, so a duplicate run or a race with the sweeper hands
+    back exactly one ask.
+    """
+    failed = AskQuery.objects.filter(pk=ask_id, status__in=UNFINISHED).update(
         status=AskQuery.Status.FAILED, completed_at=timezone.now(), error=message
     )
+    if failed:
+        limits.refund_where(ask_id=ask_id)
 
 
 STUCK = "This took too long. Please ask again."
 
 
 @shared_task
+@transaction.atomic
 def sweep_stuck_asks() -> int:
     """Fail asks left pending or running past ASK_STUCK_AFTER_SECONDS (DECISIONS D78).
 
     The net under D76: a worker killed at the hard time limit, or a lost
     message, runs no code, so the ask would be polled forever and -- never
-    failing -- count against the quota. One conditional UPDATE on status and
-    age, so an ask that finishes meanwhile is never overwritten. Returns how
-    many it failed, for the log.
+    failing -- count against the quota. The stuck rows are locked, failed
+    by an UPDATE that still checks their status, and refunded, all in one
+    transaction: an ask that finishes meanwhile is never overwritten, and
+    every ask failed here is refunded exactly once. Returns how many it
+    failed, for the log.
     """
     cutoff = timezone.now() - timedelta(seconds=settings.ASK_STUCK_AFTER_SECONDS)
-    failed = AskQuery.objects.filter(status__in=UNFINISHED, created_at__lt=cutoff).update(
+    stuck = list(
+        AskQuery.objects.select_for_update()
+        .filter(status__in=UNFINISHED, created_at__lt=cutoff)
+        .values_list("pk", flat=True)
+    )
+    if not stuck:
+        return 0
+    # Locked, so no worker can finish one of these before this commits; the
+    # status condition stays as a second guard.
+    failed = AskQuery.objects.filter(pk__in=stuck, status__in=UNFINISHED).update(
         status=AskQuery.Status.FAILED, completed_at=timezone.now(), error=STUCK
     )
+    limits.refund_where(ask_id__in=stuck)
     if failed:
         logger.warning("Failed %s stuck ask(s) older than %s", failed, cutoff)
     return failed

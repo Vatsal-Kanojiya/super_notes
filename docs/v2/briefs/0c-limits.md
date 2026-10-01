@@ -54,6 +54,6 @@ Read D91 for the limit values.
   "V2 0c — limits"; update the quota paragraph in `docs/RAG.md`.
 
 ## Sub-tasks (conductor's checklist)
-- [ ] 1. `limits` app: models, defaults, admin, `usage` / `system_usage` / `consume` / `refund`, system lock, admin mail, tests (Part 1)
-- [ ] 2. Asks on the limits layer: `chat_turns` consumed in `create_ask`, refunds on failure and sweep, data migration, `quota.py` wrapper, V1 tests green
-- [ ] 3. 503 `system_limit_reached` in the exception handler, `me/` `limits` map, `signups` cap in sign-in, docs
+- [x] 1. `limits` app: models, defaults, admin, `usage` / `system_usage` / `consume` / `refund`, system lock, admin mail, tests (Part 1)
+- [x] 2. Asks on the limits layer: `chat_turns` consumed in `create_ask`, refunds on failure and sweep, data migration, `quota.py` wrapper, V1 tests green
+- [x] 3. 503 `system_limit_reached` in the exception handler, `me/` `limits` map, `signups` cap in sign-in, docs

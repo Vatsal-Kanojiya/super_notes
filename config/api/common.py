@@ -12,3 +12,9 @@ class MessageSerializer(serializers.Serializer):
 
 
 RATE_LIMIT_RESPONSE = OpenApiResponse(MessageSerializer, description="Too many, too recently.")
+
+SYSTEM_LIMIT_RESPONSE = OpenApiResponse(
+    MessageSerializer,
+    description="`system_limit_reached`: this feature is paused for everyone (a system-wide "
+    "limit). Not the caller's own quota; try again later.",
+)
