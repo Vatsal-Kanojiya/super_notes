@@ -32,7 +32,7 @@
 - Attachments and summaries ride on the note in `notes/changes/` (metadata only, never bytes).
 
 ## Sub-tasks (conductor's checklist)
-- [ ] 1. **Storage, model, upload/download/delete API** (Opus) — `Attachment` model + migration,
+- [x] 1. **Storage, model, upload/download/delete API** (Opus) — `Attachment` model + migration,
   storage settings, magic-byte sniffing, size cap, `storage_bytes` limit under the owner lock,
   sha256 dedup, middleware allowance, download headers, soft delete releasing storage and
   deleting the file on commit, note delete cascading; attachments in `changes`. Tests: a renamed

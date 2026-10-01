@@ -20,6 +20,7 @@ from notes.content import InvalidContent, validate_doc
 from notes.models import (
     REMINDER_LEAD_DAYS_DEFAULT,
     REMINDER_LEAD_DAYS_MAX,
+    Attachment,
     Note,
     Reminder,
 )
@@ -236,10 +237,56 @@ class ReminderInRangeSerializer(serializers.Serializer):
     )
 
 
+# Attachments --------------------------------------------------------------
+
+
+class AttachmentSerializer(serializers.ModelSerializer):
+    """An attachment's metadata, as every endpoint (and ``changes``) returns it.
+
+    Never its bytes (``GET attachments/<id>/file/``) and never its extracted
+    text: that is for search, and can be long.
+    """
+
+    original_name = serializers.CharField(
+        read_only=True,
+        help_text="The uploaded file's name, cleaned; always ends in the type's extension.",
+    )
+    mime_type = serializers.CharField(
+        read_only=True, help_text="Sniffed from the file's bytes, not taken from the upload."
+    )
+    size = serializers.IntegerField(read_only=True, help_text="Bytes.")
+
+    class Meta:
+        model = Attachment
+        fields = [
+            "id",
+            "note",
+            "original_name",
+            "mime_type",
+            "size",
+            "sha256",
+            "status",
+            "error",
+            "summary",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class AttachmentUploadSerializer(serializers.Serializer):
+    """``POST notes/<id>/attachments/``: one file, as multipart form data."""
+
+    file = serializers.FileField(
+        help_text="A JPEG, PNG, WebP image or a PDF. The type is read from the bytes; "
+        "the name and Content-Type you send are not trusted."
+    )
+
+
 class NoteSyncSerializer(NoteSerializer):
-    """A live note in ``changes``, with its reminders (deleted ones left out)."""
+    """A live note in ``changes``, with its reminders and attachments (deleted ones left out)."""
 
     reminders = ReminderSerializer(many=True, read_only=True, source="live_reminders")
+    attachments = AttachmentSerializer(many=True, read_only=True, source="live_attachments")
 
     class Meta(NoteSerializer.Meta):
-        fields = [*NoteSerializer.Meta.fields, "reminders"]
+        fields = [*NoteSerializer.Meta.fields, "reminders", "attachments"]

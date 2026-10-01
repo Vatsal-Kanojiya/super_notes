@@ -499,6 +499,7 @@ class SyncTests(ReminderAPITestCase):
         for _ in range(3):
             note = services.create_note(self.alice)
             services.create_reminder(self.alice, note.pk, due_at=self.due)
-        # Auth is forced; the ceiling, the notes, and their reminders.
-        with self.assertNumQueries(3):
+        # Auth is forced; the ceiling, the notes, their reminders and their
+        # attachments.
+        with self.assertNumQueries(4):
             self.changes()

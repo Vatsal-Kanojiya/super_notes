@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
+from .attachments import ORIGINAL_NAME_MAX, attachment_path, attachment_storage
 from .content import content_to_text, empty_doc
 from .search import note_search_vector
 
@@ -238,3 +239,72 @@ class ReminderDelivery(models.Model):
 
     def __str__(self):
         return f"Delivery of reminder {self.reminder_id} at {self.occurrence_at:%Y-%m-%d %H:%M}"
+
+
+class Attachment(models.Model):
+    """A file on a note: a JPEG, PNG, WebP image or a PDF (DECISIONS D85, D320-D330).
+
+    **Write through notes/services.py only**, like a note: adding or deleting
+    one takes the owner's lock, records or releases its ``storage_bytes``
+    (limits/, D84) and stamps the note with the next revision, which is how
+    ``notes/changes/`` carries a note's attachments (D326).
+
+    The bytes live in the ``attachments`` storage (notes/attachments.py)
+    under a random name; ``original_name`` is only for showing and for the
+    download's file name. ``mime_type`` is sniffed from the bytes, never
+    taken from the client.
+
+    ``status`` is for text extraction, which runs after the upload:
+    ``pending`` until a worker takes it, then ``extracting`` and ``ready``
+    or ``failed`` (with ``error``). ``extracted_text`` and ``summary`` are
+    what it produces.
+
+    Deleting is soft, as for notes: ``deleted_at`` is set, the storage is
+    released (``usage_event`` refunded) and the file is deleted once the
+    transaction commits. ``owner`` repeats ``note.owner`` so every query is
+    filtered by owner in SQL without a join.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        EXTRACTING = "extracting", "Extracting"
+        READY = "ready", "Ready"
+        FAILED = "failed", "Failed"
+
+    note = models.ForeignKey(Note, on_delete=models.CASCADE, related_name="attachments")
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="attachments"
+    )
+    file = models.FileField(storage=attachment_storage, upload_to=attachment_path, max_length=255)
+    original_name = models.CharField(max_length=ORIGINAL_NAME_MAX)
+    mime_type = models.CharField(max_length=50)
+    size = models.PositiveBigIntegerField()
+    sha256 = models.CharField(max_length=64)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    extracted_text = models.TextField(blank=True)
+    summary = models.TextField(blank=True)
+    # User-safe; the underlying error goes to the log.
+    error = models.CharField(max_length=255, blank=True)
+    # The ``storage_bytes`` use this file consumed, refunded when it is
+    # deleted. SET_NULL, so deleting an event never deletes a file's row.
+    usage_event = models.ForeignKey(
+        "limits.UsageEvent", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            # The same bytes twice on one note is a re-upload: the service
+            # returns the existing row. Live rows only, so a file deleted and
+            # uploaded again is a new row. Also serves "a note's live
+            # attachments", which every list and ``changes`` read.
+            models.UniqueConstraint(
+                fields=["note", "sha256"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="attachment_note_sha256_live",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Attachment {self.pk} on note {self.note_id}"

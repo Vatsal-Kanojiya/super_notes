@@ -165,6 +165,102 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: No such ask of yours.
+  /api/v1/attachments/{id}/:
+    get:
+      operationId: attachments_retrieve
+      summary: Get an attachment's metadata
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Attachments
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such attachment of yours.
+    delete:
+      operationId: attachments_destroy
+      description: Frees its storage and deletes the file. Its note is sent again
+        by `notes/changes/` without it.
+      summary: Delete an attachment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Attachments
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such attachment of yours.
+  /api/v1/attachments/{id}/file/:
+    get:
+      operationId: attachments_file_retrieve
+      description: 'The file''s bytes, as a download (`Content-Disposition: attachment`)
+        with its sniffed type.'
+      summary: Download an attachment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Attachments
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+          description: The file.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such attachment of yours.
   /api/v1/auth/devices/:
     get:
       operationId: auth_devices_list
@@ -1019,6 +1115,121 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/notes/{id}/attachments/:
+    get:
+      operationId: notes_attachments_list
+      description: Newest first. Metadata only; download a file with `GET attachments/<id>/file/`.
+      summary: List a note's attachments
+      parameters:
+      - name: cursor
+        required: false
+        in: query
+        description: The pagination cursor value.
+        schema:
+          type: string
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - Attachments
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAttachmentList'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such note of yours.
+    post:
+      operationId: notes_attachments_create
+      description: |-
+        One file in the `file` field of a multipart form: a JPEG, PNG or WebP image, or a PDF, of at most 10 MB. The type is read from the file's bytes; the name and Content-Type sent are not trusted, and a file of any other type is refused with 415 whatever it is called. The name is kept for display and downloads, cleaned, and always ends in the type's extension.
+
+        The same file again on the same note is not stored twice: you get the existing attachment with 200. A new one is 201, `status: pending`. It counts against your `storage_bytes` (see `me/`) until it is deleted. The note is sent again by `notes/changes/` with its attachments.
+      summary: Attach a file to a note
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Attachments
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AttachmentUploadRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+          description: Stored.
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+          description: This file is already on the note.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No file, or an empty one.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such note of yours.
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`too_large`: over the cap.'
+        '415':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`unsupported_file_type`: not a JPEG, PNG, WebP or PDF; or
+            `unsupported_media_type`: the request is not multipart.'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageQuotaExceeded'
+          description: '`quota_exceeded`: your storage is full (with usage, in bytes),
+            or `throttled`.'
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`system_limit_reached`: this feature is paused for everyone
+            (a system-wide limit). Not the caller''s own quota; try again later.'
   /api/v1/notes/{id}/format/:
     post:
       operationId: notes_format_create
@@ -1144,11 +1355,11 @@ paths:
       operationId: notes_changes_retrieve
       description: 'Every note written after revision `after`, deleted ones included
         as tombstones (no title or content, `deleted_at` set), oldest write first.
-        A live note carries all its `reminders`; adding, changing, finishing or deleting
-        one sends its note again, so replace the note''s reminders with the ones sent.
-        Store `latest_revision` and send it as `after` next time. If `has_more` is
-        true, call again straight away with it: the batch was cut at `limit`. A first
-        sync sends `after=0`.'
+        A live note carries all its `reminders` and `attachments` (metadata only);
+        adding, changing, finishing or deleting either sends its note again, so replace
+        the note''s reminders and attachments with the ones sent. Store `latest_revision`
+        and send it as `after` next time. If `has_more` is true, call again straight
+        away with it: the batch was cut at `limit`. A first sync sends `after=0`.'
       summary: What changed since a revision
       parameters:
       - in: query
@@ -1525,6 +1736,85 @@ components:
       - limit
       - resets_at
       - used
+    Attachment:
+      type: object
+      description: |-
+        An attachment's metadata, as every endpoint (and ``changes``) returns it.
+
+        Never its bytes (``GET attachments/<id>/file/``) and never its extracted
+        text: that is for search, and can be long.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        note:
+          type: integer
+          readOnly: true
+        original_name:
+          type: string
+          readOnly: true
+          description: The uploaded file's name, cleaned; always ends in the type's
+            extension.
+        mime_type:
+          type: string
+          readOnly: true
+          description: Sniffed from the file's bytes, not taken from the upload.
+        size:
+          type: integer
+          readOnly: true
+          description: Bytes.
+        sha256:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/AttachmentStatusEnum'
+          readOnly: true
+        error:
+          type: string
+          readOnly: true
+        summary:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - error
+      - id
+      - mime_type
+      - note
+      - original_name
+      - sha256
+      - size
+      - status
+      - summary
+    AttachmentStatusEnum:
+      enum:
+      - pending
+      - extracting
+      - ready
+      - failed
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `extracting` - Extracting
+        * `ready` - Ready
+        * `failed` - Failed
+    AttachmentUploadRequest:
+      type: object
+      description: '``POST notes/<id>/attachments/``: one file, as multipart form
+        data.'
+      properties:
+        file:
+          type: string
+          format: binary
+          description: A JPEG, PNG, WebP image or a PDF. The type is read from the
+            bytes; the name and Content-Type you send are not trusted.
+      required:
+      - file
     ChannelsEnum:
       enum:
       - email
@@ -1931,8 +2221,8 @@ components:
         content: {}
     NoteSync:
       type: object
-      description: A live note in ``changes``, with its reminders (deleted ones left
-        out).
+      description: A live note in ``changes``, with its reminders and attachments
+        (deleted ones left out).
       properties:
         id:
           type: integer
@@ -1970,7 +2260,13 @@ components:
           items:
             $ref: '#/components/schemas/Reminder'
           readOnly: true
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attachment'
+          readOnly: true
       required:
+      - attachments
       - content_text
       - created_at
       - deleted_at
@@ -2057,6 +2353,25 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AskQuery'
+    PaginatedAttachmentList:
+      type: object
+      required:
+      - results
+      properties:
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cD00ODY%3D"
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cj0xJnA9NDg3
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attachment'
     PaginatedConversationList:
       type: object
       required:
@@ -2447,6 +2762,33 @@ components:
         * `running` - Running
         * `done` - Done
         * `failed` - Failed
+    StorageQuotaExceeded:
+      type: object
+      description: 'A plain answer: what happened, and a stable code a client can
+        branch on.'
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+        used:
+          type: integer
+          description: Used this period (bytes for `storage_bytes`).
+        limit:
+          type: integer
+          nullable: true
+          description: 'Null: unlimited.'
+        resets_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When `used` goes back to 0. Null if it never resets.
+      required:
+      - code
+      - detail
+      - limit
+      - resets_at
+      - used
     StyleEnum:
       enum:
       - prominent

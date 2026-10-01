@@ -2413,3 +2413,95 @@ answer said ("the second one"), which the fixtures were not checked for. **Alter
 with the real pipeline first (costs a chat call and a search per turn, and makes the numbers depend
 on the answer model too); all three modes per variant (nine rows, and only hybrid is what a turn
 uses).
+
+### D320. Attachments have their own storage alias, resolved on every call (6, 2026-10-01)
+
+**Decided:** `STORAGES["attachments"]` is django-storages' `S3Storage` when `AWS_STORAGE_BUCKET_NAME` is
+set (no ACL on objects, so the bucket's private policy rules; `querystring_auth` on; no overwrite;
+credentials from boto3's own chain, never a setting), else `FileSystemStorage` under `MEDIA_ROOT`
+(files `0600`, folders `0700`; no URL route serves it). `Attachment.file` points at a small proxy
+(`notes/attachments.py`) that looks the alias up on each call, so the test runner swaps in a temp
+dir whatever `.env` says, and the proxy's `url()` refuses: bytes leave only through the download
+endpoint. **Alternative:** the `default` storage alias (static and future uses would share the
+bucket), or a storage instance built at import (tests could then write to a configured bucket).
+
+### D321. File type from magic bytes at offset 0; anything else is 415 (6, 2026-10-01)
+
+**Decided:** JPEG `FF D8 FF`, PNG's 8-byte signature, WebP `RIFF....WEBP`, PDF `%PDF-`, all at the
+first byte; the client's Content-Type and extension are ignored. Anything else, a renamed `.exe`
+included, is `415 unsupported_file_type` (a non-multipart body stays DRF's `415
+unsupported_media_type`). **Alternative:** `400` (the request is well formed; it is the file's type
+that is refused, which is what 415 says), or accepting `%PDF-` anywhere in the first 1 KB as
+readers do (lets a polyglot that is something else first through).
+
+### D322. Stored names are random; the shown name is cleaned and always carries the type's extension (6, 2026-10-01)
+
+**Decided:** stored as `attachments/<32 hex>.<ext of sniffed type>`. `original_name` keeps the last
+path component, NFC, without control/format characters (a right-to-left override cannot disguise
+an extension), trimmed of spaces and leading dots, at most 255 characters (the stem is cut, not the
+extension), `attachment.<ext>` if nothing is left; and it always ends in an extension of the
+sniffed type (`setup.exe` that is a PDF is shown and downloaded as `setup.exe.pdf`).
+`Content-Disposition` is built by Django (`filename*=` for non-ASCII, quotes escaped).
+**Alternative:** keep the name exactly as sent and fix it only in the download header (the list
+would show `setup.exe` for a PDF).
+
+### D323. Bytes are stored before the owner lock; dedup and quota are decided under it (6, 2026-10-01)
+
+**Decided:** the view checks size and type, hashes the bytes; the service looks for the same hash
+on the note without a lock (a re-upload returns at once, nothing stored), writes the bytes to
+storage, then in one transaction locks the owner, re-reads the note, looks for the hash again,
+consumes `storage_bytes` (user and system, D84), saves the row and stamps the note. A refusal or a
+duplicate found under the lock deletes the bytes it stored. A duplicate costs nothing, even with
+the quota full (`200`, the existing row). **Alternative:** write the file under the lock (a 10 MB
+S3 write would hold up every other save of that user).
+
+### D324. Deleting releases storage by refunding the upload's own event (6, 2026-10-01)
+
+**Decided:** `Attachment.usage_event` is the `storage_bytes` event its upload consumed; a delete
+(of the attachment or its note) marks it refunded, so the running total drops by exactly that
+size. **Alternative:** a negative release event (`amount` is positive by design and `consume`
+refuses less than 1; two rows per file for the same result).
+
+### D325. Files are deleted on commit, inline, best effort (6, 2026-10-01)
+
+**Decided:** `transaction.on_commit` deletes the files of soft-deleted attachments; a storage error
+is logged, never raised (the delete already happened). A file left behind is unreachable (no live
+row names it). Rows stay as soft-deleted tombstones. Deleting an *account* (CASCADE) does not yet
+delete its files. **Alternative:** a Celery task per delete (needs a broker for a millisecond job);
+a periodic orphan sweep (worth adding with account deletion).
+
+### D326. An attachment write stamps its note's revision; `changes` sends the note with its attachments (6, 2026-10-01)
+
+**Decided:** as reminders (D124): upload and delete take the owner lock and the next revision, set
+on the note by a queryset update (version and `updated_at` untouched, nothing re-indexed). A live
+note in `changes` carries `attachments`: every live one, metadata only (no bytes, no
+`extracted_text`). A duplicate upload takes no revision. Extraction (sub-task 2) starts from one
+seam, `services._after_attachment_added`, and must stamp the revision when it changes `status`.
+**Alternative:** a separate attachments stream in sync.
+
+### D327. The upload body allowance is keyed by view name, POST only (6, 2026-10-01)
+
+**Decided:** `UPLOAD_SIZE_ALLOWANCES = {"api:v1:note-attachments": ATTACHMENT_MAX_BYTES + 64 KiB}`;
+`MaxUploadSizeMiddleware` resolves the path only when a body is over the default limit, and only
+for POST. A file over `ATTACHMENT_MAX_BYTES` but inside the envelope reaches the view and gets the
+same `413 too_large`. **Alternative:** a path regex in the middleware (duplicates the URLconf).
+
+### D328. Uploads have their own throttle scope, `upload`, 120 an hour (6, 2026-10-01)
+
+**Decided:** POST only (listing is free), `API_UPLOAD_THROTTLE`. **Alternative:** only the general
+user rate (3,000/hour), which lets a script churn uploads and deletes inside the storage quota.
+
+### D329. Downloads are attachments with nosniff, a sandbox CSP and no-store (6, 2026-10-01)
+
+**Decided:** `GET attachments/<id>/file/` streams with `FileResponse`, the sniffed type,
+`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` (set explicitly, not only
+when `DEBUG` is off), `Content-Security-Policy: default-src 'none'; sandbox` and
+`Cache-Control: private, no-store`. Content negotiation is forced, so any `Accept` gets the file
+and an error still renders as JSON. A live row without its file is a logged 404.
+**Alternative:** presigned S3 redirects (no owner check at fetch time, links outlive sign-out).
+
+### D330. A note's attachment list is cursor-paged; no per-note count cap yet (6, 2026-10-01)
+
+**Decided:** `GET notes/<id>/attachments/` pages like every list (newest first). The only cap is
+`storage_bytes`; whether a note needs a count cap (reminders have 20) is left to the owner.
+**Alternative:** an unpaged list with a cap.
