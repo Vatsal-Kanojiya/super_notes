@@ -5,10 +5,10 @@ import type { AskQuery, Citation } from '../api/types'
 import { splitAnswer } from '../lib/citations'
 import { formatDate, formatRelative } from '../lib/format'
 import { useAskStore } from '../stores/ask'
-import { useViewStore } from '../stores/view'
+import { useRouter } from 'vue-router'
 
 const ask = useAskStore()
-const view = useViewStore()
+const router = useRouter()
 const question = ref('')
 const historyError = ref('')
 
@@ -33,7 +33,7 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 function openCitation(citation: Citation) {
-  view.openNote(citation.note_id)
+  void router.push(`/notes/${citation.note_id}`)
 }
 
 async function loadHistory(more = false) {

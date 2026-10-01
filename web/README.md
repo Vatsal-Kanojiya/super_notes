@@ -40,9 +40,37 @@ src/
   api/types.ts      every request/response shape (reconcile with docs/openapi.yml here)
   api/client.ts     fetch wrapper: bearer token, single-flight refresh, ApiError
   api/endpoints.ts  one typed function per endpoint
-  stores/           auth, notes (sync via notes/changes/), ask (submit + poll), view
+  stores/           auth, notes (sync via notes/changes/), ask (submit + poll), appVersion
   components/       SignIn, NotesList, NotePage/NoteEditor, AskPanel, AppHeader, DevicesList
   lib/              GIS loader, citation splitter, uuid, date formatting
 ```
 
-No router: `stores/view.ts` holds which of the three screens is showing (DECISIONS D46).
+Routes (vue-router, history mode): `/notes`, `/notes/:id`, `/ask`, `/settings`, and `/signin`
+for signed-out users (DECISIONS D86, D112). Route components are lazy-loaded.
+
+## Hosting
+
+The app is a static site. Serve `dist/` with these rules, or users get stale or broken pages:
+
+| Path | Header |
+|---|---|
+| `assets/*` (hashed file names) | `Cache-Control: public, max-age=31536000, immutable` |
+| `index.html` | `Cache-Control: no-cache` |
+| any service worker file (`sw.js`, if one is added) | `Cache-Control: no-cache` |
+| any other unknown path | serve `index.html` (SPA fallback), so deep links and refresh work |
+
+Why: `index.html` names the current hashed assets, so it must always be revalidated; the assets
+never change under the same name, so they can be cached for a year. If a stale `index.html`
+still points at deleted assets, the client reloads once on `vite:preloadError`; that is a safety
+net, not a substitute for these headers.
+
+## Versions (D89)
+
+Each build has an id `YYYYMMDDHHMM-<shortsha>` (UTC), injected as `VITE_APP_VERSION` by
+`vite.config.ts` (`nogit` replaces the sha without git; set `VITE_APP_VERSION` yourself to
+override). The client checks `GET /api/v1/app/version/` on load, on window focus and every 5
+minutes, and watches the `X-Client-Min-Version` response header. A newer build shows a "New
+version" bar and reloads on its own when no note edit is unsaved; a build below the minimum is
+reloaded the same way (after the edit is saved). Builds compare by their timestamp prefix. Set
+the server's `CLIENT_LATEST_VERSION` (and, to force an update, `CLIENT_MIN_VERSION`) to the id
+of the build you deploy.

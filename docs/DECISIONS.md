@@ -1514,3 +1514,85 @@ The server cannot know the client displayed it, so it keeps returning it until c
 characters (blank allowed); anything else is a 400 and counts nothing. The first open is
 therefore open number 1 when its notices are worked out, and a throttled repeat sees the same
 count as the open it repeats, so it gets the same notices.
+
+### D112. `/signin` is a route; the guard redirects there with `next` (0d, 2026-10-02)
+
+**Decided:** sign-in is a normal route (`/signin`, public). The guard sends signed-out users to
+`/signin?next=<path>`; a signed-in user landing there is sent on to `next`. `next` goes through
+`safeNext` (same-site paths only, refusing `//host` and `/\host`), kept in `lib/safeNext.ts`.
+**Alternative:** render `SignIn` in `App.vue` when signed out and use the guard only to redirect.
+
+### D113. "Back" from a note follows the app's own history (0d, 2026-10-02)
+
+**Decided:** back is `router.back()` when `history.state.back` exists, else `/notes`; a refreshed
+or deep-linked note therefore goes to the list, and a citation opened from an answer goes back to
+the answer ("Answer" label). **Alternative:** always go to the list.
+
+### D114. A deleted note's page stays in history (0d, 2026-10-02)
+
+**Decided:** after deleting, the editor calls back; the deleted note's route is simply behind us.
+**Alternative:** `router.replace` the note's entry so back never reaches it.
+
+### D115. The notes sync resyncs from 0 when the server's revision goes backwards (0d, 2026-10-02)
+
+**Decided:** D25 says a `latest_revision` below the client's `after` is the cue to resync from 0,
+but the client took `max()` and never did. Now it drops every local note and refetches from 0.
+**Alternative:** keep local notes and only reset the counter (leaves notes that no longer exist).
+
+### D116. Client tests run in plain Node with stubbed globals, no jsdom (0d, 2026-10-02)
+
+**Decided:** vitest (D86) in its default Node environment; `fetch` and `localStorage` are stubbed
+per test, the notes API is mocked, and `safeNext` moved out of `router.ts` so it imports without a
+browser. **Alternative:** jsdom for everything (slower, and unneeded for this logic).
+
+### D117. An update never reloads over an unsaved edit, even a required one (0d, 2026-10-02)
+
+**Decided:** the editor tells the notes store when a note has edits the server lacks
+(`hasUnsaved`). A newer build, or one below the minimum, reloads at once only when nothing is
+unsaved; otherwise the bar shows and the reload follows as soon as the save completes. A note
+deleted elsewhere does not count (it can never be saved). After one reload that did not clear the
+condition (a deploy not yet live everywhere), only the bar remains, so there is no reload loop.
+**Alternative:** force the reload for "below minimum" regardless (loses the edit).
+
+### D118. Chunk-load errors reload once a minute, and not at all without `sessionStorage` (0d, 2026-10-02)
+
+**Decided:** route components are lazy; `vite:preloadError` reloads once, and a second error
+within 60 s surfaces normally. If `sessionStorage` is blocked there is no loop guard, so no reload.
+**Alternative:** reload anyway when storage is blocked (risks an endless loop).
+
+### D119. The build id is made in `vite.config.ts` from UTC time and `git rev-parse` (0d, 2026-10-02)
+
+**Decided:** `YYYYMMDDHHMM-<shortsha>`, with `nogit` when git is unavailable, overridable by a
+`VITE_APP_VERSION` environment variable (so CI can match the server's `CLIENT_LATEST_VERSION`).
+Builds compare by timestamp only; an id that does not parse (dev server) never triggers an update.
+**Alternative:** a package.json version (needs a manual bump per deploy).
+
+### D120. The client reports `launch` on every transition to signed-in, `resume` after 5 idle hours (0d, 2026-10-02)
+
+**Decided:** `session/open/` is sent with `launch` when a session becomes valid (a page load with a
+stored session, or a fresh sign-in) and with `resume` on the first click, key, scroll or touch
+after 5 hours with none. `lastInteractionAt` lives in memory and `localStorage`; storage is read
+on every interaction, so another tab's activity counts, and written at most every 30 s (and at the
+moment of a resume). With nothing stored there is no resume (the launch covers it); with storage
+blocked the tab's own memory copy still works. The server's per-device throttle absorbs repeats.
+**Alternative:** a `visibilitychange` trigger (rejected by D93).
+
+### D121. "Review / turn off" counts as seeing the memory notice (0d, 2026-10-02)
+
+**Decided:** following the banner's link to `/settings` calls `memory-notice/seen/` as well as
+Dismiss does, since the person has looked at it. A failed call still hides the banner; it returns
+at a later open. **Alternative:** only Dismiss marks it seen (the banner would reappear on the next
+open after someone has already reviewed their settings).
+
+### D122. A server `update` notice is a fact for the same update decision, not a second mechanism (0d, 2026-10-02)
+
+**Decided:** `decideUpdate` takes `serverSaysUpdate` / `serverSaysRequired` beside the version
+check, so the unsaved-edit wait and the reload-loop guard apply to it too. **Alternative:** act on
+the notice directly in the lifecycle store (would bypass those guards).
+
+### D123. The settings page saves the memory toggle at once; the timezone is sent, not edited (0d, 2026-10-02)
+
+**Decided:** the memory checkbox sends `PATCH me/` on change. The browser's timezone is sent at
+launch only when the user is still on the server default `Asia/Kolkata` and the browser's zone
+differs; the page shows the zone but has no picker yet. **Alternative:** a Save button; a timezone
+picker (not asked for, and a long list to get right).

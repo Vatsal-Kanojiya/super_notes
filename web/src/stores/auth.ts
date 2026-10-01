@@ -10,7 +10,7 @@ import { computed, ref } from 'vue'
 import { ApiError, setAuthLostHandler } from '../api/client'
 import { authApi } from '../api/endpoints'
 import { clearTokens, getAccess, getRefresh, onTokensChangedElsewhere, setTokens } from '../api/tokens'
-import type { AskUsage, Me } from '../api/types'
+import type { AskUsage, Me, MeUpdateRequest } from '../api/types'
 import { disableGoogleAutoSelect } from '../lib/gis'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -71,6 +71,13 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = response.user
   }
 
+  /** Save account settings (`PATCH me/`) and keep the local copy in step. */
+  async function updateMe(body: MeUpdateRequest) {
+    const updated = await authApi.updateMe(body)
+    if (user.value) user.value = { ...user.value, ...updated }
+    return updated
+  }
+
   /** Keep the usage line in step without a round trip (e.g. from a 429 body). */
   function setAskUsage(usage: AskUsage) {
     if (user.value) user.value = { ...user.value, ask_usage: usage }
@@ -90,5 +97,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { user, ready, notice, signedIn, init, loadMe, signIn, signOut, setAskUsage }
+  return { user, ready, notice, signedIn, init, loadMe, signIn, signOut, setAskUsage, updateMe }
 })

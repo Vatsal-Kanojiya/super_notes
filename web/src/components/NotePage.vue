@@ -7,12 +7,12 @@ import { ref, watch } from 'vue'
 import { ApiError, errorMessage } from '../api/client'
 import type { Id, Note } from '../api/types'
 import { useNotesStore } from '../stores/notes'
-import { useViewStore } from '../stores/view'
+import { useGoBack } from '../lib/nav'
 import NoteEditor from './NoteEditor.vue'
 
 const props = defineProps<{ noteId: Id }>()
 const notes = useNotesStore()
-const view = useViewStore()
+const { goBack } = useGoBack()
 const initial = ref<Note | null>(null)
 const error = ref('')
 
@@ -36,7 +36,7 @@ watch(
 <template>
   <NoteEditor v-if="initial" :key="initial.id" :initial="initial" />
   <main v-else class="page">
-    <button type="button" class="link" @click="view.back()">← Back</button>
+    <button type="button" class="link" @click="goBack()">← Back</button>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-else class="muted">Opening…</p>
   </main>

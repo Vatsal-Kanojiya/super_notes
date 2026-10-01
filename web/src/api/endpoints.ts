@@ -11,12 +11,14 @@ import type {
   Device,
   Id,
   Me,
+  MeUpdateRequest,
   Note,
   NoteCreateRequest,
   NoteListParams,
   NoteUpdateRequest,
   SearchHit,
   SearchParams,
+  SessionOpenResponse,
   SignInResponse,
 } from './types'
 
@@ -27,8 +29,24 @@ export const authApi = {
   // an expired access token must not stop someone from signing out.
   logout: (refresh: string) => request<void>('auth/logout/', { method: 'POST', body: { refresh }, auth: false }),
   me: () => request<Me>('me/'),
+  updateMe: (body: MeUpdateRequest) => request<Me>('me/', { method: 'PATCH', body }),
+  memoryNoticeSeen: () => request<void>('me/memory-notice/seen/', { method: 'POST' }),
   devices: () => request<Device[]>('auth/devices/'),
   signOutDevice: (id: Id) => request<void>(`auth/devices/${id}/`, { method: 'DELETE' }),
+}
+
+export const sessionApi = {
+  /** Report an app open (D93); the reply carries the notices to show. */
+  open: (appVersion: string, reason: 'launch' | 'resume') =>
+    request<SessionOpenResponse>('session/open/', {
+      method: 'POST',
+      body: { platform: 'web', app_version: appVersion, reason },
+    }),
+}
+
+export const appApi = {
+  /** Public: the newest build and the oldest one still accepted. */
+  version: () => request<{ latest: string; min_supported: string }>('app/version/', { auth: false }),
 }
 
 export const notesApi = {

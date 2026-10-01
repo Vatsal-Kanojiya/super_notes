@@ -36,7 +36,7 @@ CI web job). Built against the contract in `0e-lifecycle.md`; can start before 0
   "V2 0d — web platform".
 
 ## Sub-tasks (conductor's checklist)
-- [ ] 1. vue-router replacing the view store, guards, deep links (Part 1a)
-- [ ] 2. vitest + the three test suites + CI `npm test` (Part 1b)
-- [ ] 3. Build id, version check and update bar, `vite:preloadError`, hosting rules in README (Part 2a)
-- [ ] 4. Lifecycle: app-open detection (launch / 5 h idle), notices UI, settings page (Part 2b)
+- [x] 1. vue-router replacing the view store, guards, deep links (Part 1a)
+- [x] 2. vitest + the three test suites + CI `npm test` (Part 1b)
+- [x] 3. Build id, version check and update bar, `vite:preloadError`, hosting rules in README (Part 2a)
+- [x] 4. Lifecycle: app-open detection (launch / 5 h idle), notices UI, settings page (Part 2b)

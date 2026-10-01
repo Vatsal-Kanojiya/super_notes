@@ -1,19 +1,25 @@
 <script setup lang="ts">
 import { onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AppHeader from './components/AppHeader.vue'
-import AskPanel from './components/AskPanel.vue'
-import NotePage from './components/NotePage.vue'
-import NotesList from './components/NotesList.vue'
-import SignIn from './components/SignIn.vue'
+import MemoryBanner from './components/MemoryBanner.vue'
+import UpdateBar from './components/UpdateBar.vue'
+import { useAppVersionStore } from './stores/appVersion'
 import { useAskStore } from './stores/ask'
 import { useAuthStore } from './stores/auth'
+import { useLifecycleStore } from './stores/lifecycle'
 import { useNotesStore } from './stores/notes'
-import { useViewStore } from './stores/view'
+import { safeNext } from './lib/safeNext'
 
 const auth = useAuthStore()
 const notes = useNotesStore()
 const ask = useAskStore()
-const view = useViewStore()
+const route = useRoute()
+const router = useRouter()
+const appVersion = useAppVersionStore()
+const lifecycle = useLifecycleStore()
+
+onMounted(() => appVersion.start())
 
 // Signing in starts sync; signing out (by hand, from another tab, or because
 // the session ended elsewhere) drops every trace of the account.
@@ -22,24 +28,27 @@ watch(
   (signedIn) => {
     if (signedIn) {
       notes.startAutoSync()
+      lifecycle.begin()
     } else {
       notes.clear()
+      lifecycle.end()
       ask.clear()
-      view.reset()
+      // Back to sign-in, remembering where they were so signing in returns there.
+      if (!route.meta.public) void router.replace({ name: 'signin', query: { next: route.fullPath } })
     }
+    // Signed in (here or in another tab) while on the sign-in page: go on.
+    if (signedIn && route.meta.public) void router.replace(safeNext(route.query.next))
   },
 )
-
-onMounted(() => auth.init())
 </script>
 
 <template>
+  <UpdateBar />
   <div v-if="!auth.ready" class="splash" aria-busy="true">Super Notes</div>
-  <SignIn v-else-if="!auth.signedIn" />
+  <router-view v-else-if="!auth.signedIn || route.meta.public" />
   <div v-else class="shell">
     <AppHeader />
-    <NotePage v-if="view.screen === 'note' && view.noteId !== null" :note-id="view.noteId" />
-    <AskPanel v-else-if="view.screen === 'ask'" />
-    <NotesList v-else />
+    <MemoryBanner />
+    <router-view />
   </div>
 </template>

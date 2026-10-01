@@ -41,6 +41,15 @@ export const useNotesStore = defineStore('notes', () => {
   const loaded = ref(false)
   const syncing = ref(false)
   const syncError = ref('')
+  /** Notes whose edits have not reached the server (set by the editor). */
+  const unsavedIds = ref<Id[]>([])
+  const hasUnsaved = computed(() => unsavedIds.value.length > 0)
+
+  function setUnsaved(id: Id, unsaved: boolean) {
+    const has = unsavedIds.value.includes(id)
+    if (unsaved && !has) unsavedIds.value = [...unsavedIds.value, id]
+    else if (!unsaved && has) unsavedIds.value = unsavedIds.value.filter((x) => x !== id)
+  }
 
   // The server-side filtered list (search box and type filter).
   const query = ref('')
@@ -95,6 +104,14 @@ export const useNotesStore = defineStore('notes', () => {
         const after = lastRevision.value
         const response = await notesApi.changes(after)
         if (started !== epoch) return
+        if (response.latest_revision < after) {
+          // The server is behind what we hold (a restored database, D25): our
+          // copy is not trustworthy. Drop it and fetch everything again.
+          byId.value = {}
+          filteredIds.value = []
+          lastRevision.value = 0
+          continue
+        }
         for (const item of response.results) {
           if (isTombstone(item)) forget(item.id)
           else upsert(item)
@@ -203,6 +220,7 @@ export const useNotesStore = defineStore('notes', () => {
     lastRevision.value = 0
     loaded.value = false
     syncError.value = ''
+    unsavedIds.value = []
     query.value = ''
     typeFilter.value = ''
     filteredIds.value = []
@@ -215,6 +233,8 @@ export const useNotesStore = defineStore('notes', () => {
     loaded,
     syncing,
     syncError,
+    hasUnsaved,
+    setUnsaved,
     query,
     typeFilter,
     filteredCursor,
