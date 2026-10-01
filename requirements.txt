@@ -25,3 +25,5 @@ pypdf==6.19.0
 # and tests use local disk.
 django-storages==1.14.6
 boto3==1.43.106
+# ASGI server for the streaming answer endpoint (assistant, phase 2; approved D92).
+uvicorn==0.54.0
