@@ -159,11 +159,20 @@ def _body(system: str, user: str | list, model: str, max_output_tokens: int) -> 
 
 
 def check_status(data: dict) -> None:
-    """ChatError unless the response's status is a finished answer."""
+    """ChatError unless the response's status is a finished answer.
+
+    TransientChatError for a ``failed`` response whose error is one worth
+    retrying (``TRANSIENT_ERRORS``).
+    """
     status = data.get("status")
     if status == "failed":
-        message = (data.get("error") or {}).get("message", "unknown error")
-        raise ChatError(f"OpenAI failed to answer: {message}")
+        error = data.get("error") if isinstance(data.get("error"), dict) else {}
+        message = f"OpenAI failed to answer: {error.get('message', 'unknown error')}"
+        # A server error or a rate limit is worth a retry (D512), as the
+        # same failure would be as a 429 or 5xx, or as an ``error`` event.
+        if error.get("code") in TRANSIENT_ERRORS or error.get("type") in TRANSIENT_ERRORS:
+            raise TransientChatError(message)
+        raise ChatError(message)
     if status == "incomplete":
         reason = (data.get("incomplete_details") or {}).get("reason")
         if reason == "content_filter":

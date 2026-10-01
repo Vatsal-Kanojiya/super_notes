@@ -22,8 +22,8 @@ only the newest FOLD_LINES lines kept -- a bounded summary that forgets the
 oldest, as a real one is told to.
 
 A memory extraction (prompts/memory.md: the user message holds ``<facts>``)
-gets a rule of its own (DECISIONS D409), read from the ``<question>`` only --
-never the answer, as the prompt demands. Each sentence of the question that
+gets a rule of its own (DECISIONS D409), read from the ``<question>``, the
+only text the call gets (D514). Each sentence of the question that
 is not itself a question and says "I'm X" / "I am X" (or "I'm not X", "I'm
 no longer X") or "my X is Y" is a statement about a subject (X; the X of
 "my X"). A statement about a subject no known fact covers is an ``add``

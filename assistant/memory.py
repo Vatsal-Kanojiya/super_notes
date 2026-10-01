@@ -12,11 +12,11 @@ provider what the turn taught about the user:
    in its own short transaction before the call, refunded when nothing was
    billed (the provider refusing or down, the question not embeddable). A
    turn is extracted at most once: a second run finds the first's event.
-3. **What the call sees** (prompts/memory.md): the user's question, the
-   answer, and the user's live facts most similar to the question, with
-   their ids -- never the note excerpts. The answer quotes the notes, so it
-   is data like they are: the prompt allows facts only from what the user
-   states about themselves in the question (the injection boundary, D400).
+3. **What the call sees** (prompts/memory.md): the user's question and the
+   user's live facts most similar to it, with their ids -- never the
+   answer, never the note excerpts (the injection boundary, D400, D514).
+   The answer quotes notes and attachments, which may hold text pasted from
+   anywhere, so it is not sent at all.
 4. **What comes back** is strict JSON, ``{"operations": [...]}`` of ``add``,
    ``update(id)``, ``supersede(id)`` and ``none``, checked by
    ``parse_operations``: an id must be one of the facts shown (so this
@@ -28,10 +28,14 @@ provider what the turn taught about the user:
    and vector in place; ``supersede`` makes the new fact and points the old
    one's ``superseded_by`` at it. A target that stopped being live
    meanwhile (another extraction superseded it) is dropped. A dynamic fact
-   gets ``valid_until``, MEMORY_DYNAMIC_FACT_DAYS ahead.
+   gets ``valid_until``, MEMORY_DYNAMIC_FACT_DAYS ahead. A dynamic
+   ``update`` or ``supersede`` of a static fact is written as an ``add``
+   instead: something true for now never replaces, or expires, what stays
+   true (D515).
 
 ``purge_expired`` (daily) deletes expired dynamic facts and facts
-superseded more than MEMORY_SUPERSEDED_RETENTION_DAYS ago.
+superseded more than MEMORY_SUPERSEDED_RETENTION_DAYS ago -- never a static
+fact because its replacement expired (D516).
 
 **Use** (DECISIONS D420-D421): ``facts_for_prompt`` gives a conversation
 turn's chat prompt the user's live facts nearest its (standalone)
@@ -53,7 +57,8 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import connection, transaction
+from django.db import transaction
+from django.db.models import ExpressionWrapper, FloatField, Value
 from django.utils import timezone
 from pgvector.django import CosineDistance
 
@@ -68,7 +73,7 @@ from retrieval.embeddings import (
 )
 
 from . import chat
-from .conversation import _block, _cut, strip_markers
+from .conversation import _block
 from .models import FACT_MAX_CHARS, AskQuery, UserFact
 from .prompt import load_prompt, neutralise
 
@@ -127,15 +132,8 @@ def known_facts(user, question: str) -> list[UserFact]:
 
 
 def similar_facts(user, vector: list[float], k: int) -> list[UserFact]:
-    """The user's ``k`` live facts nearest ``vector``, as the chunk search does it (D68).
-
-    HNSW filters after its scan, so ``ef_search`` is raised for the query
-    (SET LOCAL, hence the transaction) to leave room for other users' rows.
-    """
-    ef_search = max(settings.SEARCH_HNSW_EF_SEARCH, k)
-    with transaction.atomic(), connection.cursor() as cursor:
-        cursor.execute("SELECT set_config('hnsw.ef_search', %s, true)", [str(ef_search)])
-        return list(similar_facts_queryset(user, vector)[:k])
+    """The user's ``k`` live facts nearest ``vector``, by an exact scan of them (D517)."""
+    return list(similar_facts_queryset(user, vector)[:k])
 
 
 def similar_facts_queryset(user, vector: list[float]):
@@ -143,12 +141,21 @@ def similar_facts_queryset(user, vector: list[float]):
 
     Owner-scoped in SQL (``live``), and only facts embedded by the current
     model: another model's vectors live in another space.
+
+    Ordered by ``distance + 0``, which the HNSW index cannot serve (it
+    serves only ``ORDER BY embedding <=> ...`` itself), so the planner
+    reads the user's facts by their owner index and sorts them exactly.
+    The index would return its ``ef_search`` nearest facts of *every* user
+    and filter after: a user with a few facts among many users' close ones
+    would get none of them (D517). A user's live facts are few, so the
+    exact sort is cheap.
     """
+    distance = CosineDistance("embedding", vector)
     return (
         UserFact.objects.live(user)
         .filter(embedding_model=embedding_model_id())
-        .annotate(distance=CosineDistance("embedding", vector))
-        .order_by("distance")
+        .annotate(distance=distance)
+        .order_by(ExpressionWrapper(distance + Value(0.0), output_field=FloatField()))
     )
 
 
@@ -227,16 +234,15 @@ def facts_block(facts: list[UserFact]) -> str:
     return f"<facts>\n{lines}</facts>"
 
 
-def build_memory_messages(question: str, answer: str, facts: list[UserFact]) -> tuple[str, str]:
-    """(system, user) for one extraction: the facts, the question, the answer -- no excerpts.
+def build_memory_messages(question: str, facts: list[UserFact]) -> tuple[str, str]:
+    """(system, user) for one extraction: the facts and the question -- nothing else.
 
-    The answer loses its ``[n]`` markers (they number excerpts the call
-    does not see) and is cut to MEMORY_ANSWER_MAX_CHARS: it is context
-    only. Every part is neutralised, so nothing in a question, an answer
-    or a fact can close its block early.
+    Never the answer, never the excerpts (D514): the answer quotes notes
+    and attachments, so text pasted into one could otherwise be learned as
+    the user's own words. Every part is neutralised, so nothing in a
+    question or a fact can close its block early.
     """
-    answer = _cut(strip_markers(answer), settings.MEMORY_ANSWER_MAX_CHARS)
-    user = "\n\n".join([facts_block(facts), _block("question", question), _block("answer", answer)])
+    user = "\n\n".join([facts_block(facts), _block("question", question)])
     return load_prompt("memory")[1], user
 
 
@@ -364,7 +370,7 @@ def extract(ask_id: int) -> int:
         limits.refund(event)
         return 0
 
-    system, user = build_memory_messages(ask.question, ask.answer, facts)
+    system, user = build_memory_messages(ask.question, facts)
     try:
         result = chat.complete(
             system, user, max_output_tokens=settings.MEMORY_EXTRACT_MAX_OUTPUT_TOKENS
@@ -422,6 +428,23 @@ def _predates_reset(ask: AskQuery, user) -> bool:
     return user.memory_reset_at is not None and ask.created_at <= user.memory_reset_at
 
 
+def _demoted(operation: Operation, target: UserFact | None) -> Operation:
+    """The operation as written: a dynamic update or supersede of a static fact is an add (D515).
+
+    Something true for now ("is in Goa this week") must not turn a lasting
+    fact ("lives in Pune") into one that expires, nor replace it: when it
+    expired, the purge would take the lasting fact with it.
+    """
+    if (
+        target is not None
+        and operation.op in (UPDATE, SUPERSEDE)
+        and operation.kind == UserFact.Kind.DYNAMIC
+        and target.kind == UserFact.Kind.STATIC
+    ):
+        return Operation(ADD, operation.text, operation.kind)
+    return operation
+
+
 def _valid_until(kind: str, now):
     if kind == UserFact.Kind.DYNAMIC:
         return now + timedelta(days=settings.MEMORY_DYNAMIC_FACT_DAYS)
@@ -461,6 +484,7 @@ def apply_operations(ask: AskQuery, operations: list[Operation], vectors) -> int
                     "Ask %s: memory: fact %s is no longer live", ask.pk, operation.fact_id
                 )
                 continue
+            operation = _demoted(operation, targets.get(operation.fact_id))
             if operation.op == UPDATE:
                 fact = targets[operation.fact_id]
                 fact.text = operation.text
@@ -506,10 +530,22 @@ def purge_expired(now=None) -> int:
     """Delete expired dynamic facts, and facts superseded over the retention ago (D406).
 
     How many facts were deleted. Deleting a fact deletes those it
-    superseded (``superseded_by`` CASCADE), counted too.
+    superseded (``superseded_by`` CASCADE, D405), counted too -- except a
+    static fact: one superseded by a dynamic fact (written before D515 made
+    that an add) is live again when its replacement expires, and waits for
+    that rather than for the retention (D516).
     """
     now = now or timezone.now()
-    expired, _ = UserFact.objects.filter(valid_until__lte=now).delete()
+    static, dynamic = UserFact.Kind.STATIC, UserFact.Kind.DYNAMIC
+    with transaction.atomic():
+        UserFact.objects.filter(kind=static, superseded_by__valid_until__lte=now).update(
+            superseded_by=None
+        )
+        expired, _ = UserFact.objects.filter(valid_until__lte=now).delete()
     cutoff = now - timedelta(days=settings.MEMORY_SUPERSEDED_RETENTION_DAYS)
-    superseded, _ = UserFact.objects.filter(superseded_by__created_at__lt=cutoff).delete()
+    superseded, _ = (
+        UserFact.objects.filter(superseded_by__created_at__lt=cutoff)
+        .exclude(kind=static, superseded_by__kind=dynamic)
+        .delete()
+    )
     return expired + superseded
