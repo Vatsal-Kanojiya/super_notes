@@ -457,3 +457,20 @@ real backend (`runserver 8012`): two facts listed (one containing `<b>`, shown a
 removed one, forget-all asked to confirm then emptied the list and the database.
 **Left:** nothing for 3.3; the branch checklist and merge are the conductor's.
 **Unsure:** `prettier --check` flags most files already (no project config), so it was not applied.
+
+### V2 2 — streaming (web)
+
+**Built:** a `fetch` stream reader (`web/src/api/stream.ts`), an SSE parser (`lib/sse.ts`), the
+stream state merge (`lib/askStream.ts`), and the chat store following a pending turn by streaming
+(`stores/chat.ts`, `chat.streaming`) with fallback to polling on any error, 404, 429
+`too_many_streams`, `timeout`, `unavailable` or an early end; `ChatThread.vue` shows the streamed
+text, chips turn clickable when the final turn lands. Leaving a thread aborts the stream. 17 new
+vitest tests (parser, merge, store: stream, fallback, abort). D540–D545.
+**Headless check:** uvicorn :8011 + a Celery worker (fake providers) + the real store under vitest
+against it: with the worker paused until the stream was open, the turn's text grew word by word
+(14 steps), then the final turn came with its citation; one `GET ask/<id>/stream/`, no polling.
+Note: with the fake provider an answer finishes in ~60 ms, so a normal send is already `done` when
+the stream opens (it then sends just the final event).
+**Left:** a real-browser pass (no browser in this session); the stream is not reopened after a drop
+(D544); a 401 on the stream falls to polling to refresh rather than refreshing itself.
+**Unsure:** `[n]` markers show as raw text while streaming (by design, D542).

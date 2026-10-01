@@ -31,7 +31,7 @@
   `config/asgi.py`, the async view (auth, ownership, catch-up, relay, heartbeat, cap, client
   disconnect), README run instructions; tests incl. another user → 404 and a reconnect resuming
   from partial text.
-- [ ] 3. **Web streaming** (Sonnet) — stream reader in the chat thread with polling fallback;
+- [x] 3. **Web streaming** (Sonnet) — stream reader in the chat thread with polling fallback;
   vitest for the SSE parser and state merge; headless check against uvicorn.
 
 Done when the branch checklist in `CLAUDE.md` passes; BUILD_LOG entry "V2 2 — streaming".

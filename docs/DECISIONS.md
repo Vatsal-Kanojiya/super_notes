@@ -3293,3 +3293,37 @@ in the app has one yet; worth doing for all at once).
 25 per page by the server default, "Show more" follows the cursor. The on/off switch is the
 existing one, unchanged; turning memory off keeps the facts (API note) and the list stays visible
 so they can be deleted. **Alternative:** hide the list while memory is off.
+
+### D540. The web reads the stream with `fetch` and a body reader, token in the header (2-streaming 3, 2026-10-02)
+`api/stream.ts` sends `Authorization: Bearer` (never in the URL, which `EventSource` would force). It
+opens the stream only for a 200 with a body; a 404, a 429 `too_many_streams`, a 401, or a network
+failure all mean "no stream" and the store polls. A 401 is not refreshed there: polling does it.
+**Alternative:** `EventSource` with the token in the query string (leaks into logs; D510 spirit).
+
+### D541. SSE parsing and the state merge are pure modules (2-streaming 3, 2026-10-02)
+`lib/sse.ts` (WHATWG framing: CRLF/CR/LF, comments, multi-line data, split chunks) and
+`lib/askStream.ts` (snapshot replaces, delta appends, reset clears, done/failed end with the row,
+timeout/unavailable/junk-done fall back). Deltas are not offset-checked: the server sends them
+contiguous (D371). **Alternative:** check offsets on the client and refetch on a gap (duplicate work).
+
+### D542. Streamed text lives in `chat.streaming[turnId]`, not in the turn (2-streaming 3, 2026-10-02)
+The turn keeps its server state (`pending`/`running`, empty answer) so `mergeTurn`'s rank rule and
+polling are untouched; the thread shows the streamed text through `AnswerBody` with no citations,
+so `[n]` markers are plain text while streaming (D50: text only) and become chips when the final
+turn replaces it. Cleared when the stream ends either way. **Alternative:** write partial text into
+the turn (a poll could then overwrite it with an older snapshot).
+
+### D543. One stream per open thread, aborted with the thread (2-streaming 3, 2026-10-02)
+`reset()` (opening another thread, leaving, sign-out) and the end of the read abort the
+`AbortController`, so uvicorn sees the disconnect and releases the slot (D511). Only the open
+turn is streamed; the 409 wait path still polls (`pollLoop`).
+
+### D544. Any failed or ended-early stream hands over to polling, which stays the source of truth (2-streaming 3, 2026-10-02)
+A dropped body, `timeout`, `unavailable`, or an unreadable event ends in `pollLoop` for that turn;
+streamed text is dropped at that point (the spinner returns) rather than shown stale. We do not
+reconnect the stream (the server would just catch up from the row; polling does the same cheaper).
+**Alternative:** reopen the stream with backoff.
+
+### D545. No stream where `TextDecoder` is missing (2-streaming 3, 2026-10-02)
+Such environments poll as in V1. Existing chat tests are unaffected as `getAccess()` is null there
+(no token, so no stream).

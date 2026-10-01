@@ -60,7 +60,7 @@ function onKeydown(event: KeyboardEvent) {
 
 // Keep the newest turn and the composer in view as turns arrive.
 watch(
-  () => chat.turns.map((t) => `${t.id}:${t.status}`).join(','),
+  () => chat.turns.map((t) => `${t.id}:${t.status}:${chat.streaming[t.id]?.length ?? 0}`).join(','),
   async () => {
     await nextTick()
     composer.value?.scrollIntoView?.({ block: 'nearest' })
@@ -87,7 +87,12 @@ watch(
       <ol class="turns" aria-live="polite">
         <li v-for="turn in chat.turns" :key="turn.id" class="answer turn" :data-status="turn.status">
           <p class="answer-question">{{ turn.question }}</p>
-          <p v-if="turn.status === 'pending' || turn.status === 'running'" class="muted">
+          <AnswerBody
+            v-if="(turn.status === 'pending' || turn.status === 'running') && chat.streaming[turn.id]"
+            :answer="chat.streaming[turn.id]!"
+            :citations="[]"
+          />
+          <p v-else-if="turn.status === 'pending' || turn.status === 'running'" class="muted">
             <span class="spinner" aria-hidden="true"></span> Reading your notes…
           </p>
           <div v-else-if="turn.status === 'failed'" class="turn-failed">
