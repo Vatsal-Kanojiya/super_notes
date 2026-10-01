@@ -27,7 +27,7 @@
   adapters' SSE parsing (tested against recorded vendor streams, no network), fake, fallback;
   the task streams, publishes deltas/done/failed, throttled partial saves, retries and the
   limits/refund paths unchanged; tests.
-- [ ] 2. **ASGI stream endpoint** (Opus) — `uvicorn` (approved D92; conductor adds it),
+- [x] 2. **ASGI stream endpoint** (Opus) — `uvicorn` (approved D92; conductor adds it),
   `config/asgi.py`, the async view (auth, ownership, catch-up, relay, heartbeat, cap, client
   disconnect), README run instructions; tests incl. another user → 404 and a reconnect resuming
   from partial text.

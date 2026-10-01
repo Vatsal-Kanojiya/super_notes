@@ -2704,3 +2704,82 @@ callback is queued at all. The publisher takes any client with `publish(channel,
 task tests use a recorder; one test uses the real local Redis on database 15 and is skipped without
 one. **Alternative:** a separate default database (pub/sub does not use it); fail the run on a Redis
 error (polling would have had the answer).
+
+### D370. The stream endpoint is a DRF view returning an async body (2-streaming 2, 2026-10-01)
+
+**Decided:** `GET ask/<id>/stream/` is a synchronous DRF `APIView`: authentication (the API's
+JWT), throttles, the `{detail, code}` errors and the schema are the API's own. Under ASGI Django
+runs it in a worker thread (so nothing blocks the event loop), and it does only the ownership
+check; it returns a `StreamingHttpResponse` whose body is an async generator
+(`assistant/stream.py`) that the server drives on its event loop, so an open stream holds a
+coroutine and a Redis connection, never a thread. Errors are JSON whatever the client's `Accept`
+says (a content negotiation that always picks JSON), so `Accept: text/event-stream` cannot turn a
+404 into a 406. Opening a stream counts against the general `user` rate, like polling, not the
+`ask` scope. **Alternative:** an `async def` view that re-implements bearer auth, throttling and
+the error shape through `sync_to_async` (more code to keep in step, and drf-spectacular would not
+see it).
+
+### D371. The client gets contiguous deltas: the server dedupes by offset (2-streaming 2, 2026-10-01)
+
+**Decided:** events to the client are `snapshot {text, offset}` (first, for an unfinished ask),
+`delta {offset, text}`, `reset`, and exactly one last event: `done`/`failed {ask}` (the row as
+`GET ask/<id>/` returns it, taken from the worker's event or read from the row), `timeout` or
+`unavailable`. Each is `event: <type>` plus one `data:` line of JSON repeating `type`. The worker's
+`seq` is not passed on. The server keeps the text the client has (`Relay`) and sends only what
+extends it, cutting an overlapping delta, so the client just appends; `offset` is informational
+(code points, which JavaScript does not count). **Alternative:** relay the worker's events as they
+are and let each client dedupe (the same logic in the web client and later in Android, in UTF-16).
+
+### D372. Subscribe, confirmed, before reading the row; a gap is filled from the row (2-streaming 2, 2026-10-01)
+
+**Decided:** the stream waits for Redis to confirm `SUBSCRIBE` before it reads the row, so every
+later publish reaches it. Deltas published after the row's last save but before the subscription
+are in neither: a delta that starts beyond the client's text waits (`Relay.pending`) and the row
+is read again every `ASK_PARTIAL_SAVE_SECONDS` until its text fills the gap, then the waiting
+deltas follow. Row text is used only if it starts with the client's text (otherwise it is a newer
+run whose `reset` is on the way). **Alternative:** ask the worker to save on every delta (a write
+per word, D364); a Redis stream with replay (D363's alternative).
+
+### D373. Time limits: 15 s keep-alive, row re-checked every 10 s, 5-minute cap (2-streaming 2, 2026-10-01)
+
+**Decided:** a `: keep-alive` comment after `ASK_STREAM_HEARTBEAT_SECONDS` (15) without output.
+The row is read every `ASK_STREAM_RECHECK_SECONDS` (10): a finished row ends the stream (the
+sweeper failed the ask, or the worker could not reach Redis, so no event came), and running text
+the events never brought is sent. After `ASK_STREAM_MAX_SECONDS` (300) the stream ends with
+`timeout` and the client polls. All three are settings. **Alternative:** a cap as long as the task's
+worst case (about 50 minutes with retries, ASK_STUCK_AFTER_SECONDS) holds a connection for an answer
+that is almost certainly lost; re-checking more often costs a query per stream per interval.
+
+### D374. Without live events the stream still catches up, then says `unavailable` (2-streaming 2, 2026-10-01)
+
+**Decided:** events off (`ASK_EVENTS_REDIS_URL` empty), Redis unreachable when subscribing (0.5 s
+connect, 1.5 s for the confirmation), or the subscription failing mid-stream: the client gets what
+the row has (the end event for a finished ask, else a snapshot) and then `unavailable`, and polls.
+**Alternative:** a 503 before streaming (the subscription happens in the body, after the status
+is sent, and a finished ask needs no Redis at all); polling the row server-side every half second
+(the client already knows how to poll).
+
+### D375. Under WSGI the endpoint answers from the row only (2-streaming 2, 2026-10-01)
+
+**Decided:** served by `runserver` (a `WSGIRequest`), the endpoint returns the catch-up at once
+from the row: the end event, or a snapshot and `unavailable`. **Alternative:** the async body under
+WSGI, which Django buffers whole and sends only when the stream ends (up to the 5-minute cap), with
+a warning on every request.
+
+### D376. uvicorn serves everything; static files too while DEBUG (2-streaming 2, 2026-10-01)
+
+**Decided:** `config/asgi.py` wraps the app in `ASGIStaticFilesHandler` when `DEBUG` is on, so
+`uvicorn config.asgi:application --reload` replaces `runserver` in development (the admin and the
+Swagger UI keep their CSS). The README's run steps use it, with `runserver` still fine for anything
+but live streaming; the deploy note says to serve the API with uvicorn, without proxy buffering.
+**Alternative:** run both servers in development (two ports, and the web client has one base URL).
+
+### D377. A Redis connection per stream, made and closed with it; no cap on open streams yet (2-streaming 2, 2026-10-01)
+
+**Decided:** each stream opens its own asyncio Redis client and closes it (with the
+subscription) when the body ends, is closed or is cancelled because the client went away. No
+shared pool: an asyncio pool is bound to one event loop, and a subscribed connection serves only
+its channel anyway. Open streams per user are limited only by the request rate (a stream is one
+request); a per-user cap on concurrent streams is left until there is load to size it.
+**Alternative:** one shared subscription per process fanning out to streams (a router to write and
+test, for a saving that matters only at many concurrent streams).
