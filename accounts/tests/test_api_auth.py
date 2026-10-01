@@ -87,6 +87,9 @@ class GoogleSignInTests(AuthApiTestCase):
                 "avatar_url": "https://lh3.googleusercontent.com/a/alice",
                 "plan": "free",
                 "date_joined": pair["user"]["date_joined"],
+                "timezone": "Asia/Kolkata",
+                "memory_enabled": True,
+                "memory_choice_explicit": False,
                 "ask_usage": pair["user"]["ask_usage"],
             },
         )
@@ -286,7 +289,19 @@ class MeTests(AuthApiTestCase):
         body = self.me(pair["access"]).json()
 
         self.assertEqual(
-            set(body), {"id", "email", "name", "avatar_url", "plan", "date_joined", "ask_usage"}
+            set(body),
+            {
+                "id",
+                "email",
+                "name",
+                "avatar_url",
+                "plan",
+                "date_joined",
+                "timezone",
+                "memory_enabled",
+                "memory_choice_explicit",
+                "ask_usage",
+            },
         )
         self.assertEqual(body["plan"], "premium")
         # The quota follows the plan (assistant/tests/test_api.py covers the count).

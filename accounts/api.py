@@ -13,6 +13,9 @@ refresh into a 401. They share the ``auth`` throttle scope
 accounts/ratelimit.py.
 """
 
+import zoneinfo
+from functools import cache
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import update_last_login
 from django.db import transaction
@@ -34,7 +37,7 @@ from assistant import quota
 from assistant.api import AskUsageSerializer
 from config.api.common import RATE_LIMIT_RESPONSE, MessageSerializer
 
-from . import audit, devices, ratelimit
+from . import audit, devices, ratelimit, signals
 from .google import GoogleSignInError, google_signin_enabled, sign_in_with_google
 from .models import SignedInDevice
 
@@ -55,12 +58,45 @@ class MeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "email", "name", "avatar_url", "plan", "date_joined", "ask_usage"]
+        fields = [
+            "id",
+            "email",
+            "name",
+            "avatar_url",
+            "plan",
+            "date_joined",
+            "timezone",
+            "memory_enabled",
+            "memory_choice_explicit",
+            "ask_usage",
+        ]
         read_only_fields = fields
 
     @extend_schema_field(AskUsageSerializer)
     def get_ask_usage(self, user):
         return AskUsageSerializer(quota.usage(user)).data
+
+
+@cache
+def _timezone_names():
+    return frozenset(zoneinfo.available_timezones())
+
+
+class MeUpdateSerializer(serializers.Serializer):
+    """What ``PATCH me/`` accepts. Anything else is ignored."""
+
+    timezone = serializers.CharField(
+        required=False, max_length=64, help_text="An IANA timezone name, e.g. `Asia/Kolkata`."
+    )
+    memory_enabled = serializers.BooleanField(
+        required=False,
+        help_text="Also marks the choice as the user's own (`memory_choice_explicit`).",
+    )
+
+    def validate_timezone(self, value):
+        if value not in _timezone_names():
+            raise serializers.ValidationError("Not a valid IANA timezone name.")
+        return value
 
 
 class TokenPairSerializer(serializers.Serializer):
@@ -115,7 +151,7 @@ class DeviceSerializer(serializers.ModelSerializer):
 DEVICE_CLAIM = "device"
 
 
-def issue_tokens(user, request=None):
+def issue_tokens(user, request=None, created=False):
     """A fresh access/refresh pair, plus the profile a client needs at once.
 
     Every path that signs a device in ends here, so this is where the new
@@ -126,6 +162,7 @@ def issue_tokens(user, request=None):
     device = devices.register(user, str(refresh["jti"]), request)
     refresh[DEVICE_CLAIM] = device.pk
     update_last_login(None, user)
+    signals.send(signals.user_signed_in, user=user, request=request, device=device, created=created)
     return {
         "access": str(refresh.access_token),
         "refresh": str(refresh),
@@ -198,12 +235,12 @@ class GoogleLoginView(PublicView):
         body.is_valid(raise_exception=True)
 
         try:
-            user, _created = sign_in_with_google(body.validated_data["id_token"], request=request)
+            user, created = sign_in_with_google(body.validated_data["id_token"], request=request)
         except GoogleSignInError:
             ratelimit.record_google_login_failure(request)
             return Response(GOOGLE_FAILED, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(issue_tokens(user, request))
+        return Response(issue_tokens(user, request, created=created))
 
 
 class RefreshView(TokenRefreshView):
@@ -313,6 +350,30 @@ class MeView(APIView):
         },
     )
     def get(self, request, *args, **kwargs):
+        return Response(MeSerializer(request.user).data)
+
+    @extend_schema(
+        tags=AUTH_TAG,
+        summary="Update your settings",
+        description="`timezone` (an IANA name) and `memory_enabled`. Setting `memory_enabled` "
+        "also records that the user chose it themselves.",
+        request=MeUpdateSerializer,
+        responses={
+            200: MeSerializer,
+            400: OpenApiResponse(description="Invalid timezone."),
+            401: OpenApiResponse(MessageSerializer, description="Not signed in."),
+        },
+    )
+    def patch(self, request, *args, **kwargs):
+        body = MeUpdateSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        changed = dict(body.validated_data)
+        if "memory_enabled" in changed:
+            changed["memory_choice_explicit"] = True
+        if changed:
+            for field, value in changed.items():
+                setattr(request.user, field, value)
+            request.user.save(update_fields=list(changed))
         return Response(MeSerializer(request.user).data)
 
 

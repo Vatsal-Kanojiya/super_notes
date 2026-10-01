@@ -372,6 +372,41 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Not signed in.
+    patch:
+      operationId: me_partial_update
+      description: '`timezone` (an IANA name) and `memory_enabled`. Setting `memory_enabled`
+        also records that the user chose it themselves.'
+      summary: Update your settings
+      tags:
+      - Account
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMeUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMeUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMeUpdateRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+          description: ''
+        '400':
+          description: Invalid timezone.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
   /api/v1/notes/:
     get:
       operationId: notes_list
@@ -784,6 +819,15 @@ components:
           type: string
           format: date-time
           readOnly: true
+        timezone:
+          type: string
+          readOnly: true
+        memory_enabled:
+          type: boolean
+          readOnly: true
+        memory_choice_explicit:
+          type: boolean
+          readOnly: true
         ask_usage:
           allOf:
           - $ref: '#/components/schemas/AskUsage'
@@ -795,8 +839,11 @@ components:
       - date_joined
       - email
       - id
+      - memory_choice_explicit
+      - memory_enabled
       - name
       - plan
+      - timezone
     Message:
       type: object
       description: 'A plain answer: what happened, and a stable code a client can
@@ -965,6 +1012,18 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Note'
+    PatchedMeUpdateRequest:
+      type: object
+      description: What ``PATCH me/`` accepts. Anything else is ignored.
+      properties:
+        timezone:
+          type: string
+          minLength: 1
+          description: An IANA timezone name, e.g. `Asia/Kolkata`.
+          maxLength: 64
+        memory_enabled:
+          type: boolean
+          description: Also marks the choice as the user's own (`memory_choice_explicit`).
     PatchedNoteUpdateRequest:
       type: object
       description: 'PATCH: the version the client edited, plus whatever it changed.'

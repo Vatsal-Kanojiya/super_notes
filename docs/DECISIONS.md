@@ -1459,3 +1459,14 @@ time. Replaces V2_PLAN's none/daily/weekly/monthly repeats. Delivered by email +
 
 V1 Phase 7 and V2 Phase 7 (mobile) move after `v2.0.0`; planned in a dedicated session.
 
+
+### D105. Lifecycle signals are sent with `send_robust`; `user_signed_in` is sent from `issue_tokens`
+
+`user_signed_in` needs the `SignedInDevice`, which exists only once `issue_tokens` has registered
+it, so it is sent there (`issue_tokens(user, request, created=False)`), not from `accounts/google.py`.
+Both signals go through `accounts.signals.send`, which uses `send_robust` and logs a failing
+receiver by exception type: a broken listener (notifications, usage tracking) must never turn a
+successful sign-in or app open into an error. **Alternative:** plain `send` (fails loudly, but a
+bug in an unrelated receiver would lock everyone out). `memory_notice_seen_at_open` is nullable
+(null = never seen) so "first open" needs no sentinel; `User.timezone` is validated against
+`zoneinfo.available_timezones()` in `PATCH me/`, not on the model.
