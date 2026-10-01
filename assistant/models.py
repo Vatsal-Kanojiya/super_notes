@@ -77,6 +77,11 @@ class AskQuery(models.Model):
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
 
     answer = models.TextField(blank=True)
+    # The answer as streamed so far, saved while the ask is running (at most
+    # every ASK_PARTIAL_SAVE_SECONDS) so a stream reader can catch up; empty
+    # before, and again once the ask is done (``answer`` has it) or failed.
+    # Not in the API: polling shows a finished answer only (DECISIONS D364).
+    partial_answer = models.TextField(blank=True)
     # [{n, note_id, chunk_id, title, snippet}] (assistant/citations.py).
     citations = models.JSONField(default=list, blank=True)
     # What retrieval returned, scores included: for debugging an answer and

@@ -22,6 +22,8 @@ class FastTestRunner(DiscoverRunner):
     * **Providers.** The fake embedding and chat providers, whatever .env
       says, so no test run ever makes a paid network call by accident. The
       real providers' opt-in tests override this themselves.
+    * **Answer events.** Off (no Redis needed, as for the broker); a test
+      about them passes its own client, or overrides ASK_EVENTS_REDIS_URL.
     """
 
     def setup_test_environment(self, **kwargs):
@@ -41,3 +43,4 @@ class FastTestRunner(DiscoverRunner):
         for name in ("EMBEDDING_PROVIDER", "CHAT_PROVIDER"):
             if hasattr(settings, name):
                 setattr(settings, name, "fake")
+        settings.ASK_EVENTS_REDIS_URL = ""

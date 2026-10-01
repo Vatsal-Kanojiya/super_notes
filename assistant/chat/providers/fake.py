@@ -20,6 +20,13 @@ another fixed rule (DECISIONS D286): the summary so far, one line
 ``- <question> -> <first sentence of the answer>`` per folded turn, and
 only the newest FOLD_LINES lines kept -- a bounded summary that forgets the
 oldest, as a real one is told to.
+
+Streamed, the fake yields its answer a word at a time (each word with the
+whitespace after it), then the result (DECISIONS D362). The answer is the
+boundary's ``assistant.chat.complete``, looked up at call time: when the fake
+is the configured provider that is this class's own ``complete``, and a test
+that scripts ``chat.complete`` (an error, a retry, a token count) scripts
+the streamed answer too.
 """
 
 import json
@@ -36,6 +43,8 @@ _EXCERPT = re.compile(r'<excerpt n="(\d+)"[^>]*>\n(.*?)\n</excerpt>', re.DOTALL)
 # JSON, so the last closing tag is the real one.
 _NOTE = re.compile(r"<note>\n(.*)\n</note>", re.DOTALL)
 _SENTENCE = re.compile(r"(.+?[.!?])(?=\s|$)")
+# Between a whitespace and the next word: where the fake stream cuts.
+_WORD_START = re.compile(r"(?<=\s)(?=\S)")
 
 _FOLLOW_UP = re.compile(r"<follow_up>\n(.*?)\n</follow_up>", re.DOTALL)
 _HISTORY_QUESTION = re.compile(r"<question>\n(.*?)\n</question>", re.DOTALL)
@@ -136,6 +145,23 @@ class FakeProvider:
             input_tokens=approximate_tokens(system) + approximate_tokens(user),
             output_tokens=approximate_tokens(text),
         )
+
+    def stream(self, system: str, user: str, model: str = "", max_output_tokens: int = 0):
+        if settings.CHAT_PROVIDER == self.name:
+            # Through the boundary, so a test that patches it is obeyed;
+            # keyword, so a spy sees the same (system, user) args as before.
+            from assistant import chat
+
+            result = chat.complete(system, user, max_output_tokens=max_output_tokens or None)
+        else:
+            result = self.complete(system, user, model, max_output_tokens)
+        yield from words(result.text)
+        yield result
+
+
+def words(text: str) -> list[str]:
+    """`text` cut before each word that follows whitespace; joined, they are `text` again."""
+    return [piece for piece in _WORD_START.split(text) if piece]
 
 
 def keywords(question: str) -> str:
