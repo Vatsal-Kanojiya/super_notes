@@ -92,6 +92,8 @@ MIDDLEWARE = [
     # Before everything that can log, so the id is set by the time any
     # other middleware, view or exception handler emits a line.
     "config.middleware.RequestIDMiddleware",
+    # Tells a running client its build is too old (D106).
+    "config.middleware.ClientMinVersionMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -407,7 +409,7 @@ CORS_ALLOW_HEADERS = (
     "idempotency-key",
     "x-request-id",
 )
-CORS_EXPOSE_HEADERS = ["X-Request-ID"]
+CORS_EXPOSE_HEADERS = ["X-Request-ID", "X-Client-Min-Version"]
 
 
 # The OpenAPI schema and Swagger UI at /api/v1/schema/ and /api/v1/docs/.
@@ -591,3 +593,16 @@ LIMIT_DEFAULTS = {
     "condense": {"system": 20000, "period": "month"},
     "memory_extract": {"system": 20000, "period": "month"},
 }
+
+# App lifecycle (D88-D94, D106-D111). A build id is YYYYMMDDHHMM-<shortsha>;
+# ids compare by their timestamp prefix. Set by the deploy; empty means
+# "no opinion", so nothing is announced.
+CLIENT_LATEST_VERSION = env("CLIENT_LATEST_VERSION", default="")
+# Builds older than this are told to update at once, and every API response
+# carries it as X-Client-Min-Version (config/middleware.py).
+CLIENT_MIN_VERSION = env("CLIENT_MIN_VERSION", default="")
+# The memory notice (D88) is due on a user's first app open, then every this
+# many opens since they last saw it (D94).
+MEMORY_NOTICE_EVERY_OPENS = env.int("MEMORY_NOTICE_EVERY_OPENS", default=5)
+# A second app open from one device inside this window is not counted (D93).
+APP_OPEN_MIN_INTERVAL_SECONDS = env.int("APP_OPEN_MIN_INTERVAL_SECONDS", default=300)

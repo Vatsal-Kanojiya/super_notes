@@ -500,7 +500,7 @@ builds it on its branch, merges, and ticks it here. Items marked **blocked** wai
 | # | Branch | What | Model | Status |
 |---|---|---|---|---|
 | 1 | `v2-feat/0c-limits` | Limits layer (D84): `limits` app — `Limit`, `UsageEvent`, check-and-record under the user lock plus the system count, Ask quota moved onto it, `signups_per_day`, 429/503, admin mail | Opus | in progress (2026-10-02) — brief: `docs/v2/briefs/0c-limits.md` |
-| 2 | `v2-feat/0e-lifecycle` | D89/D90 backend: `GET app/version/`, `X-Client-Min-Version`, `user_signed_in` and `app_opened` signals, `POST session/open/` with notices, memory-notice fields and rule (D88), `PATCH me/` (timezone, memory) | Sonnet | in progress (2026-10-02) — brief: `docs/v2/briefs/0e-lifecycle.md` |
+| 2 | `v2-feat/0e-lifecycle` | D89/D90 backend: `GET app/version/`, `X-Client-Min-Version`, `user_signed_in` and `app_opened` signals, `POST session/open/` with notices, memory-notice fields and rule (D88), `PATCH me/` (timezone, memory) | Sonnet | **done** (merged 2026-10-02) — brief: `docs/v2/briefs/0e-lifecycle.md` |
 | 3 | `v2-feat/0d-web-platform` | vue-router + vitest (D86), stale-JS defences (D89), session/open + notices UI, timezone on sign-in | Sonnet | in progress (2026-10-02) — brief: `docs/v2/briefs/0d-web-platform.md` |
 | 4 | `v2-feat/1-conversations` | Phase 1 | Opus | ready after 1–3 |
 | 5 | `v2-feat/4-format` | Phase 4 | Sonnet | ready after 1 |

@@ -9,12 +9,13 @@ exposes them as ``urlpatterns``; this module only mounts them.
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from .views import HealthView
+from .views import AppVersionView, HealthView
 
 app_name = "api"
 
 v1 = [
     path("health/", HealthView.as_view(), name="health"),
+    path("app/version/", AppVersionView.as_view(), name="app-version"),
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="api:v1:schema"), name="docs"),
     path("", include("accounts.api")),

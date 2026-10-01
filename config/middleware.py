@@ -172,6 +172,27 @@ class RequestIDMiddleware:
         return response
 
 
+class ClientMinVersionMiddleware:
+    """Put ``X-Client-Min-Version`` on every API response when it is configured (D106).
+
+    A client compares it with its own build on every call, so a build that
+    is too old finds out without waiting for its next app open. Only
+    ``/api/`` paths; CORS exposes the header (CORS_EXPOSE_HEADERS).
+    """
+
+    HEADER = "X-Client-Min-Version"
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        minimum = settings.CLIENT_MIN_VERSION
+        if minimum and request.path.startswith("/api/"):
+            response[self.HEADER] = minimum
+        return response
+
+
 class RequestIDFilter(logging.Filter):
     """Put the current request id on every log record.
 
