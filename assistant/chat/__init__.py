@@ -19,7 +19,8 @@ def complete(system: str, user: str, max_output_tokens: int | None = None) -> Ch
     """Send one system prompt and one user message to the configured provider.
 
     ``max_output_tokens`` overrides CHAT_MAX_OUTPUT_TOKENS for a caller whose answer
-    is long by nature (a whole formatted note).
+    is long by nature (a whole formatted note), or short (the condenser: a
+    question, not an answer).
     """
     provider_name = settings.CHAT_PROVIDER
     provider = get_provider(provider_name)

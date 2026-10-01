@@ -6,6 +6,14 @@ on the prompt: it quotes the first sentence of excerpt [1] (and of [2], when
 there is one) with their citation markers, the way a grounded answer would.
 That keeps an end-to-end test meaningful -- the citations it parses point at
 real excerpts, so a test can check they map back to the right notes.
+
+A condense call (prompts/condense.md: the user message ends in
+``<follow_up>``) gets a fixed rule instead (DECISIONS D225): the first word
+of the follow-up that points back -- "it", "them", "that", "one"... -- is
+replaced by the content words of the previous turn's question; a follow-up
+with no such word comes back unchanged, as a topic shift should. So "When
+is it due next?" after "When did I last service the Honda City?" becomes
+"When is last service Honda City due next?", which retrieval can match.
 """
 
 import json
@@ -22,6 +30,21 @@ _EXCERPT = re.compile(r'<excerpt n="(\d+)"[^>]*>\n(.*?)\n</excerpt>', re.DOTALL)
 # JSON, so the last closing tag is the real one.
 _NOTE = re.compile(r"<note>\n(.*)\n</note>", re.DOTALL)
 _SENTENCE = re.compile(r"(.+?[.!?])(?=\s|$)")
+
+_FOLLOW_UP = re.compile(r"<follow_up>\n(.*?)\n</follow_up>", re.DOTALL)
+_HISTORY_QUESTION = re.compile(r"<question>\n(.*?)\n</question>", re.DOTALL)
+_TOKEN = re.compile(r"[\w'’.-]+")
+
+# What the fake condenser resolves: the commonest words that point back.
+POINTING = frozenset("it its them they their this that these those one ones".split())
+# Left out of the previous question when it stands in for a pointing word.
+STOPWORDS = frozenset(
+    "a an the and or but of to in on at for from by with about into over under "
+    "what when where which who whom whose why how is are was were be been being "
+    "do does did done have has had will would shall should can could may might must "
+    "i me my mine we us our you your he him his she her it its they them their "
+    "this that these those there here any some all much many next".split()
+)
 
 # The answer quotes at most this many excerpts.
 CITED = 2
@@ -69,6 +92,7 @@ class FakeProvider:
         # Deterministic on purpose -- no clock, no randomness -- so a test
         # asserting on this result cannot flake.
         note = _NOTE.match(user)
+        follow_up = _FOLLOW_UP.search(user)
         excerpts = _EXCERPT.findall(user)[:CITED]
         if note:
             # A "format my note" request (notes/format_prompt.py): answer with the
@@ -77,6 +101,9 @@ class FakeProvider:
                 text = json.dumps(format_document(json.loads(note.group(1))), ensure_ascii=False)
             except ValueError:
                 text = "not json"
+        elif follow_up:
+            previous = _HISTORY_QUESTION.findall(user[: follow_up.start()])
+            text = condense(follow_up.group(1), previous[-1] if previous else "")
         elif excerpts:
             text = " ".join(f"{first_sentence(body)} [{n}]" for n, body in excerpts)
         else:
@@ -89,3 +116,20 @@ class FakeProvider:
             input_tokens=approximate_tokens(system) + approximate_tokens(user),
             output_tokens=approximate_tokens(text),
         )
+
+
+def keywords(question: str) -> str:
+    """The content words of a question, in order: "Honda City service"."""
+    words = (word.strip(".?!'’") for word in _TOKEN.findall(question))
+    return " ".join(word for word in words if word and word.lower() not in STOPWORDS)
+
+
+def condense(follow_up: str, previous_question: str) -> str:
+    """The fake condenser: the first pointing word becomes the previous question's subject."""
+    subject = keywords(previous_question)
+    if not subject:
+        return follow_up
+    for match in _TOKEN.finditer(follow_up):
+        if match.group().lower().strip(".?!'’") in POINTING:
+            return follow_up[: match.start()] + subject + follow_up[match.end() :]
+    return follow_up

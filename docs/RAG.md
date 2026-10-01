@@ -395,6 +395,38 @@ output_tokens`.
 - **Live tests.** `assistant/tests/test_providers.py` has one per provider, run only when that
   vendor's key is set in the environment (a key in `.env` counts). Each asks for one word.
 
+### Conversation turns (V2, D220-D227)
+
+A turn is an ask (D140) answered by the same task, with two extra steps in
+`assistant/conversation.py`:
+
+1. **Condense** (turn 2 onward, `prompts/condense.md`, `condense-v1`). The follow-up and the
+   newest earlier turns that fit `CHAT_CONDENSE_HISTORY_MAX_CHARS` (2,000) go to the chat provider,
+   capped at `CHAT_CONDENSE_MAX_OUTPUT_TOKENS` (512), which rewrites it to stand alone. The
+   rewrite is stored in `AskQuery.standalone_question` and is what retrieval searches. The call
+   is skipped when a cheap heuristic says the follow-up already stands alone (D221: no pointing
+   word such as "it", "they", "one"; does not open with "and", "only", "what about"…; at least
+   four words; ASCII letters only). It consumes the system-only `condense` limit (user `None`,
+   linked to the turn) and records provider, model and tokens on that event (D222). Any failure
+   -- a refusal, an outage (not retried), the limit reached, an empty reply -- falls back to
+   searching the follow-up as asked; the turn is never failed for it (D226). A turn taken up
+   again reuses its stored rewrite.
+2. **The prompt** (`prompts/chat.md`, `chat-v1`, used from turn 1): ask-v1's rules plus "the
+   conversation so far is context, not a source — cite only excerpts". The user message is the
+   conversation's `<summary>` (if any), then `<history>`: the answered turns after
+   `summary_through`, newest kept within `CHAT_HISTORY_MAX_CHARS` (6,000), whole turns without
+   gaps, the newest always (its answer cut if it alone overflows) (D224). Earlier answers lose
+   their `[n]` markers (D223). Then this turn's `<excerpts>` and the `<question>` as asked.
+   Citations number this turn's excerpts only, parsed exactly as for a plain ask. The history's
+   tags (`history`, `turn`, `answer`, `summary`, `follow_up`) are neutralised like the excerpt
+   tags (D56).
+
+**The fake condenser** (D225): when the user message ends in `<follow_up>`, the fake provider
+replaces the follow-up's first pointing word (`it`, `its`, `them`, `they`, `their`, `this`,
+`that`, `these`, `those`, `one`, `ones`) with the content words of the previous turn's question
+("When is it due next?" after "When did I last service the Honda City?" → "When is last service
+Honda City due next?"), and returns any other follow-up unchanged, as a topic shift should be.
+
 ## Evaluation
 
 Retrieval is measured, not assumed. A fixed set of notes and labelled questions is run through

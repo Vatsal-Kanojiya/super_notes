@@ -19,11 +19,18 @@ from pathlib import Path
 
 from django.conf import settings
 
-PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "ask.md"
+PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+PROMPT_PATH = PROMPTS_DIR / "ask.md"
 
 # Any opening or closing tag using one of this prompt's delimiter names, in
 # any case and spacing: "</excerpt>", "< /EXCERPTS", "<question ...".
 _DELIMITER_TAG = re.compile(r"<(\s*/?\s*(?:excerpts?|question)\b)", re.IGNORECASE)
+# The same for a conversation's prompts (chat.md, condense.md), which also
+# delimit the history: earlier questions and answers, and the summary.
+_CONVERSATION_TAG = re.compile(
+    r"<(\s*/?\s*(?:excerpts?|question|history|turn|answer|summary|follow_up)\b)",
+    re.IGNORECASE,
+)
 
 # A truncated excerpt keeps at least this much, or is left out: a few words
 # cut from their context are more likely to mislead than to help.
@@ -47,16 +54,27 @@ class Excerpt:
 
 
 @cache
-def _load() -> tuple[str, str]:
-    """(version, body) of prompts/ask.md, read once per process."""
-    raw = PROMPT_PATH.read_text(encoding="utf-8")
+def _read(path: Path) -> tuple[str, str]:
+    """(version, body) of a prompt file, read once per process."""
+    raw = path.read_text(encoding="utf-8")
     first_line, _, body = raw.partition("\n")
     key, _, version = first_line.partition(":")
     if key.strip() != "version" or not version.strip():
         # A prompt without a version would make stored answers
         # unattributable; fail at first use rather than store that.
-        raise ValueError(f"{PROMPT_PATH} must start with a 'version: <name>' line")
+        raise ValueError(f"{path} must start with a 'version: <name>' line")
     return version.strip(), body.strip()
+
+
+@cache
+def _load() -> tuple[str, str]:
+    """(version, body) of prompts/ask.md."""
+    return _read(PROMPT_PATH)
+
+
+def load_prompt(name: str) -> tuple[str, str]:
+    """(version, body) of prompts/<name>.md: ``chat``, ``condense``."""
+    return _read(PROMPTS_DIR / f"{name}.md")
 
 
 def prompt_version() -> str:
@@ -68,13 +86,15 @@ def system_prompt() -> str:
     return _load()[1]
 
 
-def neutralise(text: str) -> str:
+def neutralise(text: str, *, conversation: bool = False) -> str:
     """Make a delimiter tag inside `text` inert, leaving everything else as written.
 
     Only this prompt's own tag names are touched, and only their ``<``, so
-    "a < b", code and HTML in a note reach the model unchanged.
+    "a < b", code and HTML in a note reach the model unchanged. With
+    ``conversation``, the history's tags too (chat.md, condense.md).
     """
-    return _DELIMITER_TAG.sub(r"&lt;\1", text)
+    pattern = _CONVERSATION_TAG if conversation else _DELIMITER_TAG
+    return pattern.sub(r"&lt;\1", text)
 
 
 def _attribute(value: str) -> str:
@@ -127,17 +147,21 @@ def build_messages(question: str, excerpts: list[Excerpt]) -> tuple[str, str]:
     Excerpts first, the question last: the model reads the material before
     the thing to do with it, and the question is nearest the answer.
     """
+    user = (
+        excerpts_block(excerpts)
+        + "\n\n"
+        + f"<question>\n{neutralise(question.strip())}\n</question>"
+    )
+    return system_prompt(), user
+
+
+def excerpts_block(excerpts: list[Excerpt], *, conversation: bool = False) -> str:
+    """``<excerpts>…</excerpts>``: the excerpts that fit, numbered, neutralised."""
     blocks = []
     for excerpt in fit_excerpts(excerpts):
         attributes = f'n="{excerpt.n}" title="{_attribute(excerpt.title)}"'
         if excerpt.heading_path:
             attributes += f' section="{_attribute(excerpt.heading_path)}"'
-        blocks.append(f"<excerpt {attributes}>\n{neutralise(excerpt.text)}\n</excerpt>")
-
-    user = (
-        "<excerpts>\n"
-        + "\n\n".join(blocks)
-        + "\n</excerpts>\n\n"
-        + f"<question>\n{neutralise(question.strip())}\n</question>"
-    )
-    return system_prompt(), user
+        text = neutralise(excerpt.text, conversation=conversation)
+        blocks.append(f"<excerpt {attributes}>\n{text}\n</excerpt>")
+    return "<excerpts>\n" + "\n\n".join(blocks) + "\n</excerpts>"

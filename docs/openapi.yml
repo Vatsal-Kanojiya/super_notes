@@ -26,7 +26,8 @@ paths:
   /api/v1/ask/:
     get:
       operationId: ask_list
-      description: Follow `next` for more.
+      description: Conversation turns included, except those of deleted conversations.
+        Follow `next` for more.
       summary: Your asks, newest first
       parameters:
       - name: cursor
@@ -56,7 +57,7 @@ paths:
       description: |-
         Starts answering and returns at once with the ask `pending` (202): poll `GET ask/<id>/` until `status` is `done` or `failed`. The answer comes from your notes only, with `[n]` markers matching `citations`.
 
-        Send a fresh `Idempotency-Key` per question. Resending one (a retry after a dropped connection) returns the ask it already made, with 200, and does not count again. Reusing it for a different question is a 422.
+        Send a fresh `Idempotency-Key` per question. Resending one (a retry after a dropped connection) returns the ask it already made, with 200, and does not count again. Reusing it for a different question, or one first sent as a conversation turn, is a 422.
 
         Each ask that does not fail counts against the month's quota (see `me/`). When the service-wide monthly budget is used up, asking pauses for everyone: 503 `system_limit_reached`.
       summary: Ask your notes a question
@@ -113,7 +114,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
-          description: '`idempotency_key_reused`: the key was used for another question.'
+          description: '`idempotency_key_reused`: the key was used for another question,
+            or for an ask somewhere else (a plain ask, another conversation).'
         '429':
           content:
             application/json:
@@ -131,7 +133,8 @@ paths:
     get:
       operationId: ask_retrieve
       description: Poll this until `status` is `done` or `failed`; a failed ask has
-        a user-facing `error` and does not count against the quota.
+        a user-facing `error` and does not count against the quota. Conversation turns
+        are polled here too.
       summary: Get an ask
       parameters:
       - in: path
@@ -355,6 +358,314 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Too many, too recently.
+  /api/v1/conversations/:
+    get:
+      operationId: conversations_list
+      description: Follow `next` for more.
+      summary: Your conversations, most recently active first
+      parameters:
+      - name: cursor
+        required: false
+        in: query
+        description: The pagination cursor value.
+        schema:
+          type: string
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: 1-100, default 25.
+      tags:
+      - Conversations
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedConversationList'
+          description: ''
+    post:
+      operationId: conversations_create
+      description: 'Without a `question`, makes an empty conversation (201). With
+        one, also asks it as turn 1, exactly as `POST conversations/<id>/turns/` would,
+        and then needs an `Idempotency-Key`: a retry with the same key returns the
+        same conversation (200) and does not count again. Poll the turn with `GET
+        ask/<id>/`.'
+      summary: Start a conversation
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: Required with a `question`. 1-100 of `A-Z a-z 0-9 - _`.
+      tags:
+      - Conversations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ConversationCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ConversationCreateRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationDetail'
+          description: Started.
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationDetail'
+          description: 'A replayed key: that conversation.'
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid question, or `idempotency_key_required` / `idempotency_key_invalid`.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`idempotency_key_reused`: the key was used for another question,
+            or for an ask somewhere else (a plain ask, another conversation).'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaExceeded'
+          description: '`quota_exceeded` (with usage), or `throttled`.'
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`system_limit_reached`: this feature is paused for everyone
+            (a system-wide limit). Not the caller''s own quota; try again later.'
+  /api/v1/conversations/{id}/:
+    get:
+      operationId: conversations_retrieve
+      summary: Get a conversation and its turns
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Conversations
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationDetail'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such conversation of yours (or it was deleted).
+    patch:
+      operationId: conversations_partial_update
+      description: Does not move it in the list, which follows new turns.
+      summary: Rename a conversation
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Conversations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedConversationRenameRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedConversationRenameRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedConversationRenameRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid title.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such conversation of yours (or it was deleted).
+    delete:
+      operationId: conversations_destroy
+      description: Its turns go from `ask/` too. The asks it used still count this
+        month.
+      summary: Delete a conversation
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Conversations
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such conversation of yours (or it was deleted).
+  /api/v1/conversations/{id}/turns/:
+    post:
+      operationId: conversations_turns_create
+      description: |-
+        `POST ask/`, in a conversation: returns the turn `pending` (202); poll `GET ask/<id>/` until it is `done` or `failed`. Turns are sequential: while the previous turn is pending or running this is a 409 `turn_in_progress`, naming that turn. A replayed `Idempotency-Key` returns its turn (200), even then.
+
+        Each turn counts against the month's asks, as an ask does.
+      summary: Ask the next question in a conversation
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: 1-100 of `A-Z a-z 0-9 - _`; a UUID is ideal.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Conversations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AskCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AskCreateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AskQuery'
+          description: Asked; poll for the answer.
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AskQuery'
+          description: 'A replayed key: that turn.'
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid question, or `idempotency_key_required` / `idempotency_key_invalid`.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such conversation of yours (or it was deleted).
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnInProgress'
+          description: '`turn_in_progress`: the previous turn has not finished.'
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`idempotency_key_reused`: the key was used for another question,
+            or for an ask somewhere else (a plain ask, another conversation).'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaExceeded'
+          description: '`quota_exceeded` (with usage), or `throttled`.'
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`system_limit_reached`: this feature is paused for everyone
+            (a system-wide limit). Not the caller''s own quota; try again later.'
   /api/v1/format-jobs/{id}/:
     get:
       operationId: format_jobs_retrieve
@@ -872,7 +1183,7 @@ components:
     AskQuery:
       type: object
       description: |-
-        An ask as the client shows it.
+        An ask (or a conversation turn) as the client shows it.
 
         Not ``retrieved`` or the token counts: they are for debugging and cost,
         and the scores in ``retrieved`` would invite a client to rank with them.
@@ -880,6 +1191,17 @@ components:
         id:
           type: integer
           readOnly: true
+        conversation:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: The conversation this is a turn of; null for a plain ask.
+        position:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: The turn's number in its conversation, from 1; null for a plain
+            ask.
         question:
           type: string
           readOnly: true
@@ -913,9 +1235,11 @@ components:
       - answer
       - citations
       - completed_at
+      - conversation
       - created_at
       - error
       - id
+      - position
       - question
       - status
     AskUsage:
@@ -960,6 +1284,72 @@ components:
       - note_id
       - snippet
       - title
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+          description: The first question, shortened, until renamed. Blank until the
+            first turn.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the last turn was asked. The list is ordered by it.
+      required:
+      - created_at
+      - id
+      - title
+      - updated_at
+    ConversationCreateRequest:
+      type: object
+      properties:
+        question:
+          type: string
+          minLength: 1
+          description: 'Optional: asks it as turn 1 at once (then `Idempotency-Key`
+            is required).'
+          maxLength: 1000
+    ConversationDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+          description: The first question, shortened, until renamed. Blank until the
+            first turn.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the last turn was asked. The list is ordered by it.
+        turns:
+          type: array
+          items:
+            $ref: '#/components/schemas/AskQuery'
+          readOnly: true
+          description: Oldest first.
+      required:
+      - created_at
+      - id
+      - title
+      - turns
+      - updated_at
     Device:
       type: object
       description: A signed-in device, as the list shows it. Never its token id.
@@ -1347,6 +1737,25 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AskQuery'
+    PaginatedConversationList:
+      type: object
+      required:
+      - results
+      properties:
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cD00ODY%3D"
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cj0xJnA9NDg3
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conversation'
     PaginatedNoteList:
       type: object
       required:
@@ -1366,6 +1775,13 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Note'
+    PatchedConversationRenameRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
     PatchedMeUpdateRequest:
       type: object
       description: What ``PATCH me/`` accepts. Anything else is ignored.
@@ -1579,6 +1995,22 @@ components:
       - access
       - refresh
       - user
+    TurnInProgress:
+      type: object
+      description: 'A plain answer: what happened, and a stable code a client can
+        branch on.'
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+        turn:
+          type: integer
+          description: 'The unfinished turn: poll `GET ask/<turn>/`.'
+      required:
+      - code
+      - detail
+      - turn
     TypeEnum:
       enum:
       - text

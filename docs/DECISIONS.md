@@ -1891,3 +1891,152 @@ delimiter. Rules live in `notes/prompts/format.md` (`version: format-v1`), store
 (beat every 5 minutes) fails jobs unfinished after `FORMAT_STUCK_AFTER_SECONDS` (1 hour, the same
 retry budget as asks, D78) and refunds them. Finished jobs and their `proposed_content` are kept
 (no retention purge yet). **Alternative:** share the `ask` throttle scope and `ASK_STUCK_AFTER_SECONDS`.
+
+### D140. A conversation turn is an `AskQuery` with `conversation` and `position` (1, 2026-10-01)
+
+**Decided:** `Conversation` (user, title, `summary`, `summary_through`, timestamps, `deleted_at`)
+holds no answers; each turn is an `AskQuery` with a nullable `conversation` FK, a `position` from 1
+and a blank `standalone_question` (filled by sub-task 2). Unique `(conversation, position)`, and a
+check constraint that both are set or neither (a plain `POST ask/`). `AskQuerySerializer` gains
+`conversation` and `position` (null for a plain ask); `standalone_question` is not exposed yet.
+A turn is polled at `GET ask/<id>/`. **Alternative:** a separate Turn model (plan D78 rejects a
+second job model).
+
+### D141. Turns are sequential, checked under the user's row lock (1, 2026-10-01)
+
+**Decided:** `create_turn` takes the same user lock as `create_ask`, then (in order) re-reads the
+conversation (deleted → 404), replays the idempotency key, refuses with `TurnInProgress` (409
+`turn_in_progress`, body names the unfinished `turn`) if any turn is pending/running, then creates
+position `max + 1` and consumes `chat_turns`. A replay comes before the 409, so retrying the turn
+that is running returns it (200). A failed turn does not block the next one. The unique
+`(conversation, position)` is the second guard: without the lock, a race ends in an
+IntegrityError, not a second turn (tested). **Alternative:** a per-conversation row lock (finer,
+but every ask and turn already takes the user lock for the quota, so it would add a lock without
+adding concurrency).
+
+### D142. An idempotency key replays only the same question in the same place (1, 2026-10-01)
+
+**Decided:** keys stay unique per user across asks and turns. A key replays only when both the
+question and the conversation (none, for `POST ask/`) match; a turn's key sent to `POST ask/`, or
+to another conversation, is 422 `idempotency_key_reused` (its text is unchanged: "already used
+for a different question"). **Alternative:** replay by key alone (would hand back a turn of another conversation as if it
+were this request).
+
+### D143. `POST conversations/` takes an optional first question; then it needs a key (1, 2026-10-01)
+
+**Decided:** without `question`, an empty conversation (201, no key, no quota). With one, turn 1
+is asked in the same transaction and `Idempotency-Key` is required; a replay returns the same
+conversation (200). A key that made a plain ask, a later turn, or a turn of a since-deleted
+conversation is 422. A refused first turn (429/503) leaves no conversation. Response is the
+conversation with its turns. **Alternative:** always require a key (an empty conversation costs
+nothing, and a duplicate empty one is harmless).
+
+### D144. The title comes from the first question; a rename does not reorder the list (1, 2026-10-01)
+
+**Decided:** the first turn sets `title` (the question on one line, cut at a word near 80
+characters, with "…") only if the title is still blank, so a rename made before it is kept.
+`updated_at` is moved by each new turn (explicitly, in the same transaction), not by a rename or a
+delete (both use `update()`, skipping `auto_now`). PATCH accepts only `title` (1-200, stripped,
+not blank); PUT is 405. **Alternative:** `auto_now` on every save (a rename would jump to the top).
+
+### D145. Deleting a conversation hides it and its turns everywhere; usage stays (1, 2026-10-01)
+
+**Decided:** soft delete (`deleted_at`) under the user lock, so a turn racing the delete either
+commits first and is hidden or gets a 404. A deleted conversation is 404 on every endpoint, and
+its turns drop out of `GET ask/` and `GET ask/<id>/` (filter `conversation__deleted_at__isnull`,
+a LEFT JOIN that keeps plain asks). Live conversations' turns stay in `GET ask/`. Usage events
+are untouched, so the month's count does not change. A turn already running finishes unseen.
+**Alternative:** keep a deleted conversation's turns visible in `ask/` (contradicts "hides its
+turns from history"); exclude every turn from `ask/` (a breaking change for no gain).
+
+### D146. `GET conversations/` pages by `(-updated_at, -id)` (1, 2026-10-01)
+
+**Decided:** a `CursorPagination` on `-updated_at` with `-id` as tie-break, despite the project
+pager's warning about moving fields. `updated_at` only moves up (a new turn), so paging never
+shows a conversation twice; one that gets a turn mid-paging is missed on that pass and is at the
+top of the next page-one fetch. **Alternative:** `-id` (stable, but not the "recent first" order
+the chat list needs).
+
+### D220. A conversation turn uses the chat prompt from turn 1, with the question as asked (2, 2026-10-01)
+
+**Decided:** every turn of a conversation is answered with `prompts/chat.md` (`chat-v1`, stored in
+`prompt_version`), turn 1 included (it simply has no history); a plain `POST ask/` keeps
+`ask-v1`. The user message is `<summary>` (if any), `<history>`, this turn's `<excerpts>`, then
+`<question>` holding the follow-up **as the user wrote it**: the model has the history to read it
+by, and the standalone rewrite is only for retrieval. The relevance floor applies to turns
+unchanged. **Alternative:** `ask-v1` for turn 1 (two prompts for one thread); the standalone
+question in `<question>` (a bad rewrite would then change what is answered, not only what is
+searched).
+
+### D221. The "already stands alone" heuristic: no pointing word, no continuation, four words, ASCII (2, 2026-10-01)
+
+**Decided:** `needs_condensing` sends a follow-up to the condenser if it has a word that points
+back (`it, its, they, them, their, this, that, these, those, he, him, his, she, her, there, one,
+ones, same, former, latter, else`…), opens with a continuation (`and, but, or, also, only, so,
+then, too`, "what about", "how about"), has fewer than four words, or has any non-ASCII letter (the
+word lists are English; anything else is always condensed). Over-inclusive on purpose: a false
+positive costs one cheap call that returns the question unchanged; a false negative searches
+"when is it due?" as is. Measured on the 17 multi-turn fixtures: all 12 follow-ups that need
+context are condensed, the 3 topic shifts and 2 no-answer follow-ups are not (a test pins this).
+**Alternative:** always condense (one extra call per turn, and a chance for a real model to drag
+the old topic into a shift).
+
+### D222. A condense call is a `condense` event with user None, linked to the turn; refunds and cost stay per key (2, 2026-10-01)
+
+**Decided:** before the provider call, `limits.consume(None, "condense", ask=turn)` in its own
+short transaction (the advisory lock is not held across the HTTP call). A provider error refunds
+it (nothing was billed); a reply records provider, model and tokens on it with `describe_where`.
+Because the event is linked to the turn, the task's `_finish` (D133), `_fail` (D102) and the
+sweeper now act on `key="chat_turns"` only: the answer's cost no longer lands on the condense
+event, and a turn that fails after condensing refunds its chat turn but not the condense call
+that was made. **Alternative:** the event under the user (attributable, but the brief and D91 say
+user None; the turn link gives the user anyway); no `ask` link (loses which turn it served).
+
+### D223. Earlier answers are repeated without their `[n]` markers (2, 2026-10-01)
+
+**Decided:** in the history (chat and condense prompts) an earlier answer has its citation markers
+removed (the `citations.MARKER` pattern), with the space before punctuation tidied. Those numbers
+referred to that turn's excerpts; left in, they invite the model to cite `[1]` meaning an old
+excerpt, while this turn's citations number only this turn's excerpts. **Alternative:** keep them
+(verbatim, but a source of wrong citations).
+
+### D224. History is trimmed by characters, newest whole turns, no gaps (2, 2026-10-01)
+
+**Decided:** the history is the conversation's `done` turns before this one with position after
+`summary_through` (failed turns have no answer and are skipped). `fit_history` keeps whole turns
+(question + answer characters) from the newest back while they fit `CHAT_HISTORY_MAX_CHARS`
+(6,000, ≈1,500 tokens) and stops at the first that does not, so there is never a gap. The newest
+turn is always kept, its answer cut at a word to the room left. Condensing uses the same function
+with `CHAT_CONDENSE_HISTORY_MAX_CHARS` (2,000) and no summary. The summary itself is included
+whole (sub-task 3 bounds what it writes). **Alternative:** a fixed number of turns (a long answer
+would blow the prompt); skipping an overflowing turn to fit an older one (a history with a hole).
+
+### D225. The fake condenser replaces the first pointing word with the previous question's content words (2, 2026-10-01)
+
+**Decided:** the fake provider recognises a condense call by `<follow_up>` and replaces the
+follow-up's first `it, its, them, they, their, this, that, these, those, one, ones` with the
+previous turn's question minus stop words ("How often do I have to take it?" after "What did
+Dr. Kulkarni say about my vitamin D?" → "How often do I have to take Dr Kulkarni say vitamin D?").
+No such word → the follow-up unchanged. Crude, but deterministic, and it moves retrieval the way a
+real condenser should, so tests can show a pronoun follow-up finding the right note and a shift
+not picking up the old topic. **Alternative:** prepend the previous question's keywords always
+(would drag every topic shift).
+
+### D226. Condensing never fails a turn; the rewrite is stored whenever the condenser gave one (2, 2026-10-01)
+
+**Decided:** `ChatError`, `TransientChatError` (not retried: the turn is not worth a minute of
+backoff for a better search), `SystemLimitExceeded` on `condense`, and an empty reply all log a
+warning and search the follow-up as asked; `standalone_question` stays blank. A usable reply is
+cleaned (first line, a "Question:" label and quotes removed, cut to 1,000 characters) and stored,
+even when it equals the follow-up, before retrieval; a turn taken up again (retry, redelivery)
+reuses it instead of condensing and paying twice. A bug in a provider (any other exception) still
+fails the turn, as it would the answer. **Alternative:** retry transient condense errors with the
+task (spends the turn's retries on an optional step).
+
+### D227. `chat.complete` takes an optional `max_output_tokens`; condensing gets 512 (2, 2026-10-01)
+
+**Decided:** `complete(system, user, max_output_tokens=None)` defaults to `CHAT_MAX_OUTPUT_TOKENS`;
+the condenser passes `CHAT_CONDENSE_MAX_OUTPUT_TOKENS` (512). A question needs a few dozen tokens,
+but OpenAI's reasoning tokens count against the ceiling, and a reply cut off by it is a
+`ChatError` (D54), which would make every condense fall back. **Alternative:** the shared 2,048
+ceiling (no cap on a runaway rewrite); a second entry point (`condense()` in the chat package).

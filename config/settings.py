@@ -519,6 +519,19 @@ ASK_NO_ANSWER_TEXT = env(
 # size, with headroom. The cost of an ask is mostly this.
 ASK_EXCERPT_MAX_CHARS = env.int("ASK_EXCERPT_MAX_CHARS", default=12000)
 
+# Conversations (assistant/conversation.py, DECISIONS D220-D227)
+#
+# The earlier turns a conversation turn's prompt repeats verbatim, newest
+# kept, in characters (about 1,500 tokens): on top of the excerpts, so a
+# turn costs at most about half as much again as a plain ask.
+CHAT_HISTORY_MAX_CHARS = env.int("CHAT_HISTORY_MAX_CHARS", default=6000)
+# The same for the condense call, which only needs what a follow-up can
+# point back to: the last turn or two.
+CHAT_CONDENSE_HISTORY_MAX_CHARS = env.int("CHAT_CONDENSE_HISTORY_MAX_CHARS", default=2000)
+# The ceiling on a condensed question. A question is a sentence; this is
+# not tighter because OpenAI's reasoning tokens count against it too.
+CHAT_CONDENSE_MAX_OUTPUT_TOKENS = env.int("CHAT_CONDENSE_MAX_OUTPUT_TOKENS", default=512)
+
 # Chunking (retrieval/chunking.py, DECISIONS D33)
 #
 # Measured in characters, not tokens: a tokenizer would be a new dependency

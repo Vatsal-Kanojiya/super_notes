@@ -1,5 +1,9 @@
 """Answering an ask: retrieve, floor, prompt, complete, cite (plan §6.5, docs/RAG.md).
 
+A conversation turn adds two steps (assistant/conversation.py): its
+follow-up is condensed to stand alone before retrieval, and its prompt
+(prompts/chat.md) carries the conversation so far.
+
 The task owns the AskQuery's life after creation: pending → running → done
 or failed. Every way out of it ends in done or failed, including retries
 running out, the soft time limit and bugs (DECISIONS D76): a row left
@@ -20,7 +24,7 @@ from limits import service as limits
 from retrieval.embeddings import EmbeddingError, EmbeddingTransientError
 from retrieval.search import SearchHit, search
 
-from . import chat
+from . import chat, conversation, quota
 from .citations import parse_citations
 from .models import AskQuery
 from .prompt import Excerpt, build_messages, fit_excerpts, prompt_version
@@ -83,12 +87,18 @@ def _answer(ask_id: int) -> None:
     )
     if not claimed:
         return
-    ask = AskQuery.objects.select_related("user").get(pk=ask_id)
+    ask = AskQuery.objects.select_related("user", "conversation").get(pk=ask_id)
+
+    # A conversation turn searches its follow-up condensed to stand alone,
+    # and is answered with its history (assistant/conversation.py). A plain
+    # ask, and turn 1, search the question as asked.
+    turn = conversation.prepare(ask) if ask.conversation_id else None
+    query = turn.search_question if turn else ask.question
 
     try:
         # Hybrid search already falls back to keyword-only when the query
         # can't be embedded (D70); this catches what it still lets through.
-        hits = search(ask.user, ask.question, k=settings.ASK_RETRIEVAL_K)
+        hits = search(ask.user, query, k=settings.ASK_RETRIEVAL_K)
     except EmbeddingError:
         logger.warning("Ask %s: search failed", ask_id, exc_info=True)
         _fail(ask_id, SEARCH_FAILED)
@@ -116,7 +126,14 @@ def _answer(ask_id: int) -> None:
     # gives the same result, which is what the model saw and so what its
     # markers can refer to.
     fitted = fit_excerpts(excerpts)
-    system, user = build_messages(ask.question, excerpts)
+    if turn is None:
+        system, user = build_messages(ask.question, excerpts)
+        version = prompt_version()
+    else:
+        system, user = conversation.build_chat_messages(
+            ask.question, excerpts, turn.history, turn.summary
+        )
+        version = conversation.chat_prompt_version()
 
     try:
         result = chat.complete(system, user)
@@ -131,7 +148,7 @@ def _answer(ask_id: int) -> None:
         citations=parse_citations(result.text, fitted),
         provider=result.provider,
         model=result.model,
-        prompt_version=prompt_version(),
+        prompt_version=version,
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
     )
@@ -182,7 +199,8 @@ def _finish(ask_id, **fields) -> None:
     )
     cost = {name: fields[name] for name in COST_FIELDS if name in fields}
     if done and cost:
-        limits.describe_where({"ask_id": ask_id}, **cost)
+        # The ask's own use only: a turn's condense event has its own cost.
+        limits.describe_where({"ask_id": ask_id, "key": quota.KEY}, **cost)
 
 
 @transaction.atomic
@@ -197,7 +215,9 @@ def _fail(ask_id, message: str) -> None:
         status=AskQuery.Status.FAILED, completed_at=timezone.now(), error=message
     )
     if failed:
-        limits.refund_where(ask_id=ask_id)
+        # The ask's own use only: a condense call that was made stays
+        # counted against its system limit (DECISIONS D222).
+        limits.refund_where(ask_id=ask_id, key=quota.KEY)
 
 
 STUCK = "This took too long. Please ask again."
@@ -229,7 +249,7 @@ def sweep_stuck_asks() -> int:
     failed = AskQuery.objects.filter(pk__in=stuck, status__in=UNFINISHED).update(
         status=AskQuery.Status.FAILED, completed_at=timezone.now(), error=STUCK
     )
-    limits.refund_where(ask_id__in=stuck)
+    limits.refund_where(ask_id__in=stuck, key=quota.KEY)
     if failed:
         logger.warning("Failed %s stuck ask(s) older than %s", failed, cutoff)
     return failed
