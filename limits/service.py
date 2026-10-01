@@ -197,6 +197,15 @@ def refund(event: UsageEvent) -> bool:
     return bool(changed)
 
 
+def refund_where(**filters) -> int:
+    """Refund every not-yet-refunded event matching ``filters``; how many it refunded.
+
+    For a feature that refunds by what an event is linked to (a failed ask)
+    rather than by holding the event. Harmless to run twice.
+    """
+    return UsageEvent.objects.filter(refunded=False, **filters).update(refunded=True)
+
+
 def _alert_admins_once(key, used, limit, start, end, now) -> None:
     """Mail the admins the first time ``key`` is refused for the system this period.
 
