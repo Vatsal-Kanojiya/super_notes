@@ -44,10 +44,11 @@ export interface User {
   date_joined: DateTime
 }
 
+/** One limit key's usage (D84, D132). `limit` and `resets_at` are null for an unlimited key. */
 export interface AskUsage {
   used: number
-  limit: number
-  resets_at: DateTime
+  limit: number | null
+  resets_at: DateTime | null
 }
 
 /** `GET me/`; the sign-in response's `user` has the same shape. */
