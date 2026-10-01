@@ -22,17 +22,19 @@ import re
 from datetime import timedelta
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
 from assistant import chat
 from limits import service as limits
+from retrieval.embeddings import EmbeddingTransientError
 
-from . import delivery
+from . import delivery, extraction
 from .format_guard import check_format
 from .format_prompt import build_messages, prompt_version
-from .models import FormatJob, Note
+from .models import Attachment, FormatJob, Note
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +230,67 @@ def sweep_stuck_format_jobs() -> int:
     limits.refund_where(pk__in=[event for _, event in stuck if event])
     if failed:
         logger.warning("Failed %s stuck format job(s) older than %s", failed, cutoff)
+    return failed
+
+
+# --- Attachment text extraction (notes/extraction.py has the how and why) ----
+
+EXTRACTION_TRANSIENT = (chat.TransientChatError, EmbeddingTransientError)
+
+
+@shared_task(
+    bind=True,
+    # An outage or a rate limit is worth waiting out; nobody is watching a
+    # spinner, so the backoff is longer than an ask's.
+    autoretry_for=EXTRACTION_TRANSIENT,
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+    max_retries=5,
+    # Tighter than the default task's: a hostile PDF must not hold a worker
+    # for ten minutes (D340).
+    soft_time_limit=settings.ATTACHMENT_EXTRACT_SOFT_TIME_LIMIT,
+    time_limit=settings.ATTACHMENT_EXTRACT_TIME_LIMIT,
+)
+def extract_attachment(self, attachment_id: int) -> None:
+    """Read, index and finish one attachment; it always ends ready or failed."""
+    try:
+        extraction.run(attachment_id)
+    except EXTRACTION_TRANSIENT as exc:
+        if self.request.retries < self.max_retries:
+            raise  # autoretry_for schedules the next attempt.
+        logger.error(
+            "Attachment %s: giving up after %s retries: %r", attachment_id, self.max_retries, exc
+        )
+        extraction.fail(attachment_id, extraction.BUSY)
+    except SoftTimeLimitExceeded:
+        logger.warning("Attachment %s: extraction hit the soft time limit", attachment_id)
+        extraction.fail(attachment_id, extraction.TOO_SLOW)
+    except Exception:
+        logger.exception("Attachment %s: extraction failed unexpectedly", attachment_id)
+        extraction.fail(attachment_id, extraction.UNEXPECTED)
+        raise
+
+
+@shared_task
+def sweep_stuck_attachments() -> int:
+    """Fail attachments pending or extracting past ATTACHMENT_STUCK_AFTER_SECONDS.
+
+    The net under the task's own handling: a lost message (the broker was
+    down at upload), or a worker killed at the hard time limit, runs no
+    code. Each is failed through the service, which re-checks the status
+    under the owner's lock and stamps the note, so one finishing right now
+    is left alone. Returns how many it failed.
+    """
+    cutoff = timezone.now() - timedelta(seconds=settings.ATTACHMENT_STUCK_AFTER_SECONDS)
+    stuck = Attachment.objects.filter(
+        status__in=(Attachment.Status.PENDING, Attachment.Status.EXTRACTING),
+        deleted_at__isnull=True,
+        created_at__lt=cutoff,
+    ).values_list("pk", flat=True)
+    failed = sum(extraction.fail(pk, extraction.TOO_SLOW) for pk in list(stuck))
+    if failed:
+        logger.warning("Failed %s stuck attachment(s) older than %s", failed, cutoff)
     return failed
 
 

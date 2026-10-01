@@ -20,6 +20,7 @@ cumulative. An error after the stream has started arrives as an event with
 an ``error`` object (``code``, ``status``, ``message``) instead.
 """
 
+import base64
 from contextlib import closing
 from urllib.parse import quote
 
@@ -44,7 +45,30 @@ class GeminiProvider:
         data = post_json(
             "Gemini", _url(URL, model), _headers(), _body(system, user, max_output_tokens)
         )
+        return self._answer(data, model)
 
+    def read_image(
+        self,
+        system: str,
+        user: str,
+        image: bytes,
+        mime_type: str,
+        model: str,
+        max_output_tokens: int,
+    ) -> ChatResult:
+        """``complete`` with the image as an ``inline_data`` part before the text (D343)."""
+        body = _body(system, user, max_output_tokens)
+        inline = {
+            "inline_data": {
+                "mime_type": mime_type,
+                "data": base64.standard_b64encode(image).decode("ascii"),
+            }
+        }
+        body["contents"][0]["parts"].insert(0, inline)
+        data = post_json("Gemini", _url(URL, model), _headers(), body)
+        return self._answer(data, model)
+
+    def _answer(self, data: dict, model: str) -> ChatResult:
         check_prompt(data)
         candidates = data.get("candidates") or []
         if not candidates:

@@ -1,16 +1,17 @@
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
-from notes.models import Note
+from notes.models import Attachment, Note
 from retrieval.embeddings import EmbeddingError
-from retrieval.indexing import index_note
-from retrieval.tasks import index_note_task
+from retrieval.indexing import index_attachment, index_note
+from retrieval.tasks import index_attachment_task, index_note_task
 
 
 class Command(BaseCommand):
     help = (
         "Index every live note of one user or of everyone: a backfill, or the "
-        "re-index after the embedding model changes. Unchanged chunks are reused."
+        "re-index after the embedding model changes. Unchanged chunks are reused. "
+        "The notes' ready attachments are re-embedded from their stored text."
     )
 
     def add_arguments(self, parser):
@@ -31,10 +32,21 @@ class Command(BaseCommand):
             notes = notes.filter(owner=owner)
 
         targets = list(notes.values_list("pk", "version"))
+        attachments = list(
+            Attachment.objects.filter(
+                note__in=notes, status=Attachment.Status.READY, deleted_at__isnull=True
+            )
+            .exclude(extracted_text="")
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
         if not sync:
             for note_id, version in targets:
                 index_note_task.delay(note_id, version)
-            self.stdout.write(f"Queued {len(targets)} notes.")
+            for attachment_id in attachments:
+                index_attachment_task.delay(attachment_id)
+            also = f" and {len(attachments)} attachments" if attachments else ""
+            self.stdout.write(f"Queued {len(targets)} notes{also}.")
             return
 
         failed = 0
@@ -45,3 +57,13 @@ class Command(BaseCommand):
                 failed += 1
                 self.stderr.write(f"Note {note_id}: {exc}")
         self.stdout.write(f"Indexed {len(targets) - failed} notes, {failed} failed.")
+        if not attachments:
+            return
+        failed = 0
+        for attachment_id in attachments:
+            try:
+                index_attachment(attachment_id)
+            except EmbeddingError as exc:
+                failed += 1
+                self.stderr.write(f"Attachment {attachment_id}: {exc}")
+        self.stdout.write(f"Indexed {len(attachments) - failed} attachments, {failed} failed.")

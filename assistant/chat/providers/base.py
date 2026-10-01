@@ -39,3 +39,23 @@ class StreamingChatProvider(ChatProvider, Protocol):
         before the first delta or after any number of them.
         """
         ...
+
+
+@runtime_checkable
+class ImageReadingChatProvider(ChatProvider, Protocol):
+    def read_image(
+        self,
+        system: str,
+        user: str,
+        image: bytes,
+        mime_type: str,
+        model: str,
+        max_output_tokens: int,
+    ) -> ChatResult:
+        """``complete``, with one image sent ahead of the user message (DECISIONS D343).
+
+        Optional, like ``stream``: the boundary's extract_image_text()
+        refuses with ImageTextNotSupported for a provider without it.
+        Raises ChatError or TransientChatError exactly as ``complete`` does.
+        """
+        ...

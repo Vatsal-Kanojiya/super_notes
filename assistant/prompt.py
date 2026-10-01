@@ -11,6 +11,7 @@ can close its tag early. A note is the user's own, but it may hold text
 pasted from anywhere, so excerpt text and titles are neutralised first.
 """
 
+import dataclasses
 import html
 import re
 from dataclasses import dataclass
@@ -47,6 +48,8 @@ class Excerpt:
 
     ``n`` is the number the model cites it by. The ask task numbers the
     excerpts 1..k in retrieval order before building the prompt.
+    ``attachment_name`` is set when the text is from one of the note's
+    files, and the prompt labels the excerpt with it (D348).
     """
 
     n: int
@@ -55,6 +58,8 @@ class Excerpt:
     title: str
     heading_path: str
     text: str
+    attachment_id: int | None = None
+    attachment_name: str | None = None
 
 
 @cache
@@ -135,14 +140,7 @@ def _truncated(excerpt: Excerpt, chars: int) -> Excerpt:
     # Back off to the last word boundary, so no half-word reaches the model.
     if " " in cut:
         cut = cut.rsplit(" ", 1)[0]
-    return Excerpt(
-        n=excerpt.n,
-        note_id=excerpt.note_id,
-        chunk_id=excerpt.chunk_id,
-        title=excerpt.title,
-        heading_path=excerpt.heading_path,
-        text=cut + " …",
-    )
+    return dataclasses.replace(excerpt, text=cut + " …")
 
 
 def build_messages(question: str, excerpts: list[Excerpt]) -> tuple[str, str]:
@@ -166,6 +164,9 @@ def excerpts_block(excerpts: list[Excerpt], *, conversation: bool = False) -> st
         attributes = f'n="{excerpt.n}" title="{_attribute(excerpt.title)}"'
         if excerpt.heading_path:
             attributes += f' section="{_attribute(excerpt.heading_path)}"'
+        if excerpt.attachment_name:
+            # The text is the file's, not the note's own: say which file.
+            attributes += f' file="{_attribute(excerpt.attachment_name)}"'
         text = neutralise(excerpt.text, conversation=conversation)
         blocks.append(f"<excerpt {attributes}>\n{text}\n</excerpt>")
     return "<excerpts>\n" + "\n\n".join(blocks) + "\n</excerpts>"

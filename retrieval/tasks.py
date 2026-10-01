@@ -3,7 +3,7 @@ import logging
 from celery import shared_task
 
 from .embeddings import EmbeddingError, EmbeddingTransientError
-from .indexing import index_note
+from .indexing import index_attachment, index_note
 
 logger = logging.getLogger(__name__)
 
@@ -29,3 +29,18 @@ def index_note_task(note_id: int, version: int) -> None:
         index_note(note_id, version)
     except EmbeddingError:
         logger.exception("Giving up indexing note %s v%s", note_id, version)
+
+
+@shared_task(
+    autoretry_for=(EmbeddingTransientError,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=5,
+)
+def index_attachment_task(attachment_id: int) -> None:
+    """Re-embed one ready attachment's stored text (reindex_notes, after a model change)."""
+    try:
+        index_attachment(attachment_id)
+    except EmbeddingError:
+        logger.exception("Giving up indexing attachment %s", attachment_id)

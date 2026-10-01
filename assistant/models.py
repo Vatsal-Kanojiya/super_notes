@@ -84,7 +84,8 @@ class AskQuery(models.Model):
     # before, and again once the ask is done (``answer`` has it) or failed.
     # Not in the API: polling shows a finished answer only (DECISIONS D364).
     partial_answer = models.TextField(blank=True)
-    # [{n, note_id, chunk_id, title, snippet}] (assistant/citations.py).
+    # [{n, note_id, chunk_id, title, attachment_id, attachment_name, snippet}]
+    # (assistant/citations.py).
     citations = models.JSONField(default=list, blank=True)
     # What retrieval returned, scores included: for debugging an answer and
     # for tuning ASK_RELEVANCE_FLOOR. Never sent to the client.

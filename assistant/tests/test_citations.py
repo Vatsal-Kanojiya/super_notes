@@ -65,6 +65,8 @@ class ParseCitationsTests(SimpleTestCase):
                     "note_id": 102,
                     "chunk_id": 202,
                     "title": "Note 2",
+                    "attachment_id": None,
+                    "attachment_name": None,
                     "snippet": "Excerpt 2 text.",
                 },
                 {
@@ -72,6 +74,8 @@ class ParseCitationsTests(SimpleTestCase):
                     "note_id": 101,
                     "chunk_id": 201,
                     "title": "Note 1",
+                    "attachment_id": None,
+                    "attachment_name": None,
                     "snippet": "Excerpt 1 text.",
                 },
             ],

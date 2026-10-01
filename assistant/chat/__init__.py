@@ -1,21 +1,36 @@
 """The chat boundary.
 
-complete() and stream() are the only things the rest of the app calls.
+complete(), stream() and extract_image_text() are the only things the rest
+of the app calls.
 complete() returns a plain ChatResult; stream() yields the answer's text as
 it is written and then the same ChatResult. Both raise ChatError (give up)
 or TransientChatError (retry) -- no vendor type or HTTP detail ever crosses
 this line. Mirrors the reference's expenses/extraction/.
 """
 
+import dataclasses
 from collections.abc import Iterator
 
 from django.conf import settings
 
-from .errors import ChatError, TransientChatError
+from .errors import ChatError, ImageTextNotSupported, TransientChatError
 from .registry import get_provider
 from .types import ChatResult
 
-__all__ = ["ChatError", "ChatResult", "TransientChatError", "complete", "stream"]
+__all__ = [
+    "ChatError",
+    "ChatResult",
+    "ImageTextNotSupported",
+    "TransientChatError",
+    "complete",
+    "extract_image_text",
+    "stream",
+]
+
+# What prompts/image_text.md tells the model to answer for an image with no
+# text: a provider's empty answer is an error, so "nothing" needs a word.
+NO_TEXT = "[no text]"
+IMAGE_TEXT_INSTRUCTION = "Transcribe the text in this image."
 
 
 def _configured(max_output_tokens: int | None):
@@ -79,3 +94,28 @@ def stream(
     if result is None:
         raise ChatError(f"Chat provider {provider.name!r} ended its stream without a result")
     yield result
+
+
+def extract_image_text(image_bytes: bytes, mime_type: str) -> ChatResult:
+    """The text written in an image, read by the configured provider (DECISIONS D343).
+
+    ``mime_type`` is the type sniffed from the bytes (JPEG, PNG or WebP).
+    The system prompt is prompts/image_text.md; the result's text is the
+    transcription, stripped, and empty when the model found none. Raises
+    ImageTextNotSupported (a ChatError) when the provider cannot read
+    images, and otherwise exactly what complete() raises.
+    """
+    provider, model, ceiling = _configured(settings.ATTACHMENT_IMAGE_TEXT_MAX_OUTPUT_TOKENS)
+    read_image = getattr(provider, "read_image", None)
+    if read_image is None:
+        raise ImageTextNotSupported(f"Chat provider {provider.name!r} cannot read images")
+    # Imported here: the prompt loader is the assistant's, and this package
+    # must stay importable on its own.
+    from ..prompt import load_prompt
+
+    _, system = load_prompt("image_text")
+    result = read_image(system, IMAGE_TEXT_INSTRUCTION, image_bytes, mime_type, model, ceiling)
+    text = result.text.strip()
+    if text == NO_TEXT:
+        text = ""
+    return dataclasses.replace(result, text=text)

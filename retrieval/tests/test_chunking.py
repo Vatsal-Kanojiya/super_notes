@@ -10,7 +10,7 @@ import hashlib
 from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase, override_settings
 
-from retrieval.chunking import _SENTENCES, MAX_DEPTH, chunk_note
+from retrieval.chunking import _SENTENCES, MAX_DEPTH, chunk_note, chunk_text
 
 
 def text(value):
@@ -596,3 +596,43 @@ class SettingsTests(SimpleTestCase):
         ):
             with self.subTest(sizes=sizes), self.assertRaises(ImproperlyConfigured):
                 chunk_note("", doc(para("x")), **sizes)
+
+
+class ChunkTextTests(SimpleTestCase):
+    """Plain text: an attachment's extracted text (D342)."""
+
+    def test_paragraphs_and_pages_are_blocks_and_hard_wraps_are_joined(self):
+        text = "First line\nwraps here.\n\nSecond para.\fPage two."
+        chunks = chunk_text("scan.pdf", text)
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].text, "First line wraps here.\nSecond para.\nPage two.")
+        self.assertEqual(chunks[0].heading_path, "")
+        self.assertEqual(chunks[0].embed_text, "scan.pdf\n\n" + chunks[0].text)
+        self.assertEqual(
+            chunks[0].content_hash, hashlib.sha256(chunks[0].embed_text.encode()).hexdigest()
+        )
+
+    def test_long_text_is_packed_split_and_overlapped_like_a_note(self):
+        paragraphs = [f"Paragraph {n} says something useful about the boiler." for n in range(60)]
+        chunks = chunk_text(
+            "r.pdf", "\n\n".join(paragraphs), target_chars=300, max_chars=400, overlap_chars=60
+        )
+        self.assertGreater(len(chunks), 5)
+        self.assertEqual([c.ordinal for c in chunks], list(range(len(chunks))))
+        self.assertTrue(all(len(c.text) <= 400 for c in chunks))
+        # Overlap: each chunk after the first starts with the tail of the one before.
+        self.assertIn(chunks[1].text.split("\n")[0], chunks[0].text)
+
+    def test_one_huge_paragraph_is_split_at_sentences(self):
+        text = " ".join(f"Sentence {n} is here." for n in range(300))
+        chunks = chunk_text("r.pdf", text, target_chars=200, max_chars=300, overlap_chars=0)
+        self.assertTrue(all(len(c.text) <= 300 for c in chunks))
+        self.assertTrue(all(c.text.endswith(".") for c in chunks))
+
+    def test_nothing_in_nothing_out(self):
+        self.assertEqual(chunk_text("a.pdf", ""), [])
+        self.assertEqual(chunk_text("a.pdf", " \n\n \f "), [])
+        self.assertEqual(chunk_text(None, None), [])
+
+    def test_the_label_is_one_line(self):
+        self.assertTrue(chunk_text("a\nb.pdf", "x")[0].embed_text.startswith("a b.pdf\n\n"))

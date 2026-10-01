@@ -9,6 +9,12 @@ from .search_vector import chunk_search_vector
 class NoteChunk(models.Model):
     """One embedded piece of a note. Written by retrieval/indexing.py only.
 
+    ``source`` says what the text came from: the note's own content, the
+    extracted text of one of its attachments (``attachment`` set, D341), or
+    its summary. Each source is indexed on its own -- re-indexing the note
+    never touches an attachment's chunks, nor the reverse -- and deleting
+    the note deletes them all.
+
     ``owner`` repeats the note's owner so every search filters on it in SQL
     without a join. A note never changes hands, so it cannot go stale.
 
@@ -18,7 +24,23 @@ class NoteChunk(models.Model):
     ``index_status`` compares to find notes whose chunks lag behind.
     """
 
+    class Source(models.TextChoices):
+        NOTE = "note", "Note"
+        ATTACHMENT = "attachment", "Attachment"
+        SUMMARY = "summary", "Summary"
+
     note = models.ForeignKey("notes.Note", on_delete=models.CASCADE, related_name="chunks")
+    source = models.CharField(max_length=10, choices=Source.choices, default=Source.NOTE)
+    # Set exactly when source is "attachment". A soft-deleted attachment's
+    # chunks are deleted with it (notes/services.py); CASCADE covers a row
+    # removed for good.
+    attachment = models.ForeignKey(
+        "notes.Attachment",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="chunks",
+    )
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="note_chunks"
     )
@@ -44,6 +66,15 @@ class NoteChunk(models.Model):
             models.Index(fields=["owner", "note"], name="chunk_owner_note"),
             # Keyword search: the expression phase 4 queries.
             GinIndex(chunk_search_vector(), name="chunk_fts"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(source="attachment", attachment__isnull=False)
+                    | (~models.Q(source="attachment") & models.Q(attachment__isnull=True))
+                ),
+                name="chunk_attachment_iff_source",
+            ),
         ]
 
     def __str__(self):

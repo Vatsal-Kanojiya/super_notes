@@ -17,6 +17,7 @@ from rest_framework.views import APIView
 
 from config.api.common import RATE_LIMIT_RESPONSE, MessageSerializer
 
+from .models import NoteChunk
 from .search import search
 
 SEARCH_TAG = ["Search"]
@@ -34,7 +35,20 @@ class SearchHitSerializer(serializers.Serializer):
 
     chunk_id = serializers.IntegerField()
     note_id = serializers.IntegerField()
-    title = serializers.CharField()
+    title = serializers.CharField(help_text="The note's title.")
+    source = serializers.ChoiceField(
+        choices=NoteChunk.Source.choices,
+        help_text="Where the text is from: the note itself, the text of one of its "
+        "attachments, or its summary.",
+    )
+    attachment_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="The attachment the text is from; null unless `source` is `attachment`.",
+    )
+    attachment_name = serializers.CharField(
+        allow_null=True,
+        help_text="That attachment's file name; null unless `source` is `attachment`.",
+    )
     heading_path = serializers.CharField(help_text='The headings above the chunk, "A > B".')
     text = serializers.CharField(help_text="The whole chunk.")
     snippet = serializers.SerializerMethodField(help_text="The chunk's start, cut at a word.")
@@ -70,7 +84,9 @@ class SearchView(APIView):
         description=(
             "The best-matching chunks of your notes, best first: by meaning (embeddings) and by "
             "keyword, merged by reciprocal rank fusion, at most "
-            f"{settings.SEARCH_MAX_CHUNKS_PER_NOTE} per note. Deleted notes never appear. A "
+            f"{settings.SEARCH_MAX_CHUNKS_PER_NOTE} per note. A note's attachments are searched "
+            "with it once their text is read (`status: ready`); such a hit names the file. "
+            "Deleted notes and attachments never appear. A "
             "note edited in the last few seconds may still match its previous text until it is "
             "re-indexed."
         ),

@@ -18,6 +18,7 @@ connection alive, and an ``error`` event (``overloaded_error``...) can
 arrive at any point, even after a 200.
 """
 
+import base64
 from contextlib import closing
 
 from ..errors import ChatError, TransientChatError
@@ -39,7 +40,35 @@ class ClaudeProvider:
 
     def complete(self, system: str, user: str, model: str, max_output_tokens: int) -> ChatResult:
         data = post_json("Claude", URL, _headers(), _body(system, user, model, max_output_tokens))
+        return self._result(data, model)
 
+    def read_image(
+        self,
+        system: str,
+        user: str,
+        image: bytes,
+        mime_type: str,
+        model: str,
+        max_output_tokens: int,
+    ) -> ChatResult:
+        """``complete`` with the image as a base64 ``image`` block before the text (D343)."""
+        content = [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": mime_type,
+                    "data": base64.standard_b64encode(image).decode("ascii"),
+                },
+            },
+            {"type": "text", "text": user},
+        ]
+        data = post_json(
+            "Claude", URL, _headers(), _body(system, content, model, max_output_tokens)
+        )
+        return self._result(data, model)
+
+    def _result(self, data: dict, model: str) -> ChatResult:
         check_stop_reason(data.get("stop_reason"))
 
         text = "".join(
@@ -125,7 +154,7 @@ def _headers() -> dict:
     }
 
 
-def _body(system: str, user: str, model: str, max_output_tokens: int) -> dict:
+def _body(system: str, user: str | list, model: str, max_output_tokens: int) -> dict:
     return {
         "model": model,
         "max_tokens": max_output_tokens,

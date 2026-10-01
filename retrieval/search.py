@@ -48,6 +48,10 @@ class SearchHit:
     Ask's relevance floor compares against (D58, D69). It is None when the
     chunk came from the keyword leg only; ``keyword_rank`` (``ts_rank``)
     is None when it came from the vector leg only.
+
+    ``source`` is where the chunk's text came from (``note``, ``attachment``
+    or ``summary``); for an attachment's text, ``attachment_id`` and
+    ``attachment_name`` say which file (D348).
     """
 
     chunk_id: int
@@ -58,6 +62,9 @@ class SearchHit:
     score: float
     similarity: float | None
     keyword_rank: float | None
+    source: str = "note"
+    attachment_id: int | None = None
+    attachment_name: str | None = None
 
 
 def search(user, query: str, k: int | None = None, *, mode: str = "hybrid") -> list[SearchHit]:
@@ -219,7 +226,16 @@ def _hits(user, top, similarity, keyword_rank):
         row["pk"]: row
         for row in _live_chunks(user)
         .filter(pk__in=[chunk_id for chunk_id, _ in top])
-        .values("pk", "note_id", "note__title", "heading_path", "text")
+        .values(
+            "pk",
+            "note_id",
+            "note__title",
+            "heading_path",
+            "text",
+            "source",
+            "attachment_id",
+            "attachment__original_name",
+        )
     }
     return [
         SearchHit(
@@ -231,6 +247,9 @@ def _hits(user, top, similarity, keyword_rank):
             score=score,
             similarity=similarity.get(chunk_id),
             keyword_rank=keyword_rank.get(chunk_id),
+            source=rows[chunk_id]["source"],
+            attachment_id=rows[chunk_id]["attachment_id"],
+            attachment_name=rows[chunk_id]["attachment__original_name"],
         )
         for chunk_id, score in top
         # A note deleted between the legs and this read drops out here.

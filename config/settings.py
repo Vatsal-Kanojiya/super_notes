@@ -220,6 +220,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "notes.tasks.sweep_stuck_format_jobs",
         "schedule": 5 * 60,
     },
+    # And for attachments whose text extraction never finished.
+    "sweep-stuck-attachments": {
+        "task": "notes.tasks.sweep_stuck_attachments",
+        "schedule": 5 * 60,
+    },
     # Expired dynamic facts and old superseded ones (assistant/memory.py, D406).
     "purge-expired-facts": {
         "task": "assistant.tasks.purge_expired_facts",
@@ -258,6 +263,39 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = NOTE_CONTENT_MAX_BYTES + 512 * 1024
 # it only for a view named here, on POST.
 ATTACHMENT_MAX_BYTES = env.int("ATTACHMENT_MAX_BYTES", default=10 * 1024 * 1024)
 UPLOAD_SIZE_ALLOWANCES = {"api:v1:note-attachments": ATTACHMENT_MAX_BYTES + 64 * 1024}
+
+# Text extraction (notes/extraction.py, DECISIONS D340-D349). After an upload
+# a worker reads the file's text -- a PDF's with pypdf, an image's through the
+# chat provider's vision call -- and indexes it for search and Ask. Every cap
+# bounds what one hostile file can cost: a PDF's pages read, the text kept,
+# the bytes any one compressed stream may inflate to (a "zip bomb" in a PDF),
+# and the task's own time.
+ATTACHMENT_PDF_MAX_PAGES = env.int("ATTACHMENT_PDF_MAX_PAGES", default=100)
+# About 25,000 tokens, or some 60 chunks to embed; the rest of a longer file
+# is not searched.
+ATTACHMENT_TEXT_MAX_CHARS = env.int("ATTACHMENT_TEXT_MAX_CHARS", default=100_000)
+# pypdf's own ceiling is 75 MB per stream; a page's text needs far less.
+ATTACHMENT_PDF_MAX_STREAM_BYTES = env.int(
+    "ATTACHMENT_PDF_MAX_STREAM_BYTES", default=20 * 1024 * 1024
+)
+# The largest image sent to the vision call. Claude takes at most 5 MB per
+# image; a larger one fails with a clear message instead of a vendor 400.
+ATTACHMENT_IMAGE_TEXT_MAX_BYTES = env.int(
+    "ATTACHMENT_IMAGE_TEXT_MAX_BYTES", default=5 * 1024 * 1024
+)
+# The ceiling on an image's transcribed text (about 16,000 characters).
+ATTACHMENT_IMAGE_TEXT_MAX_OUTPUT_TOKENS = env.int(
+    "ATTACHMENT_IMAGE_TEXT_MAX_OUTPUT_TOKENS", default=4096
+)
+# The extraction task's own limits, tighter than the default task's: the soft
+# one fails the attachment cleanly, the hard one kills a stuck parser.
+ATTACHMENT_EXTRACT_SOFT_TIME_LIMIT = env.int("ATTACHMENT_EXTRACT_SOFT_TIME_LIMIT", default=120)
+ATTACHMENT_EXTRACT_TIME_LIMIT = env.int("ATTACHMENT_EXTRACT_TIME_LIMIT", default=180)
+# An attachment still pending or extracting this long after its upload is
+# failed by notes.tasks.sweep_stuck_attachments: a lost task message, or a
+# worker killed at the hard limit. It outlasts every retry (6 attempts of at
+# most 180 s, with at most 10 minutes of backoff between them).
+ATTACHMENT_STUCK_AFTER_SECONDS = env.int("ATTACHMENT_STUCK_AFTER_SECONDS", default=60 * 60)
 
 
 # File storage (DECISIONS D85, D320)
@@ -540,6 +578,7 @@ SPECTACULAR_SETTINGS = {
         # Two `kind`s: an app-open notice's keeps the name it had first.
         "KindEnum": ["update", "memory"],
         "FactKindEnum": "assistant.models.UserFact.Kind",
+        "ChunkSourceEnum": "retrieval.models.NoteChunk.Source",
     },
 }
 
@@ -774,8 +813,8 @@ MAX_SIGNED_IN_DEVICES = env.int("MAX_SIGNED_IN_DEVICES", default=2)
 # system-wide value, over a period: "month" or "day" (calendar, in
 # TIME_ZONE) or "total". None (or absent) is unlimited. A Limit row in the
 # admin with the same key overrides all of a key's values, so changing one
-# needs no deploy. condense, summarize_history and memory_extract are model calls the user
-# never pays for; only the system caps them.
+# needs no deploy. condense, summarize_history, memory_extract and image_text are model calls
+# the user never pays for; only the system caps them.
 LIMIT_DEFAULTS = {
     "chat_turns": {"user_free": 20, "user_premium": 100, "system": 2000, "period": "month"},
     "format": {"user_free": 5, "user_premium": 25, "system": 500, "period": "month"},
@@ -790,6 +829,10 @@ LIMIT_DEFAULTS = {
     "condense": {"system": 20000, "period": "month"},
     "summarize_history": {"system": 5000, "period": "month"},
     "memory_extract": {"system": 20000, "period": "month"},
+    # Reading an image's text with the chat provider's vision call, one per
+    # image attachment (notes/extraction.py, D344). The upload already costs
+    # the user storage_bytes; this caps what images cost the service.
+    "image_text": {"system": 5000, "period": "month"},
 }
 
 # App lifecycle (D88-D94, D106-D111). A build id is YYYYMMDDHHMM-<shortsha>;

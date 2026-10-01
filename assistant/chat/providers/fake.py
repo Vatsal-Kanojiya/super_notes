@@ -32,6 +32,9 @@ about the same subject is a ``supersede`` of it; one already known is
 nothing. A sentence with "today", "this week", "currently"... is dynamic.
 No statement: ``{"op": "none"}``.
 
+An image (``read_image``, DECISIONS D343) is "read" as FAKE_IMAGE_TEXT,
+whatever it shows: fixed, so a test can search for its words.
+
 Streamed, the fake yields its answer a word at a time (each word with the
 whitespace after it), then the result (DECISIONS D362). The answer is the
 boundary's ``assistant.chat.complete``, looked up at call time: when the fake
@@ -94,6 +97,12 @@ STOPWORDS = frozenset(
     "do does did done have has had will would shall should can could may might must "
     "i me my mine we us our you your he him his she her it its they them their "
     "this that these those there here any some all much many next".split()
+)
+
+# What every image "says" to the fake.
+FAKE_IMAGE_TEXT = (
+    "Whiteboard notes from the planning meeting.\n\n"
+    "Renew the scooter insurance before the fifteenth."
 )
 
 # The answer quotes at most this many excerpts.
@@ -177,6 +186,24 @@ class FakeProvider:
             model="fake",
             input_tokens=approximate_tokens(system) + approximate_tokens(user),
             output_tokens=approximate_tokens(text),
+        )
+
+    def read_image(
+        self,
+        system: str,
+        user: str,
+        image: bytes,
+        mime_type: str,
+        model: str = "",
+        max_output_tokens: int = 0,
+    ) -> ChatResult:
+        # An image is billed by its pixels, not its bytes; a constant stands in.
+        return ChatResult(
+            text=FAKE_IMAGE_TEXT,
+            provider=self.name,
+            model="fake",
+            input_tokens=approximate_tokens(system) + approximate_tokens(user) + 1000,
+            output_tokens=approximate_tokens(FAKE_IMAGE_TEXT),
         )
 
     def stream(self, system: str, user: str, model: str = "", max_output_tokens: int = 0):

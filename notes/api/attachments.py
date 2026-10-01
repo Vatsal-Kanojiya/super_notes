@@ -114,9 +114,12 @@ class NoteAttachmentsView(generics.GenericAPIView):
             "type is refused with 415 whatever it is called. The name is kept for display "
             "and downloads, cleaned, and always ends in the type's extension.\n\n"
             "The same file again on the same note is not stored twice: you get the existing "
-            "attachment with 200. A new one is 201, `status: pending`. It counts against "
+            "attachment with 200. A new one is 201, `status: pending`. Its text is then "
+            "read in the background (`extracting`), and once it is `ready` search and Ask "
+            "find it, naming the file; a file whose text cannot be read is `failed`, with "
+            "the reason in `error`, and stays attached. It counts against "
             "your `storage_bytes` (see `me/`) until it is deleted. The note is sent again "
-            "by `notes/changes/` with its attachments."
+            "by `notes/changes/` with its attachments, on every status change too."
         ),
         request={"multipart/form-data": AttachmentUploadSerializer},
         responses={

@@ -17,3 +17,11 @@ class TransientChatError(Exception):
     writes ``except ChatError`` to mark the ask failed must not swallow a
     failure that Celery was meant to retry.
     """
+
+
+class ImageTextNotSupported(ChatError):
+    """The configured provider has no way to read an image's text.
+
+    A ChatError, so a caller that only knows "the call failed for good"
+    handles it; notes/extraction.py tells it apart to say so to the user.
+    """
