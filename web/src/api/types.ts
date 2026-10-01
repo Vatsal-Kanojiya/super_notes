@@ -393,3 +393,14 @@ export interface TurnInProgressBody {
   /** The unfinished turn: poll `GET ask/<turn>/`. */
   turn: Id
 }
+
+// ---------------------------------------------------------------- memory --
+
+/** `static`: true until you say otherwise. `dynamic`: forgotten at `valid_until`. */
+export interface UserFact {
+  id: Id
+  text: string
+  kind: 'static' | 'dynamic'
+  valid_until: string | null
+  created_at: string
+}

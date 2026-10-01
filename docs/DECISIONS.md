@@ -3267,3 +3267,29 @@ better).
 schema and needs the web client to show it, which is a product call. A user at the limit sees it
 on the attachment's `error`. **Needs the owner:** whether to list it (and where in the UI).
 **Alternative:** add it to `me/` now (a schema change no client renders).
+
+### D546. The facts list reloads after a delete instead of removing the row (3-memory 3, 2026-10-02)
+
+**Decided:** deleting a fact also deletes the older facts it replaced (D405), so the store calls
+`DELETE memory/facts/{id}/` and then reloads the first page. "Forget everything" empties the list
+locally. **Alternative:** drop just that row locally (the list would show facts the server has
+already removed).
+
+### D547. Facts are text, shown as "Lasting" or "Temporary, until <date>" (3-memory 3, 2026-10-02)
+
+**Decided:** `static` is labelled "Lasting", `dynamic` "Temporary, until <date>" (no date if absent).
+A fact is model output derived from user text, so it renders as plain text interpolation only
+(D50); checked with a fact containing `<b>`. **Alternative:** show the raw `static`/`dynamic` kind.
+
+### D548. "Forget everything" uses the browser `confirm`, as the other destructive actions do (3-memory 3, 2026-10-02)
+
+**Decided:** same pattern as deleting a note, a chat or signing out a device; single-fact delete
+asks nothing (one short fact, cheap to say again). **Alternative:** a custom modal (nothing else
+in the app has one yet; worth doing for all at once).
+
+### D549. The list loads on opening Settings and is cleared first; paging is a "Show more" button (3-memory 3, 2026-10-02)
+
+**Decided:** the store is reset on mount so a failed load never shows a previous account's facts;
+25 per page by the server default, "Show more" follows the cursor. The on/off switch is the
+existing one, unchanged; turning memory off keeps the facts (API note) and the list stays visible
+so they can be deleted. **Alternative:** hide the list while memory is off.

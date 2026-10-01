@@ -4,6 +4,7 @@ import { errorMessage } from '../api/client'
 import { onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { usePushStore } from '../stores/push'
+import MemoryFacts from './MemoryFacts.vue'
 import PushToggle from './PushToggle.vue'
 
 const auth = useAuthStore()
@@ -50,6 +51,8 @@ async function setMemory(enabled: boolean) {
       </label>
       <p v-if="error" class="error small" role="alert">{{ error }}</p>
     </section>
+
+    <MemoryFacts v-if="auth.user" class="setting" />
 
     <section v-if="push.available" class="setting">
       <strong>Notifications</strong>
