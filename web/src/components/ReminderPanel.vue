@@ -78,7 +78,7 @@ function startAdd() {
     due: defaultDueInput(Date.now(), tz.value),
     leadDays: LEAD_DAYS_DEFAULT,
     email: true,
-    push: push.available,
+    push: push.usable && push.subscribed,
   }
 }
 
@@ -96,7 +96,7 @@ function startEdit(reminder: Reminder) {
 function channelsOf(f: FormState): ReminderChannel[] {
   const channels: ReminderChannel[] = []
   if (f.email) channels.push('email')
-  if (f.push) channels.push('push')
+  if (f.push && push.available) channels.push('push')
   return channels
 }
 

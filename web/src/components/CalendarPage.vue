@@ -139,8 +139,9 @@ function entryLabel(entry: CalendarEntry): string {
         <span v-for="label in labels" :key="label">{{ label }}</span>
       </div>
       <div class="calendar-grid">
-        <section
+        <div
           v-for="day in days"
+          role="group"
           :key="day"
           class="day"
           :class="{
@@ -183,7 +184,7 @@ function entryLabel(entry: CalendarEntry): string {
               </button>
             </li>
           </ul>
-        </section>
+        </div>
       </div>
     </div>
 

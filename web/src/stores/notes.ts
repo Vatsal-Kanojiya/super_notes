@@ -88,12 +88,17 @@ export const useNotesStore = defineStore('notes', () => {
    * note at once, without waiting for the next sync (which then confirms it:
    * the write bumped the note's revision, so `changes` sends the note again).
    */
+  // A reminder write is newer than any sync request sent before it: such a response must not undo it.
+  let writeSeq = 0
+  const reminderWrites: Record<Id, number> = {}
+
   function applyReminder(noteId: Id, reminderId: Id, reminder: Reminder | null) {
     const note = byId.value[noteId]
     if (!note) return
     const others = (note.reminders ?? []).filter((r) => r.id !== reminderId)
     const reminders = reminder ? [...others, reminder].sort((a, b) => a.due_at.localeCompare(b.due_at) || a.id - b.id) : others
     byId.value[noteId] = { ...note, reminders }
+    reminderWrites[noteId] = ++writeSeq
   }
 
   function forget(id: Id) {
@@ -123,6 +128,7 @@ export const useNotesStore = defineStore('notes', () => {
     try {
       for (let page = 0; page < MAX_SYNC_PAGES; page++) {
         const after = lastRevision.value
+        const sentAt = writeSeq
         const response = await notesApi.changes(after)
         if (started !== epoch) return
         if (response.latest_revision < after) {
@@ -135,6 +141,7 @@ export const useNotesStore = defineStore('notes', () => {
         }
         for (const item of response.results) {
           if (isTombstone(item)) forget(item.id)
+          else if ((reminderWrites[item.id] ?? 0) > sentAt) upsert({ ...item, reminders: undefined })
           else upsert(item)
         }
         lastRevision.value = Math.max(lastRevision.value, response.latest_revision)
@@ -237,6 +244,7 @@ export const useNotesStore = defineStore('notes', () => {
   function clear() {
     epoch++
     filterSeq++
+    for (const k of Object.keys(reminderWrites)) delete reminderWrites[Number(k)]
     stopAutoSync?.()
     byId.value = {}
     lastRevision.value = 0

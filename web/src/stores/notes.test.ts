@@ -131,6 +131,18 @@ describe('reminders carried by sync', () => {
     expect(store.byId[1]!.reminders!.map((r) => r.id)).toEqual([6])
   })
 
+  it('a sync sent before a reminder write does not undo it', async () => {
+    const store = useNotesStore()
+    store.upsert(withReminders(1, 1, []))
+    let release!: (r: ChangesResponse) => void
+    changes.mockReturnValueOnce(new Promise((resolve) => (release = resolve)))
+    const syncing = store.sync()
+    store.applyReminder(1, 5, rem(5, 1, '2026-11-01T09:00:00Z'))
+    release({ results: [withReminders(1, 2, [])], latest_revision: 2, has_more: false })
+    await syncing
+    expect(store.byId[1]!.reminders!.map((r) => r.id)).toEqual([5])
+  })
+
   it('applyReminder on an unknown note does nothing', () => {
     const store = useNotesStore()
     store.applyReminder(99, 1, rem(1, 99, '2026-11-01T09:00:00Z'))
