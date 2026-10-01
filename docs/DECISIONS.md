@@ -1459,3 +1459,32 @@ time. Replaces V2_PLAN's none/daily/weekly/monthly repeats. Delivered by email +
 
 V1 Phase 7 and V2 Phase 7 (mobile) move after `v2.0.0`; planned in a dedicated session.
 
+### D112. `/signin` is a route; the guard redirects there with `next` (0d, 2026-10-02)
+
+**Decided:** sign-in is a normal route (`/signin`, public). The guard sends signed-out users to
+`/signin?next=<path>`; a signed-in user landing there is sent on to `next`. `next` goes through
+`safeNext` (same-site paths only, refusing `//host` and `/\host`), kept in `lib/safeNext.ts`.
+**Alternative:** render `SignIn` in `App.vue` when signed out and use the guard only to redirect.
+
+### D113. "Back" from a note follows the app's own history (0d, 2026-10-02)
+
+**Decided:** back is `router.back()` when `history.state.back` exists, else `/notes`; a refreshed
+or deep-linked note therefore goes to the list, and a citation opened from an answer goes back to
+the answer ("Answer" label). **Alternative:** always go to the list.
+
+### D114. A deleted note's page stays in history (0d, 2026-10-02)
+
+**Decided:** after deleting, the editor calls back; the deleted note's route is simply behind us.
+**Alternative:** `router.replace` the note's entry so back never reaches it.
+
+### D115. The notes sync resyncs from 0 when the server's revision goes backwards (0d, 2026-10-02)
+
+**Decided:** D25 says a `latest_revision` below the client's `after` is the cue to resync from 0,
+but the client took `max()` and never did. Now it drops every local note and refetches from 0.
+**Alternative:** keep local notes and only reset the counter (leaves notes that no longer exist).
+
+### D116. Client tests run in plain Node with stubbed globals, no jsdom (0d, 2026-10-02)
+
+**Decided:** vitest (D86) in its default Node environment; `fetch` and `localStorage` are stubbed
+per test, the notes API is mocked, and `safeNext` moved out of `router.ts` so it imports without a
+browser. **Alternative:** jsdom for everything (slower, and unneeded for this logic).
