@@ -45,3 +45,7 @@
 `memory-notice/seen/`, tests (notice rules for all three D88 states, throttle, version compare,
 another user's device can't be used). Branch checklist in `CLAUDE.md`. Decisions from the next
 free number. BUILD_LOG entry "V2 0e — lifecycle".
+
+## Sub-tasks (conductor's checklist)
+- [ ] 1. `User` fields + migration, `accounts/signals.py`, `user_signed_in` wired, `PATCH me/`, tests (Part 1)
+- [ ] 2. `app/version/`, `X-Client-Min-Version` middleware, `session/open/` with notices and throttle, `memory-notice/seen/`, tests, docs

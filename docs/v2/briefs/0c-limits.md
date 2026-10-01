@@ -52,3 +52,8 @@ Read D91 for the limit values.
   new accounts refused with `signups_closed`; existing users still sign in.
 - Done when the branch checklist in `CLAUDE.md` passes. Decisions from the next free number (D98+ as of 2026-10-02). BUILD_LOG entry
   "V2 0c — limits"; update the quota paragraph in `docs/RAG.md`.
+
+## Sub-tasks (conductor's checklist)
+- [ ] 1. `limits` app: models, defaults, admin, `usage` / `system_usage` / `consume` / `refund`, system lock, admin mail, tests (Part 1)
+- [ ] 2. Asks on the limits layer: `chat_turns` consumed in `create_ask`, refunds on failure and sweep, data migration, `quota.py` wrapper, V1 tests green
+- [ ] 3. 503 `system_limit_reached` in the exception handler, `me/` `limits` map, `signups` cap in sign-in, docs
