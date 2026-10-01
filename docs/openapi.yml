@@ -968,7 +968,9 @@ paths:
     post:
       operationId: me_push_subscriptions_create
       description: Upsert by endpoint. An endpoint registered to another account moves
-        to the caller (one browser profile, one owner). 404 when web push is off.
+        to the caller only when the posted `p256dh` and `auth` are the ones registered
+        (the same browser, another account signed in); otherwise 409 `endpoint_in_use`
+        and nothing changes. 404 when web push is off.
       summary: Register a push subscription
       tags:
       - Account
@@ -1007,6 +1009,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Web push is off.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`endpoint_in_use`: registered to another account with other
+            keys.'
     delete:
       operationId: me_push_subscriptions_destroy
       description: 'By endpoint, among the caller''s own. Removing one that is not

@@ -219,3 +219,13 @@ def settings_database_url():
     user = db.get("USER") or ""
     password = f":{db['PASSWORD']}" if db.get("PASSWORD") else ""
     return f"postgres://{user}{password}@{db.get('HOST') or 'localhost'}:{db.get('PORT') or 5432}/x"
+
+
+class NetworkTimeoutTests(SimpleTestCase):
+    """Outbound mail cannot hang a worker for ever (D527)."""
+
+    def test_the_smtp_backend_gives_up_after_ten_seconds(self):
+        from django.core.mail.backends.smtp import EmailBackend
+
+        self.assertEqual(settings.EMAIL_TIMEOUT, 10)
+        self.assertEqual(EmailBackend().timeout, 10)

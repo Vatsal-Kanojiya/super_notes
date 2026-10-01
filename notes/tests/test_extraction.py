@@ -41,8 +41,9 @@ GARBAGE_PDF = b"%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << >>\n%%
 IMAGE_CALL = "assistant.chat.extract_image_text"
 
 
-def image_text_limit(system):
-    return {**settings.LIMIT_DEFAULTS, "image_text": {"system": system, "period": "month"}}
+def image_text_limit(system, user_free=None):
+    rule = {"system": system, "user_free": user_free, "period": "month"}
+    return {**settings.LIMIT_DEFAULTS, "image_text": rule}
 
 
 class ExtractionTestCase(TestCase):
@@ -247,11 +248,11 @@ class ImageTests(ExtractionTestCase):
             (hit.attachment_id, hit.attachment_name), (attachment.pk, "whiteboard.png")
         )
 
-    def test_it_counts_one_system_only_image_text_use_with_its_cost(self):
+    def test_it_counts_one_image_text_use_for_the_owner_with_its_cost(self):
         self.upload(PNG, name="whiteboard.png")
 
         event = UsageEvent.objects.get(key="image_text")
-        self.assertIsNone(event.user_id)
+        self.assertEqual(event.user_id, self.alice.pk)
         self.assertFalse(event.refunded)
         self.assertEqual((event.provider, event.model), ("fake", "fake"))
         self.assertGreater(event.input_tokens, 0)
@@ -302,6 +303,112 @@ class ImageTests(ExtractionTestCase):
 
         call.assert_not_called()
         self.assertEqual(attachment.error, extraction.IMAGE_PAUSED)
+
+    def test_the_users_limit_reached_fails_it_without_a_call(self):
+        UsageEvent.objects.create(user=self.alice, key="image_text")
+        with (
+            override_settings(LIMIT_DEFAULTS=image_text_limit(100, user_free=1)),
+            mock.patch(IMAGE_CALL) as call,
+        ):
+            attachment = self.upload(PNG)
+
+        call.assert_not_called()
+        self.assertEqual(attachment.status, Attachment.Status.FAILED)
+        self.assertEqual(attachment.error, extraction.IMAGE_LIMIT_REACHED)
+        self.assertEqual(UsageEvent.objects.filter(key="image_text").count(), 1)
+
+    def test_another_users_use_does_not_count_against_the_owner(self):
+        UsageEvent.objects.create(user=self.bob, key="image_text")
+        with override_settings(LIMIT_DEFAULTS=image_text_limit(100, user_free=1)):
+            attachment = self.upload(PNG)
+
+        self.assertEqual(attachment.status, Attachment.Status.READY)
+
+    def test_the_default_per_user_limits(self):
+        rule = settings.LIMIT_DEFAULTS["image_text"]
+        self.assertEqual((rule["user_free"], rule["user_premium"]), (50, 250))
+
+    def test_the_use_is_consumed_under_the_owners_lock(self):
+        real_lock, real_consume = services._lock_owner, extraction.limits.consume
+        locked, seen = [], []
+
+        def lock(owner):
+            row = real_lock(owner)
+            locked.append(row)
+            return row
+
+        def consume(user, key, *args, **kwargs):
+            if key == extraction.IMAGE_TEXT_KEY:
+                seen.append((user, locked[-1] if locked else None))
+            return real_consume(user, key, *args, **kwargs)
+
+        with (
+            mock.patch.object(services, "_lock_owner", side_effect=lock),
+            mock.patch.object(services.limits, "consume", side_effect=consume),
+        ):
+            self.upload(PNG)
+
+        # Consumed once, with the very row the owner lock had just returned:
+        # the per-user check runs under that lock, reading the plan from it.
+        self.assertEqual(len(seen), 1)
+        user, row = seen[0]
+        self.assertIs(user, row)
+        self.assertEqual(user.pk, self.alice.pk)
+
+    def test_the_same_image_again_reuses_its_text_without_a_call_or_a_charge(self):
+        first = self.upload(PNG, name="whiteboard.png")
+        other = services.create_note(self.alice, title="Elsewhere", content=doc("x"))
+        with mock.patch(IMAGE_CALL) as call:
+            again = self.upload(PNG, name="copy.png", note=other)
+
+        call.assert_not_called()
+        self.assertEqual(again.status, Attachment.Status.READY)
+        self.assertEqual(again.extracted_text, first.extracted_text)
+        self.assertGreater(self.chunks_of(again).count(), 0)
+        self.assertEqual(UsageEvent.objects.filter(key="image_text").count(), 1)
+
+    def test_a_deleted_earlier_copy_is_reused_too(self):
+        first = self.upload(PNG)
+        services.delete_attachment(self.alice, first.pk)
+        with mock.patch(IMAGE_CALL) as call:
+            again = self.upload(PNG)
+
+        call.assert_not_called()
+        self.assertEqual(again.extracted_text, FAKE_IMAGE_TEXT)
+
+    def test_an_earlier_empty_reading_is_reused(self):
+        empty = ChatResult(text="", provider="f", model="f")
+        with mock.patch(IMAGE_CALL, return_value=empty):
+            self.upload(PNG, name="cat.png")
+        other = services.create_note(self.alice, title="Elsewhere", content=doc("x"))
+        with mock.patch(IMAGE_CALL) as call:
+            again = self.upload(PNG, name="cat.png", note=other)
+
+        call.assert_not_called()
+        self.assertEqual(again.status, Attachment.Status.READY)
+
+    def test_another_owners_copy_is_never_reused(self):
+        bobs_note = services.create_note(self.bob, title="Bob", content=doc("y"))
+        self.upload(PNG, owner=self.bob, note=bobs_note)
+        result = ChatResult(text="Alice's own reading", provider="fake", model="fake")
+        with mock.patch(IMAGE_CALL, return_value=result) as call:
+            mine = self.upload(PNG)
+
+        call.assert_called_once()
+        self.assertEqual(mine.extracted_text, "Alice's own reading")
+
+    def test_a_failed_earlier_copy_is_not_reused(self):
+        with (
+            mock.patch(IMAGE_CALL, side_effect=ChatError("blocked")),
+            self.assertLogs("notes.extraction", "WARNING"),
+        ):
+            failed = self.upload(PNG)
+        services.delete_attachment(self.alice, failed.pk)
+        with mock.patch(IMAGE_CALL, wraps=chat.extract_image_text) as call:
+            again = self.upload(PNG)
+
+        call.assert_called_once()
+        self.assertEqual(again.status, Attachment.Status.READY)
 
     @override_settings(ATTACHMENT_IMAGE_TEXT_MAX_BYTES=10)
     def test_an_image_over_the_vision_cap_fails_without_a_call(self):

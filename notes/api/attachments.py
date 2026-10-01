@@ -6,6 +6,9 @@
   owner's lock -- the ``storage_bytes`` limit (429 for the user, 503 for
   everyone, D84). The same bytes already on the note return that
   attachment with 200 and cost nothing.
+  Before any of that, ``UploadCapHandler`` stops the parse of a body whose
+  files pass the cap plus headroom, so a request that declares a small
+  Content-Length (or none) cannot stream more to disk than the cap (D528).
 * ``GET attachments/<id>/file/`` streams the bytes back as a download, with
   the sniffed type, ``nosniff`` and a sandboxing CSP, so a browser never
   renders or runs one in the app's origin (D329).
@@ -18,12 +21,13 @@ every endpoint, and so is a deleted one or one whose note is deleted.
 import logging
 
 from django.conf import settings
+from django.core.files.uploadhandler import FileUploadHandler
 from django.http import FileResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import generics, mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import APIException, NotFound
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 
@@ -62,6 +66,38 @@ def _megabytes(size):
     return f"{size / (1024 * 1024):g} MB"
 
 
+class UploadTooLarge(APIException):
+    status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+    default_detail = "Request body too large."
+    default_code = "too_large"
+
+
+class UploadCapHandler(FileUploadHandler):
+    """Count a multipart body's file bytes as they are parsed; stop past the cap (D528).
+
+    MaxUploadSizeMiddleware trusts Content-Length. A body that declares a
+    small one (or none, with a server that passes it on) would otherwise be
+    parsed -- and spooled to disk -- in full before the view sees its size.
+    First in the handler chain, so the bytes past the cap reach no other
+    handler: raising (not StopUpload, which would hand the view a truncated
+    file that looks fine) ends the request with 413 ``too_large``.
+    """
+
+    def __init__(self, request=None):
+        super().__init__(request)
+        self.limit = settings.ATTACHMENT_MAX_BYTES + settings.ATTACHMENT_UPLOAD_HEADROOM_BYTES
+        self.received = 0
+
+    def receive_data_chunk(self, raw_data, start):
+        self.received += len(raw_data)
+        if self.received > self.limit:
+            raise UploadTooLarge()
+        return raw_data
+
+    def file_complete(self, file_size):
+        return None  # The next handler makes the file.
+
+
 @extend_schema(tags=TAG)
 class NoteAttachmentsView(generics.GenericAPIView):
     """``notes/<id>/attachments/``: list a note's attachments, or add one."""
@@ -69,6 +105,12 @@ class NoteAttachmentsView(generics.GenericAPIView):
     serializer_class = AttachmentSerializer
     # A file comes as multipart; nothing else is accepted.
     parser_classes = [MultiPartParser]
+
+    def initialize_request(self, request, *args, **kwargs):
+        # Before anything can read the body (authentication is lazy).
+        if request.method == "POST":
+            request.upload_handlers.insert(0, UploadCapHandler(request))
+        return super().initialize_request(request, *args, **kwargs)
 
     def get_throttles(self):
         # Uploads only: listing costs nothing.

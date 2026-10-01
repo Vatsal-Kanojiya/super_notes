@@ -8,7 +8,9 @@ an upload commits (notes/services.py, ``_after_attachment_added``):
    finished, deleted or missing attachment ends the run here.
 2. **Read** the text: a PDF's with pypdf, an image's with the chat
    provider's vision call (``chat.extract_image_text``). Kept on the row
-   at once, so a retry further on never reads the file or pays again.
+   at once, so a retry further on never reads the file or pays again. The
+   same bytes the owner uploaded before, already read, are not read again:
+   that attachment's text is reused (D524).
 3. **Embed** its chunks, with no lock held (the network call).
 4. **Finish**: under the owner's lock, still live and still extracting,
    the chunks are written and the status set to ready, with a revision.
@@ -41,7 +43,6 @@ import re
 
 from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
-from django.db import transaction
 from pypdf import PdfReader, apply_configuration
 
 from assistant import chat
@@ -64,6 +65,9 @@ IMAGE_TOO_LARGE = "This image is too large to read its text."
 IMAGE_UNREADABLE = "The text in this image couldn't be read."
 IMAGE_NOT_SUPPORTED = "Reading text from images isn't available right now."
 IMAGE_PAUSED = "Reading text from images is paused for now. Please try again later."
+IMAGE_LIMIT_REACHED = (
+    "You've reached this month's limit for reading text from images. Please try again next month."
+)
 MISSING_FILE = "This file is missing, so its text can't be read."
 NOT_INDEXED = "This file's text couldn't be made searchable."
 BUSY = "Reading this file's text is taking longer than usual. Please try again later."
@@ -91,11 +95,15 @@ def run(attachment_id: int) -> None:
 
     text = attachment.extracted_text
     if not text:
-        try:
-            text = read_text(attachment)
-        except ExtractionFailed as failed:
-            services.fail_extraction(attachment_id, failed.message)
-            return
+        earlier = services.earlier_extracted_text(attachment)
+        if earlier is not None:
+            text = earlier
+        else:
+            try:
+                text = read_text(attachment)
+            except ExtractionFailed as failed:
+                services.fail_extraction(attachment_id, failed.message)
+                return
         if text and not services.save_extracted_text(attachment_id, text):
             return  # Deleted, or finished by another run, meanwhile.
 
@@ -227,17 +235,19 @@ def _opens_without_password(reader: PdfReader) -> bool:
 
 
 def image_text(attachment: Attachment, data: bytes) -> str:
-    """The text in an image, read by the chat provider (D343, D344).
+    """The text in an image, read by the chat provider (D343, D344, D520).
 
-    One ``image_text`` use (system-only) per call, refunded if the call
-    fails for any reason, a transient one included (the retry consumes its
-    own). A transient error is re-raised for the task to retry.
+    One ``image_text`` use per call, the owner's (a per-user and a system
+    limit), consumed under the owner's lock and refunded if the call fails
+    for any reason, a transient one included (the retry consumes its own).
+    A transient error is re-raised for the task to retry.
     """
     if len(data) > settings.ATTACHMENT_IMAGE_TEXT_MAX_BYTES:
         raise ExtractionFailed(IMAGE_TOO_LARGE)
     try:
-        with transaction.atomic():
-            event = limits.consume(None, IMAGE_TEXT_KEY)
+        event = services.consume_for_owner(attachment.owner_id, IMAGE_TEXT_KEY)
+    except limits.UserLimitExceeded as exc:
+        raise ExtractionFailed(IMAGE_LIMIT_REACHED) from exc
     except limits.SystemLimitExceeded as exc:
         raise ExtractionFailed(IMAGE_PAUSED) from exc
 

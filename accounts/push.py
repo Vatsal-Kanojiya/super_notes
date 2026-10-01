@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 # The push service answers these when the subscription is gone for good.
 GONE_STATUSES = (404, 410)
 TTL_SECONDS = 12 * 60 * 60
+# Seconds to connect to, and then hear back from, a push service.
+WEBPUSH_TIMEOUT_SECONDS = 10
 
 
 ENDPOINT_MAX_CHARS = 1000
@@ -108,6 +110,9 @@ def send_to_user(user, payload: dict) -> str:
                 vapid_private_key=settings.VAPID_PRIVATE_KEY,
                 vapid_claims={"sub": settings.VAPID_SUBJECT},
                 ttl=TTL_SECONDS,
+                # A push service that never answers must not hold the
+                # delivery task (and its worker) for ever (D527).
+                timeout=WEBPUSH_TIMEOUT_SECONDS,
             )
         except WebPushException as exc:
             status = getattr(exc.response, "status_code", None)

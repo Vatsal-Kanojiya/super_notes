@@ -30,8 +30,10 @@ class MaxUploadSizeMiddleware:
     First in MIDDLEWARE, so nothing upstream of it gets a chance to read an
     oversized body into memory. A cheap check from the header alone, not a
     guarantee: a client that lies about Content-Length, or sends the body
-    chunked, lands on DATA_UPLOAD_MAX_MEMORY_SIZE instead, later. In
-    production the reverse proxy's own body limit is the backstop.
+    chunked, lands on DATA_UPLOAD_MAX_MEMORY_SIZE instead, later -- and on
+    the attachment upload, on its own byte-counting upload handler
+    (notes/api/attachments.py, UploadCapHandler, D528). In production the
+    reverse proxy's own body limit is the backstop (README, deploying).
 
     One endpoint takes a file (attachment uploads), so it may send more:
     settings.UPLOAD_SIZE_ALLOWANCES maps a view name to its own limit, on

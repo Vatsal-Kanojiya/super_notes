@@ -13,13 +13,14 @@ refresh into a 401. They share the ``auth`` throttle scope
 accounts/ratelimit.py.
 """
 
+import hmac
 import zoneinfo
 from functools import cache
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import update_last_login
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.http import Http404
 from django.urls import path
@@ -582,6 +583,49 @@ class InvalidEndpoint(APIException):
     default_code = "invalid_endpoint"
 
 
+class EndpointInUse(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "This push endpoint is registered to another account."
+    default_code = "endpoint_in_use"
+
+
+def _register_subscription(user, endpoint, p256dh, auth, user_agent) -> None:
+    """Upsert by endpoint, moving another account's row only with its keys (D526).
+
+    An endpoint is not a secret: it travels in logs and to the push service.
+    Its keys are what only the browser that made the subscription holds, so
+    posting them is the proof that the caller is that browser (one profile,
+    a different account signed in). Without them the row stays where it is
+    and the answer is 409 ``endpoint_in_use``. The row is locked, so two
+    posts for one endpoint decide one after the other.
+    """
+    for _ in range(2):
+        with transaction.atomic():
+            row = PushSubscription.objects.select_for_update().filter(endpoint=endpoint).first()
+            if row is None:
+                try:
+                    with transaction.atomic():
+                        PushSubscription.objects.create(
+                            user=user,
+                            endpoint=endpoint,
+                            p256dh=p256dh,
+                            auth=auth,
+                            user_agent=user_agent,
+                        )
+                    return
+                except IntegrityError:
+                    continue  # Created by a concurrent post meanwhile: decide again.
+            same_keys = hmac.compare_digest(row.p256dh, p256dh) & hmac.compare_digest(
+                row.auth, auth
+            )
+            if row.user_id != user.pk and not same_keys:
+                raise EndpointInUse()
+            row.user, row.p256dh, row.auth, row.user_agent = user, p256dh, auth, user_agent
+            row.save(update_fields=["user", "p256dh", "auth", "user_agent"])
+            return
+    raise EndpointInUse()
+
+
 class VapidKeyView(APIView):
     """The public key a browser subscribes with."""
 
@@ -608,13 +652,19 @@ class PushSubscriptionView(APIView):
         tags=AUTH_TAG,
         summary="Register a push subscription",
         description="Upsert by endpoint. An endpoint registered to another account moves to "
-        "the caller (one browser profile, one owner). 404 when web push is off.",
+        "the caller only when the posted `p256dh` and `auth` are the ones registered (the same "
+        "browser, another account signed in); otherwise 409 `endpoint_in_use` and nothing "
+        "changes. 404 when web push is off.",
         request=PushSubscriptionSerializer,
         responses={
             204: None,
             400: OpenApiResponse(MessageSerializer, description="Invalid subscription."),
             401: OpenApiResponse(MessageSerializer, description="Not signed in."),
             404: OpenApiResponse(MessageSerializer, description="Web push is off."),
+            409: OpenApiResponse(
+                MessageSerializer,
+                description="`endpoint_in_use`: registered to another account with other keys.",
+            ),
         },
     )
     def post(self, request, *args, **kwargs):
@@ -627,14 +677,12 @@ class PushSubscriptionView(APIView):
         data = PushSubscriptionSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         v = data.validated_data
-        PushSubscription.objects.update_or_create(
-            endpoint=v["endpoint"],
-            defaults={
-                "user": request.user,
-                "p256dh": v["p256dh"],
-                "auth": v["auth"],
-                "user_agent": request.META.get("HTTP_USER_AGENT", "")[:200],
-            },
+        _register_subscription(
+            request.user,
+            v["endpoint"],
+            v["p256dh"],
+            v["auth"],
+            request.META.get("HTTP_USER_AGENT", "")[:200],
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 

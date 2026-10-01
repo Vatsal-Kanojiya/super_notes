@@ -95,6 +95,13 @@ database connection between its reads of the row; a user may have `STREAM_MAX_PE
 at once. Size Redis' `maxclients` and the proxy's connection limits for the streams you expect. The hosting
 target itself is still an open question (`docs/V2_PLAN.md`).
 
+**Request body limit.** Set the proxy's body limit to about **10.1 MB**
+(`ATTACHMENT_MAX_BYTES`, 10 MB, plus 64 KB for the multipart envelope), e.g. nginx
+`client_max_body_size 10400k;`. The app checks `Content-Length` and counts an upload's bytes as
+it parses them, but under uvicorn the whole body is read before the app sees it, so only the proxy
+can stop a body that lies about its length, or has none, before it is read in full. If you raise
+`ATTACHMENT_MAX_BYTES`, raise the proxy's limit with it.
+
 ## Turning on the real services
 
 Everything runs on deterministic **fake** AI providers until you configure real ones, and Google

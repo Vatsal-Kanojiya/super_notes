@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 from notes.format_guard import (
     CHECKED_CHANGED,
     DATE_ADDED,
+    FACT_WORD_CHANGED,
     INVALID,
     NUMBER_CHANGED,
     WORDS_ADDED,
@@ -210,3 +211,208 @@ class RefusedTests(SimpleTestCase):
         proposed = doc("alpha beta gamma delta epsilon zeta eta theta iota")
         self.assertTrue(check_format(original, proposed, min_kept=0.9, min_original=0.9).ok)
         self.assertFalse(check_format(original, proposed, min_kept=0.95, min_original=0.9).ok)
+
+
+def ordered(*lines, start=None):
+    node = {
+        "type": "orderedList",
+        "content": [{"type": "listItem", "content": [para(line)]} for line in lines],
+    }
+    if start is not None:
+        node["attrs"] = {"start": start}
+    return node
+
+
+LONG_WORDS = (
+    "alpha beta gamma delta epsilon zeta theta iota kappa lambda omicron sigma "
+    "tau upsilon omega apple banana cherry grape lemon mango melon olive peach "
+    "pear plum quince raisin tomato carrot celery garlic ginger onion pepper potato "
+    "radish spinach turnip yam basil chive cumin dill fennel mint oregano parsley "
+    "rosemary sage thyme anise clove nutmeg saffron vanilla almond cashew hazelnut "
+    "pecan pistachio walnut barley millet oats quinoa rice rye sorghum wheat bulgur "
+    "couscous farro lentil chickpea soybean pea bean kidney navy pinto lima mung "
+    "adzuki fava edamame tofu tempeh seitan miso tahini hummus falafel pita naan "
+    "roti paratha dosa idli vada sambar rasam chutney pickle papad halwa kheer "
+    "ladoo barfi jalebi"
+)
+
+
+class FactWordTests(SimpleTestCase):
+    """Rule 5 (D521): negations, number words and relative dates are facts."""
+
+    def test_an_added_negation_is_refused(self):
+        verdict = check(doc("Pay rent"), doc("Do not pay rent"))
+        self.assertEqual(verdict.reason, FACT_WORD_CHANGED)
+
+    def test_a_dropped_negation_is_refused(self):
+        original = doc("don’t call the plumber about the kitchen sink")
+        proposed = doc("Call the plumber about the kitchen sink")
+        self.assertEqual(check(original, proposed).reason, FACT_WORD_CHANGED)
+
+    def test_a_changed_number_word_is_refused(self):
+        original = doc("buy five tickets for the concert on the weekend")
+        proposed = doc("Buy six tickets for the concert on the weekend")
+        self.assertEqual(check(original, proposed).reason, FACT_WORD_CHANGED)
+
+    def test_an_added_relative_date_is_refused(self):
+        original = doc("call the landlord about the leak in the bathroom")
+        proposed = doc("Call the landlord about the leak in the bathroom tomorrow")
+        self.assertEqual(check(original, proposed).reason, FACT_WORD_CHANGED)
+
+    def test_a_repeated_negation_counts_as_a_multiset(self):
+        original = doc("not the red one", "the blue one")
+        proposed = doc("not the red one", "not the blue one")
+        self.assertEqual(check(original, proposed).reason, FACT_WORD_CHANGED)
+
+    def test_a_typo_fix_still_passes(self):
+        original = doc("dont forget the umbrela and the raincoat")
+        proposed = doc("dont forget the umbrella and the raincoat")
+        self.assertTrue(check(original, proposed).ok)
+
+    def test_a_typo_fixed_into_a_fact_word_passes(self):
+        original = doc("remember to buy the groceries tomorow")
+        self.assertTrue(check(original, doc("Remember to buy the groceries tomorrow")).ok)
+
+    def test_a_fact_word_never_stands_for_another_one(self):
+        original = doc("seventy chairs for the hall on the weekend")
+        proposed = doc("seven chairs for the hall on the weekend")
+        self.assertEqual(check(original, proposed).reason, FACT_WORD_CHANGED)
+
+    def test_next_or_last_without_a_time_word_is_an_ordinary_word(self):
+        original = doc("call the plumber about the kitchen sink and the leaking tap")
+        for added in ("Next steps", "Last item"):
+            with self.subTest(added=added):
+                proposed = doc(heading(added), para(original["content"][0]["content"][0]["text"]))
+                self.assertTrue(check(original, proposed).ok)
+
+    def test_an_added_next_week_is_refused(self):
+        original = doc("call the plumber about the kitchen sink and the leaking tap")
+        proposed = doc("call the plumber next week about the kitchen sink and the leaking tap")
+        self.assertEqual(check(original, proposed).reason, FACT_WORD_CHANGED)
+
+    def test_next_week_becoming_last_week_is_refused(self):
+        original = doc("the plumber came next week about the kitchen sink")
+        proposed = doc("the plumber came last week about the kitchen sink")
+        self.assertEqual(check(original, proposed).reason, FACT_WORD_CHANGED)
+
+    def test_next_before_a_weekday_counts(self):
+        original = doc("call the plumber about the kitchen sink on Monday")
+        proposed = doc("call the plumber about the kitchen sink next Monday")
+        self.assertEqual(check(original, proposed).reason, FACT_WORD_CHANGED)
+
+    def test_a_contraction_and_its_long_form_are_the_same(self):
+        pairs = (
+            (
+                "do not pay the rent until the landlord fixes the boiler",
+                "don't pay the rent until the landlord fixes the boiler",
+            ),
+            (
+                "he can’t come to the meeting about the boiler repair",
+                "he cannot come to the meeting about the boiler repair",
+            ),
+            (
+                "the parcel wasn't delivered to the office this afternoon",
+                "the parcel was not delivered to the office this afternoon",
+            ),
+        )
+        for before, after in pairs:
+            with self.subTest(before=before):
+                self.assertTrue(check(doc(before), doc(after)).ok)
+                self.assertTrue(check(doc(after), doc(before)).ok)
+
+    def test_an_added_contracted_negation_is_still_refused(self):
+        original = doc("pay the rent before the landlord fixes the boiler")
+        proposed = doc("don't pay the rent before the landlord fixes the boiler")
+        self.assertEqual(check(original, proposed).reason, FACT_WORD_CHANGED)
+
+    def test_fact_words_kept_as_they_are_pass(self):
+        original = doc("never pay twice", "next week: call two plumbers, not one")
+        proposed = doc(
+            heading("Plumbing"),
+            bullets("never pay twice"),
+            para("next week: call two plumbers, not one"),
+        )
+        self.assertTrue(check(original, proposed).ok)
+
+
+class NewWordsCapTests(SimpleTestCase):
+    """Rule 7's absolute cap (D522)."""
+
+    def test_an_invented_paragraph_in_a_long_note_is_refused(self):
+        original = doc(LONG_WORDS)
+        invented = "Remember that grocery prices rise during festive season so shop early"
+        proposed = doc(LONG_WORDS, invented)
+        verdict = check(original, proposed)
+        # The ratio alone lets it through (precision is far above 0.8)...
+        self.assertGreater(verdict.precision, ORIGINAL)
+        # ... the cap does not.
+        self.assertEqual(verdict.reason, WORDS_ADDED)
+
+    def test_a_few_headings_in_a_long_note_pass(self):
+        original = doc(LONG_WORDS)
+        half = len(LONG_WORDS.split()) // 2
+        first, second = " ".join(LONG_WORDS.split()[:half]), " ".join(LONG_WORDS.split()[half:])
+        proposed = doc(heading("Greek letters"), para(first), heading("Pantry list"), para(second))
+        self.assertTrue(check(original, proposed).ok)
+
+    def test_typo_fixes_do_not_count_as_new(self):
+        typos = LONG_WORDS.replace("banana", "bananna").replace("cherry", "chery")
+        typos = typos.replace("grape", "graep").replace("lemon", "lemmon")
+        typos = typos.replace("mango", "mangoo").replace("melon", "mellon")
+        typos = typos.replace("olive", "olivee").replace("peach", "peech")
+        typos = typos.replace("potato", "potatoe")
+        self.assertTrue(check(doc(typos), doc(LONG_WORDS)).ok)
+
+    def test_the_floor_and_share_are_the_callers(self):
+        original = doc("alpha beta gamma delta epsilon zeta eta theta iota kappa")
+        proposed = doc(
+            heading("Greek letters"),
+            para("alpha beta gamma delta epsilon zeta eta theta iota kappa"),
+        )
+        loose = {"min_kept": 0.9, "min_original": 0.8}
+        self.assertTrue(check_format(original, proposed, **loose, new_words_floor=2).ok)
+        self.assertEqual(
+            check_format(original, proposed, **loose, new_words_floor=1).reason, WORDS_ADDED
+        )
+
+
+class NumbersFromTheDocumentTests(SimpleTestCase):
+    """Rule 2 reads the document's own numbers (D523)."""
+
+    def test_a_changed_typed_marker_number_is_refused(self):
+        original = doc("250) deposit for the flat")
+        proposed = doc("500) deposit for the flat")
+        self.assertEqual(check(original, proposed).reason, NUMBER_CHANGED)
+
+    def test_a_typed_amount_dropped_into_a_list_starting_at_one_is_refused(self):
+        original = doc("250) deposit for the flat")
+        proposed = doc(ordered("deposit for the flat"))
+        self.assertEqual(check(original, proposed).reason, NUMBER_CHANGED)
+
+    def test_rebasing_a_list_is_refused(self):
+        original = doc(ordered("deposit", "rent", start=12))
+        proposed = doc(ordered("deposit", "rent", start=1))
+        self.assertEqual(check(original, proposed).reason, NUMBER_CHANGED)
+
+    def test_rebasing_to_a_default_start_is_refused(self):
+        original = doc(ordered("deposit", "rent", start=12))
+        self.assertEqual(check(original, doc(ordered("deposit", "rent"))).reason, NUMBER_CHANGED)
+
+    def test_a_list_keeping_its_start_passes(self):
+        items = ("pay the deposit for the flat", "pay the rent to the owner")
+        original = doc(ordered(*items, start=12))
+        proposed = doc(heading("Flat"), ordered(*items, start=12))
+        self.assertTrue(check(original, proposed).ok)
+
+    def test_typed_numbering_from_twelve_becoming_a_real_list_passes(self):
+        original = doc("12. deposit", "13. rent")
+        self.assertTrue(check(original, doc(ordered("deposit", "rent", start=12))).ok)
+
+    def test_a_real_list_becoming_typed_numbering_passes(self):
+        original = doc(ordered("buy milk", "walk the dog"))
+        self.assertTrue(check(original, doc("1. buy milk", "2. walk the dog")).ok)
+
+    def test_a_number_split_by_a_mark_is_one_number(self):
+        original = doc("rent 4500")
+        proposed = doc(para(text("rent 45"), text("00", marks=[{"type": "bold"}])))
+        self.assertTrue(check(original, proposed).ok)

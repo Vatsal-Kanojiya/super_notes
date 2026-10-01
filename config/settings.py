@@ -262,7 +262,16 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = NOTE_CONTENT_MAX_BYTES + 512 * 1024
 # view up only when a body is over DATA_UPLOAD_MAX_MEMORY_SIZE, and allows
 # it only for a view named here, on POST.
 ATTACHMENT_MAX_BYTES = env.int("ATTACHMENT_MAX_BYTES", default=10 * 1024 * 1024)
-UPLOAD_SIZE_ALLOWANCES = {"api:v1:note-attachments": ATTACHMENT_MAX_BYTES + 64 * 1024}
+# Room above the file for the multipart envelope (boundaries, part headers).
+ATTACHMENT_UPLOAD_HEADROOM_BYTES = 64 * 1024
+UPLOAD_SIZE_ALLOWANCES = {
+    "api:v1:note-attachments": ATTACHMENT_MAX_BYTES + ATTACHMENT_UPLOAD_HEADROOM_BYTES
+}
+# The header check is cheap but trusts the header. The upload view also
+# counts the bytes as they are parsed (UploadCapHandler, D528) and stops at
+# ATTACHMENT_MAX_BYTES + ATTACHMENT_UPLOAD_HEADROOM_BYTES, whatever
+# Content-Length said; the reverse proxy's body limit (README) is the
+# outermost guard.
 
 # Text extraction (notes/extraction.py, DECISIONS D340-D349). After an upload
 # a worker reads the file's text -- a PDF's with pypdf, an image's through the
@@ -393,6 +402,10 @@ EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.
 SERVER_EMAIL = env("SERVER_EMAIL", default="no-reply@super-notes.local")
 # The sender of mail to users (reminders); SERVER_EMAIL is for admin mail.
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=SERVER_EMAIL)
+# Seconds the SMTP backend waits on the mail server before giving up, so a
+# hung server cannot hold a reminder delivery's worker for ever (D527).
+# Django's default is no timeout at all.
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=10)
 
 # Where the web client is served, for links in mail ("open the note").
 # No trailing slash.
@@ -669,6 +682,11 @@ TURN_PENDING_STALE_SECONDS = env.int("TURN_PENDING_STALE_SECONDS", default=120)
 # the original (precision, looser so a new heading or two is allowed).
 FORMAT_MIN_WORDS_KEPT = env.float("FORMAT_MIN_WORDS_KEPT", default=0.9)
 FORMAT_MIN_WORDS_ORIGINAL = env.float("FORMAT_MIN_WORDS_ORIGINAL", default=0.8)
+# And an absolute cap on the result's new distinct words: at most the
+# larger of the floor and the share of the original's distinct words, so a
+# long note cannot gain an invented paragraph inside the ratio (D522).
+FORMAT_NEW_WORDS_FLOOR = env.int("FORMAT_NEW_WORDS_FLOOR", default=8)
+FORMAT_NEW_WORDS_SHARE = env.float("FORMAT_NEW_WORDS_SHARE", default=0.05)
 # The note's TipTap JSON, compact, must fit in this many characters (about
 # 6,000 tokens); a longer note is refused up front rather than cut off.
 FORMAT_MAX_INPUT_CHARS = env.int("FORMAT_MAX_INPUT_CHARS", default=24000)
@@ -821,7 +839,7 @@ MAX_SIGNED_IN_DEVICES = env.int("MAX_SIGNED_IN_DEVICES", default=2)
 # system-wide value, over a period: "month" or "day" (calendar, in
 # TIME_ZONE) or "total". None (or absent) is unlimited. A Limit row in the
 # admin with the same key overrides all of a key's values, so changing one
-# needs no deploy. condense, summarize_history, memory_extract and image_text are model calls
+# needs no deploy. condense, summarize_history and memory_extract are model calls
 # the user never pays for; only the system caps them.
 LIMIT_DEFAULTS = {
     "chat_turns": {"user_free": 20, "user_premium": 100, "system": 2000, "period": "month"},
@@ -838,9 +856,10 @@ LIMIT_DEFAULTS = {
     "summarize_history": {"system": 5000, "period": "month"},
     "memory_extract": {"system": 20000, "period": "month"},
     # Reading an image's text with the chat provider's vision call, one per
-    # image attachment (notes/extraction.py, D344). The upload already costs
-    # the user storage_bytes; this caps what images cost the service.
-    "image_text": {"system": 5000, "period": "month"},
+    # image attachment (notes/extraction.py, D344, D520). Per user too, so
+    # one account cannot spend the system's month (upload, delete, upload).
+    # The per-user values are proposed, for the owner to confirm.
+    "image_text": {"user_free": 50, "user_premium": 250, "system": 5000, "period": "month"},
 }
 
 # App lifecycle (D88-D94, D106-D111). A build id is YYYYMMDDHHMM-<shortsha>;

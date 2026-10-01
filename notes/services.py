@@ -417,6 +417,40 @@ def save_extracted_text(attachment_id, text: str) -> bool:
     )
 
 
+def earlier_extracted_text(attachment: Attachment) -> str | None:
+    """The text already read from the same bytes for the same owner, or None (D524).
+
+    Any earlier attachment of the owner's with the same ``sha256`` that is
+    ``ready`` -- on another note, or since deleted (its row keeps its text)
+    -- read these very bytes already, so its text is reused: no file read,
+    no model call, no ``image_text`` use. ``""`` is a real answer (a photo
+    without words) and is reused too. Never another owner's: the hash says
+    nothing about who may read what.
+    """
+    return (
+        Attachment.objects.filter(
+            owner_id=attachment.owner_id,
+            sha256=attachment.sha256,
+            status=Attachment.Status.READY,
+        )
+        .exclude(pk=attachment.pk)
+        .order_by("-pk")
+        .values_list("extracted_text", flat=True)
+        .first()
+    )
+
+
+@transaction.atomic
+def consume_for_owner(owner_id, key: str):
+    """Record one use of ``key`` for an owner, under the owner's lock (D520).
+
+    The per-user check counts and then writes; the lock is what keeps two of
+    the owner's workers from both seeing room for one. Raises
+    limits.UserLimitExceeded or SystemLimitExceeded, recording nothing.
+    """
+    return limits.consume(_lock_owner(User(pk=owner_id)), key)
+
+
 @transaction.atomic
 def finish_extraction(attachment_id, *, write_chunks=None) -> bool:
     """extracting -> ready, writing the chunks under the same lock. True if it did.
