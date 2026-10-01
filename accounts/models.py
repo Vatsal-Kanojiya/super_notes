@@ -65,6 +65,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     # True once the user has set ``memory_enabled`` themselves (D88): it picks
     # the prominent or the subtle memory notice.
     memory_choice_explicit = models.BooleanField(default=False)
+    # Moved by "forget everything" and by switching memory off, under this
+    # row's lock: an extraction may only write facts learned from a turn
+    # created after it, so one in flight at that moment writes nothing
+    # (assistant/memory.py, DECISIONS D422). Null: never reset.
+    memory_reset_at = models.DateTimeField(null=True, blank=True)
     # App opens counted so far, and the count when the user last saw the
     # memory notice: the notice is due every MEMORY_NOTICE_EVERY_OPENS opens.
     app_open_count = models.PositiveIntegerField(default=0)

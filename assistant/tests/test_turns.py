@@ -125,7 +125,7 @@ class PronounFollowUpTests(TurnTestCase):
         self.assertIn("vitamin D", follow_up.standalone_question)
         self.assertEqual(follow_up.retrieved[0]["note_id"], self.vitamin.pk)
         self.assertEqual(follow_up.citations[0]["note_id"], self.vitamin.pk)
-        self.assertEqual(follow_up.prompt_version, "chat-v1")
+        self.assertEqual(follow_up.prompt_version, "chat-v2")
 
     def test_the_standalone_question_is_what_is_searched(self):
         follow_up = self.follow(self.FOLLOW_UP)

@@ -1,7 +1,9 @@
 """The Ask API: asks, and conversations of them (plan §6.5, §7; V2 plan §5 phase 1).
 
 ``POST ask/``, ``GET ask/`` and ``GET ask/<id>/``; ``POST/GET conversations/``,
-``GET/PATCH/DELETE conversations/<id>/`` and ``POST conversations/<id>/turns/``.
+``GET/PATCH/DELETE conversations/<id>/`` and ``POST conversations/<id>/turns/``;
+and the user's memory: ``GET/DELETE memory/facts/`` and
+``DELETE memory/facts/<id>/`` (assistant/memory.py, DECISIONS D423).
 
 Asynchronous, in the reference's job shape: POST creates the AskQuery and
 returns it pending (202), the task answers it, and the client polls the
@@ -24,10 +26,12 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import generics, serializers, status
 from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from config.api.common import SYSTEM_LIMIT_RESPONSE, MessageSerializer
 
-from .models import QUESTION_MAX_CHARS, TITLE_MAX_CHARS, AskQuery, Conversation
+from . import memory
+from .models import QUESTION_MAX_CHARS, TITLE_MAX_CHARS, AskQuery, Conversation, UserFact
 from .services import (
     ConversationNotFound,
     IdempotencyKeyReused,
@@ -42,6 +46,7 @@ from .services import (
 
 ASK_TAG = ["Ask"]
 CONVERSATION_TAG = ["Conversations"]
+MEMORY_TAG = ["Memory"]
 
 IDEMPOTENCY_HEADER = "Idempotency-Key"
 # Letters, digits, "-" and "_": a UUID fits, and so does anything a client
@@ -151,6 +156,24 @@ class ConversationCreateSerializer(serializers.Serializer):
 
 class ConversationRenameSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=TITLE_MAX_CHARS)
+
+
+class UserFactSerializer(serializers.ModelSerializer):
+    """A fact the assistant remembers about the user. Read-only: facts are only learned."""
+
+    class Meta:
+        model = UserFact
+        fields = ["id", "text", "kind", "valid_until", "created_at"]
+        read_only_fields = fields
+        extra_kwargs = {
+            "text": {"help_text": 'One short sentence, e.g. "User is vegetarian."'},
+            "kind": {
+                "help_text": "`static`: true until you say otherwise. `dynamic`: true for now; "
+                "forgotten at `valid_until`."
+            },
+            "valid_until": {"help_text": "When a dynamic fact is forgotten; null for static."},
+            "created_at": {"help_text": "When it was learned."},
+        }
 
 
 class TurnInProgressSerializer(MessageSerializer):
@@ -565,10 +588,75 @@ class TurnCreateView(generics.GenericAPIView):
         )
 
 
+# --- Memory ---------------------------------------------------------------
+
+
+class FactListView(generics.ListAPIView):
+    serializer_class = UserFactSerializer
+    http_method_names = ["get", "delete", "head", "options"]
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return UserFact.objects.none()
+        # Live only: a superseded or expired fact is no longer used, and
+        # is not shown either (owner-scoped in SQL by ``live``).
+        return UserFact.objects.live(self.request.user)
+
+    @extend_schema(
+        tags=MEMORY_TAG,
+        summary="What the assistant remembers about you, newest first",
+        description="Facts learned from what you said about yourself in conversations, and "
+        "used to shape later answers (never cited as a source). Only facts in use are "
+        "listed. Follow `next` for more.",
+        parameters=[
+            OpenApiParameter("page_size", OpenApiTypes.INT, description="1-100, default 25.")
+        ],
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=MEMORY_TAG,
+        summary="Forget everything",
+        operation_id="memory_facts_forget_all",
+        description="Deletes every fact the assistant remembers about you. A conversation "
+        "turn asked before this teaches nothing afterwards, even if it is still being "
+        "answered. Memory stays on (`PATCH me/` turns it off).",
+        request=None,
+        responses={204: None, 401: UNAUTHORIZED},
+    )
+    def delete(self, request, *args, **kwargs):
+        memory.forget_all(request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class FactDetailView(APIView):
+    http_method_names = ["delete", "options"]
+
+    @extend_schema(
+        tags=MEMORY_TAG,
+        summary="Forget one fact",
+        operation_id="memory_facts_forget",
+        description="Also forgets the older facts it replaced.",
+        request=None,
+        responses={
+            204: None,
+            401: UNAUTHORIZED,
+            404: OpenApiResponse(MessageSerializer, description="No such fact of yours."),
+        },
+    )
+    def delete(self, request, pk, *args, **kwargs):
+        if not memory.delete_fact(request.user, pk):
+            return _not_found()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 urlpatterns = [
     path("ask/", AskListView.as_view(), name="ask-list"),
     path("ask/<int:pk>/", AskDetailView.as_view(), name="ask-detail"),
     path("conversations/", ConversationListView.as_view(), name="conversation-list"),
     path("conversations/<int:pk>/", ConversationDetailView.as_view(), name="conversation-detail"),
     path("conversations/<int:pk>/turns/", TurnCreateView.as_view(), name="conversation-turns"),
+    path("memory/facts/", FactListView.as_view(), name="memory-facts"),
+    path("memory/facts/<int:pk>/", FactDetailView.as_view(), name="memory-fact-detail"),
 ]

@@ -32,6 +32,17 @@ provider what the turn taught about the user:
 
 ``purge_expired`` (daily) deletes expired dynamic facts and facts
 superseded more than MEMORY_SUPERSEDED_RETENTION_DAYS ago.
+
+**Use** (DECISIONS D420-D421): ``facts_for_prompt`` gives a conversation
+turn's chat prompt the user's live facts nearest its (standalone)
+question, at most MEMORY_PROMPT_FACTS -- none, and no embedding call, with
+memory off; none when the question cannot be embedded.
+
+**Forgetting** (D422-D423): ``forget_all`` deletes every fact of the user
+and, like switching memory off (``mark_reset``), moves
+``User.memory_reset_at`` under the user's row lock. The write step only
+writes facts from a turn created after that moment, so an extraction in
+flight when the user said "forget everything" writes nothing.
 """
 
 import json
@@ -139,6 +150,68 @@ def similar_facts_queryset(user, vector: list[float]):
         .annotate(distance=CosineDistance("embedding", vector))
         .order_by("distance")
     )
+
+
+def facts_for_prompt(user, question: str) -> list[UserFact]:
+    """The live facts a conversation turn's chat prompt carries (DECISIONS D420-D421).
+
+    None -- and no query, no embedding call -- when the user has memory
+    off. While the user has at most MEMORY_PROMPT_FACTS live facts, all of
+    them, oldest first, with no embedding call; beyond that the nearest to
+    ``question`` of the current embedding model, nearest first. A question
+    that cannot be embedded gets none: memory can improve an answer, never
+    fail one.
+    """
+    k = settings.MEMORY_PROMPT_FACTS
+    if not user.memory_enabled or k <= 0:
+        return []
+    facts = list(UserFact.objects.live(user).order_by("-pk")[: k + 1])
+    if len(facts) <= k:
+        return sorted(facts, key=lambda fact: fact.pk)
+    try:
+        vector = embed_query(question)
+    except EMBEDDING_ERRORS:
+        logger.warning("The question could not be embedded; answering without memory")
+        return []
+    return similar_facts(user, vector, k)
+
+
+# --- Forgetting --------------------------------------------------------------------
+
+
+def mark_reset(user_id: int, now=None) -> None:
+    """Move the user's ``memory_reset_at`` to now; the caller holds the user's row lock.
+
+    From now on no extraction writes a fact learned from an earlier turn
+    (``apply_operations``), so one in flight cannot undo a "forget
+    everything" or outlive memory being switched off (DECISIONS D422).
+    """
+    get_user_model().objects.filter(pk=user_id).update(memory_reset_at=now or timezone.now())
+
+
+def forget_all(user) -> int:
+    """Delete every fact of the user's, superseded ones too; how many were deleted.
+
+    The user's row is locked *first*: an extraction holding it (mid-write)
+    commits before the delete runs, so the delete sees its facts; and the
+    reset marker moves in the same commit, so an extraction still waiting
+    for the lock writes nothing (DECISIONS D422).
+    """
+    with transaction.atomic():
+        list(get_user_model().objects.select_for_update().filter(pk=user.pk).values_list("pk"))
+        mark_reset(user.pk)
+        deleted, _ = UserFact.objects.filter(user_id=user.pk).delete()
+    return deleted
+
+
+def delete_fact(user, fact_id: int) -> bool:
+    """Delete one of the user's facts (any state); False when the user has no such fact.
+
+    Owner-scoped in SQL, so another user's id deletes nothing. The facts it
+    superseded go with it (D405).
+    """
+    deleted, _ = UserFact.objects.filter(user_id=user.pk, pk=fact_id).delete()
+    return bool(deleted)
 
 
 # --- The prompt ------------------------------------------------------------------
@@ -277,7 +350,7 @@ def extract(ask_id: int) -> int:
     )
     if ask is None or ask.conversation.deleted_at is not None:
         return 0
-    if not ask.user.memory_enabled:
+    if not ask.user.memory_enabled or _predates_reset(ask, ask.user):
         return 0
 
     event = _consume(ask)
@@ -344,6 +417,11 @@ def _consume(ask: AskQuery) -> UsageEvent | None:
         return None
 
 
+def _predates_reset(ask: AskQuery, user) -> bool:
+    """Whether the turn was asked before the user last forgot everything or switched off (D422)."""
+    return user.memory_reset_at is not None and ask.created_at <= user.memory_reset_at
+
+
 def _valid_until(kind: str, now):
     if kind == UserFact.Kind.DYNAMIC:
         return now + timedelta(days=settings.MEMORY_DYNAMIC_FACT_DAYS)
@@ -353,9 +431,11 @@ def _valid_until(kind: str, now):
 def apply_operations(ask: AskQuery, operations: list[Operation], vectors) -> int:
     """Write checked operations for the turn's user; how many were applied.
 
-    One transaction holding the user's row lock, so ``memory_enabled`` is
-    read as it is now (switched off since the call: nothing is written) and
-    two extractions of one user write one after the other. The targets are
+    One transaction holding the user's row lock, so ``memory_enabled`` and
+    ``memory_reset_at`` are read as they are now -- switched off, or
+    everything forgotten, since the turn was asked: nothing is written
+    (D401, D422) -- and two extractions of one user write one after the
+    other. The targets are
     re-read live and owner-scoped in SQL, and locked: one superseded or
     deleted since the call was made is dropped, so a fact is never
     superseded twice (D408).
@@ -367,6 +447,9 @@ def apply_operations(ask: AskQuery, operations: list[Operation], vectors) -> int
         user = get_user_model().objects.select_for_update().get(pk=ask.user_id)
         if not user.memory_enabled:
             logger.info("Ask %s: memory was turned off; nothing written", ask.pk)
+            return 0
+        if _predates_reset(ask, user):
+            logger.info("Ask %s: memory was reset since the turn; nothing written", ask.pk)
             return 0
         live = UserFact.objects.live(user, now)
         ids = [operation.fact_id for operation in operations if operation.fact_id is not None]

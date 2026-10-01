@@ -2,7 +2,9 @@
 
 A conversation turn adds two steps (assistant/conversation.py): its
 follow-up is condensed to stand alone before retrieval, and its prompt
-(prompts/chat.md) carries the conversation so far. Finishing a turn may
+(prompts/chat.md) carries the conversation so far -- and, with memory on,
+the user's facts nearest the question, recorded in ``memory_used``
+(assistant/memory.py, DECISIONS D420). Finishing a turn may
 queue a fold of the conversation's oldest turns into its summary
 (fold_history, below), and queues the extraction of what the user said
 about themselves (extract_memory, assistant/memory.py).
@@ -142,12 +144,17 @@ def _answer(ask_id: int, publisher: events.Publisher | None = None) -> None:
     # gives the same result, which is what the model saw and so what its
     # markers can refer to.
     fitted = fit_excerpts(excerpts)
+    facts = []
     if turn is None:
         system, user = build_messages(ask.question, excerpts)
         version = prompt_version()
     else:
+        # What the user's memory knows that bears on this question (D420):
+        # none with memory off, and none -- never a failed turn -- when the
+        # question cannot be embedded.
+        facts = memory.facts_for_prompt(ask.user, turn.search_question)
         system, user = conversation.build_chat_messages(
-            ask.question, excerpts, turn.history, turn.summary
+            ask.question, excerpts, turn.history, turn.summary, [fact.text for fact in facts]
         )
         version = conversation.chat_prompt_version()
 
@@ -168,6 +175,7 @@ def _answer(ask_id: int, publisher: events.Publisher | None = None) -> None:
         prompt_version=version,
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
+        memory_used=[fact.pk for fact in facts],
     )
 
 
