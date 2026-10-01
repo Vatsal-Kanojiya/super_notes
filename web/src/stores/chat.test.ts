@@ -65,6 +65,17 @@ describe('chat store', () => {
     expect(chat.phase).toBe('ready')
   })
 
+  it('leaving and re-entering a thread quickly still polls the pending turn', async () => {
+    api.get.mockResolvedValue(detail([turn(1, 'done'), turn(2, 'pending')]))
+    api.askGet.mockResolvedValue(turn(2, 'done'))
+    const chat = useChatStore()
+    await chat.open(7)
+    await chat.open(null)
+    await chat.open(7)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(chat.turns[1]!.status).toBe('done')
+  })
+
   it('a first question creates the conversation, adopts it and returns its id', async () => {
     api.create.mockResolvedValue(detail([turn(1, 'pending')]))
     const chat = useChatStore()
