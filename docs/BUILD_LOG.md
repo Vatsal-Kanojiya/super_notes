@@ -325,3 +325,21 @@ a memory on/off toggle, and the browser timezone sent for users still on the def
 Checked in headless Chrome against the real backend: guarded redirect, deep link, refresh, back,
 unknown path, prominent banner on the first open, settings toggle (`PATCH me/`), timezone set to
 Europe/Berlin, and the update bar with `CLIENT_LATEST_VERSION` set to a future build.
+
+### V2 5 — reminders
+
+`v2-feat/5-reminders` (D95, D124-D139, D170-D173, D200-D204). `Reminder` and `ReminderDelivery`
+on notes, written under the owner lock and carried by `notes/changes/`; a due date plus daily
+heads-ups `lead_days` before it, computed in the account's timezone (DST tested). A beat task
+every minute claims each due occurrence by inserting its `ReminderDelivery` (the unique
+constraint makes delivery at most once across workers; after an outage only the latest missed
+occurrence is sent) and sends email (title, due date, link — never the body) and web push via
+`pywebpush` (VAPID keys from env; push off when unset; 404/410 drops the subscription). Web: a
+push-only service worker (`/sw.js`, no fetch handler, never caches app code), a reminder panel
+on each note (add/edit/delete/done, channels, lead days), a `/calendar` month and week view
+(Monday first) that opens the note on click, and a notifications switch in Settings; sign-out
+removes this browser's push subscription. 138 web tests. Checked headless against the real
+backend with push off and on (worker push and click driven through CDP).
+Left: a real push delivery through FCM/Mozilla could not be reached from the sandbox; only
+Chromium was tried. Unsure: the Monday-first week (D201) is a guess for the owner to confirm.
+Hosting must serve `/sw.js` `no-cache` and set the three VAPID variables.

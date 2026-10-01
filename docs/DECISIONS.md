@@ -1740,3 +1740,54 @@ sending and deletes one that fails (rows older than the check, or a shrunk allow
 must be base64url decoding to 65 bytes and `auth` 16 to 32. **Alternative:** resolving the host and
 refusing private addresses (racy against DNS rebinding, and still lets a user aim us at any public
 host); the allowlist needs a setting change for a new browser's service.
+
+### D200. The web client reads and writes reminder times in the account's timezone, and mirrors the schedule rule for display only (5, 2026-10-02)
+
+**Decided:** the due-time input is a `datetime-local` read as wall-clock time in `User.timezone` (not the
+browser's) and sent as a UTC instant (`...Z`). `web/src/lib/schedule.ts` re-implements
+`notes/schedule.py` (daily at the due time's local time of day, repeated time = first, skipped time = the
+pre-change offset) so a note can say "8 notifications, next Fri 2 Oct, 09:00" without a round trip; the
+server stays the only source for what is actually sent, and the calendar shows the server's occurrences.
+Editing sends only the changed fields, so an untouched past due time is not refused. Lead days are a
+number input 0-30 (the API's limit, default 7). **Alternative:** the browser's timezone for the input
+(a reminder set while travelling would not match what the server sends); no client schedule (needs an
+endpoint just for the summary).
+
+### D201. Calendar: Monday-first, view and day in the URL, ranges cut at the account's midnights (5, 2026-10-02)
+
+**Decided:** `/calendar?view=month|week&d=YYYY-MM-DD`; going into a note and back lands on the same page.
+A month view is the whole Monday-to-Sunday weeks around the month (28-42 days), a week is 7; the API range is
+the start of the first day to the start of the day after the last in the account's timezone (always well
+under 62 days) and each occurrence is filed under its day in that zone. It reloads when a sync advances the
+revision. A month cell shows 3 entries then "+N more" and the day number opens that week; filled entries
+are due dates, light ones heads-ups, done reminders are struck through. **Alternative:** Sunday-first or a
+locale-driven week start (a setting to add later if asked).
+
+### D202. The service worker is for push only: no fetch handler, never cached, clicks go through the open tab (5, 2026-10-02)
+
+**Decided:** `web/public/sw.js` (emitted unhashed at `/sw.js`; served `no-cache`, registered with
+`updateViaCache: 'none'`) has install (`skipWaiting`), activate (`clients.claim`), `push` and
+`notificationclick` handlers and no `fetch` handler, so it cannot serve stale code (D89). A push shows the
+payload title (text only) with a per-reminder tag (today's replaces yesterday's). A click posts
+`{type: 'open-path', path}` to an open tab (the app routes there, no reload, so a half-typed note is not
+lost) or opens a new window; both ends accept only `/notes/<id>` or `/calendar`. **Alternative:**
+`client.navigate(url)` (a full page load over unsaved edits).
+
+### D203. Reminders ride on their note in the notes store, from `notes/changes/` (5, 2026-10-02)
+
+**Decided:** `Note.reminders` is filled only by `changes` (which sends a note again whenever one of its
+reminders changes); an `upsert` of a copy without them (a save, the list, one note) keeps the ones held.
+After its own write the client applies the API's answer to the note at once and the next sync confirms it.
+A note opened before the first sync shows "Loading reminders"; once synced, no reminders means none.
+**Alternative:** a separate reminders store with its own cursor (a second sync loop for data that already
+arrives with the note).
+
+### D204. Push on this device: hidden when the server has it off; sign-out removes the subscription (5, 2026-10-02)
+
+**Decided:** `GET push/vapid-key/` 404 hides every push control (settings section, reminder channel,
+subscribe hint); a browser without service workers/Push/Notifications gets one line saying email still
+works. "Turn on notifications" asks the browser's permission, subscribes with the server's key and POSTs
+it; "Turn off" and signing out unsubscribe and DELETE it (sign-out waits at most 3 s, best effort), so a
+shared browser stops receiving the previous account's reminders. **Alternative:** leave the subscription
+on sign-out (the next account signing in on the browser takes it over, D171, but until then the old
+account's reminders pop up on someone else's screen).

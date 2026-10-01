@@ -38,7 +38,7 @@ A pure function `occurrences(due_at, lead_days, tz) -> list[datetime]` is the si
   a `generate_vapid_keys` management command, `PushSubscription` model, `GET push/vapid-key/`,
   `POST/DELETE me/push-subscriptions/`, the push channel in delivery (payload: reminder id, note
   id, title only), 404/410 → subscription deleted. Push off (no keys) → channel skipped silently.
-- [ ] 4. **Web UI** (Sonnet) — a service worker for push only (D89: never caches app code;
+- [x] 4. **Web UI** (Sonnet) — a service worker for push only (D89: never caches app code;
   `no-cache`, `skipWaiting` + `clients.claim`), the permission prompt and subscribe flow, a
   reminder control on a note (date-time + lead days), "mark done", a calendar page `/calendar`
   (month and week views of occurrences; clicking opens the note), reminders kept in sync from
