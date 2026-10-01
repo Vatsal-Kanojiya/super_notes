@@ -69,8 +69,10 @@ class AskQuery(models.Model):
         Conversation, on_delete=models.CASCADE, null=True, blank=True, related_name="turns"
     )
     position = models.PositiveIntegerField(null=True, blank=True)
-    # The follow-up rewritten to stand alone: what was actually searched.
-    # Blank when the question was searched as asked.
+    # The follow-up as the condenser rewrote it to stand alone: what was
+    # actually searched (assistant/conversation.py). Blank when the question
+    # was searched as asked: a plain ask, turn 1, a follow-up that already
+    # stands alone, or a condense call that failed.
     standalone_question = models.TextField(blank=True)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
 

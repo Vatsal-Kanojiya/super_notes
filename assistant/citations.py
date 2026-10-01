@@ -23,6 +23,8 @@ from .prompt import Excerpt
 
 # "[1]", "[1, 2]", "[1;2]", "[1-3]", "[1–3]" (en dash), with any spacing.
 _MARKER = re.compile(r"\[\s*(\d+(?:\s*[,;\-–]\s*\d+)*)\s*\]")
+# Public for stripping markers out of an earlier answer (assistant/conversation.py).
+MARKER = _MARKER
 _PART = re.compile(r"(\d+)(?:\s*[\-–]\s*(\d+))?")
 
 # How much of the excerpt a citation shows: enough to recognise the

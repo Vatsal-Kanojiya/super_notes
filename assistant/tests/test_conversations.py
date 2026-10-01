@@ -573,7 +573,7 @@ class ConversationLimitTests(ConversationAPITestCase):
 
 @override_settings(LIMIT_DEFAULTS=chat_turns(10, 10))
 class TurnAnsweredTests(TestCase):
-    """For now a turn is answered as a plain ask is (sub-task 2 adds the history)."""
+    """A turn is answered through the API (condensing and history: test_turns.py)."""
 
     def setUp(self):
         self.alice = make_user("alice")

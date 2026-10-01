@@ -15,12 +15,18 @@ from .types import ChatResult
 __all__ = ["ChatError", "ChatResult", "TransientChatError", "complete"]
 
 
-def complete(system: str, user: str) -> ChatResult:
-    """Send one system prompt and one user message to the configured provider."""
+def complete(system: str, user: str, max_output_tokens: int | None = None) -> ChatResult:
+    """Send one system prompt and one user message to the configured provider.
+
+    ``max_output_tokens`` defaults to CHAT_MAX_OUTPUT_TOKENS; the condenser
+    asks for less (a question, not an answer).
+    """
     provider_name = settings.CHAT_PROVIDER
     provider = get_provider(provider_name)
     # .get(), not [] -- "fake" has no entry in CHAT_MODELS (it has no real
     # model to name), and must not KeyError on the everyday default.
     model = settings.CHAT_MODELS.get(provider_name, "")
 
-    return provider.complete(system, user, model, settings.CHAT_MAX_OUTPUT_TOKENS)
+    if max_output_tokens is None:
+        max_output_tokens = settings.CHAT_MAX_OUTPUT_TOKENS
+    return provider.complete(system, user, model, max_output_tokens)
