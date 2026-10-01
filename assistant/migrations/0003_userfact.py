@@ -8,7 +8,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("assistant", "0002_conversations"),
         # CREATE EXTENSION vector, for the embedding column.
@@ -80,9 +79,7 @@ class Migration(migrations.Migration):
                         name="fact_embedding_hnsw",
                         opclasses=["vector_cosine_ops"],
                     ),
-                    models.Index(
-                        fields=["user", "superseded_by"], name="fact_user_superseded"
-                    ),
+                    models.Index(fields=["user", "superseded_by"], name="fact_user_superseded"),
                 ],
             },
         ),

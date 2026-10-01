@@ -6,51 +6,77 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('assistant', '0001_initial'),
+        ("assistant", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='askquery',
-            name='position',
+            model_name="askquery",
+            name="position",
             field=models.PositiveIntegerField(blank=True, null=True),
         ),
         migrations.AddField(
-            model_name='askquery',
-            name='standalone_question',
+            model_name="askquery",
+            name="standalone_question",
             field=models.TextField(blank=True),
         ),
         migrations.CreateModel(
-            name='Conversation',
+            name="Conversation",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('title', models.CharField(blank=True, max_length=200)),
-                ('summary', models.TextField(blank=True)),
-                ('summary_through', models.PositiveIntegerField(default=0)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('deleted_at', models.DateTimeField(blank=True, null=True)),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='conversations', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("title", models.CharField(blank=True, max_length=200)),
+                ("summary", models.TextField(blank=True)),
+                ("summary_through", models.PositiveIntegerField(default=0)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("deleted_at", models.DateTimeField(blank=True, null=True)),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="conversations",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
         ),
         migrations.AddField(
-            model_name='askquery',
-            name='conversation',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='turns', to='assistant.conversation'),
+            model_name="askquery",
+            name="conversation",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="turns",
+                to="assistant.conversation",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='askquery',
-            constraint=models.UniqueConstraint(fields=('conversation', 'position'), name='ask_conversation_position'),
+            model_name="askquery",
+            constraint=models.UniqueConstraint(
+                fields=("conversation", "position"), name="ask_conversation_position"
+            ),
         ),
         migrations.AddConstraint(
-            model_name='askquery',
-            constraint=models.CheckConstraint(condition=models.Q(models.Q(('conversation__isnull', True), ('position__isnull', True)), models.Q(('conversation__isnull', False), ('position__isnull', False)), _connector='OR'), name='ask_turn_has_position'),
+            model_name="askquery",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    models.Q(("conversation__isnull", True), ("position__isnull", True)),
+                    models.Q(("conversation__isnull", False), ("position__isnull", False)),
+                    _connector="OR",
+                ),
+                name="ask_turn_has_position",
+            ),
         ),
         migrations.AddIndex(
-            model_name='conversation',
-            index=models.Index(fields=['user', '-updated_at'], name='conversation_user_updated'),
+            model_name="conversation",
+            index=models.Index(fields=["user", "-updated_at"], name="conversation_user_updated"),
         ),
     ]

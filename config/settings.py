@@ -577,9 +577,19 @@ CHAT_MODELS = {
 # A ceiling on the answer, which is a few cited sentences. OpenAI counts its
 # reasoning tokens against this too, so it is not set tighter.
 CHAT_MAX_OUTPUT_TOKENS = env.int("CHAT_MAX_OUTPUT_TOKENS", default=2048)
-# Read timeout of one provider call, in seconds. A timeout is transient
-# (retried); CELERY_TASK_SOFT_TIME_LIMIT still bounds the whole task.
+# Read timeout of one provider call, in seconds -- for a streamed answer, the
+# longest wait between two pieces of it. A timeout is transient (retried);
+# CELERY_TASK_SOFT_TIME_LIMIT still bounds the whole task.
 CHAT_TIMEOUT_SECONDS = env.int("CHAT_TIMEOUT_SECONDS", default=60)
+
+# Streaming answers (assistant/events.py, DECISIONS D363-D366). The answer
+# task publishes its progress on Redis pub/sub, channel ask:<id>; empty turns
+# that off, and polling works either way. Pub/sub ignores the database
+# number, so the broker's Redis is the natural default.
+ASK_EVENTS_REDIS_URL = env("ASK_EVENTS_REDIS_URL", default=CELERY_BROKER_URL)
+# The text streamed so far is saved on the ask (partial_answer) at most this
+# often, so a reader that connects mid-answer can catch up from the row.
+ASK_PARTIAL_SAVE_SECONDS = env.float("ASK_PARTIAL_SAVE_SECONDS", default=0.5)
 
 # An ask still pending or running this long after it was made is failed by
 # assistant.tasks.sweep_stuck_asks. It must outlast every way a live ask

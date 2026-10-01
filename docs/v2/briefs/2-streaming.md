@@ -23,7 +23,7 @@
   error; markers render as they stream, chips become clickable on `done`.
 
 ## Sub-tasks (conductor's checklist)
-- [ ] 1. **Provider streaming + worker publishing** (Opus) — Protocol `stream`, the three
+- [x] 1. **Provider streaming + worker publishing** (Opus) — Protocol `stream`, the three
   adapters' SSE parsing (tested against recorded vendor streams, no network), fake, fallback;
   the task streams, publishes deltas/done/failed, throttled partial saves, retries and the
   limits/refund paths unchanged; tests.
