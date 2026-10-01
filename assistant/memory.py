@@ -68,7 +68,7 @@ from retrieval.embeddings import (
 )
 
 from . import chat
-from .conversation import _block, _cut, strip_markers
+from .conversation import _block, _cut, cited_in, strip_markers
 from .models import FACT_MAX_CHARS, AskQuery, UserFact
 from .prompt import load_prompt, neutralise
 
@@ -227,15 +227,18 @@ def facts_block(facts: list[UserFact]) -> str:
     return f"<facts>\n{lines}</facts>"
 
 
-def build_memory_messages(question: str, answer: str, facts: list[UserFact]) -> tuple[str, str]:
+def build_memory_messages(
+    question: str, answer: str, facts: list[UserFact], cited: set[int] = frozenset()
+) -> tuple[str, str]:
     """(system, user) for one extraction: the facts, the question, the answer -- no excerpts.
 
-    The answer loses its ``[n]`` markers (they number excerpts the call
-    does not see) and is cut to MEMORY_ANSWER_MAX_CHARS: it is context
+    The answer loses its citation markers -- those naming a number in
+    ``cited``, the turn's own citations (DECISIONS D504): they number
+    excerpts the call does not see -- and is cut to MEMORY_ANSWER_MAX_CHARS: it is context
     only. Every part is neutralised, so nothing in a question, an answer
     or a fact can close its block early.
     """
-    answer = _cut(strip_markers(answer), settings.MEMORY_ANSWER_MAX_CHARS)
+    answer = _cut(strip_markers(answer, cited), settings.MEMORY_ANSWER_MAX_CHARS)
     user = "\n\n".join([facts_block(facts), _block("question", question), _block("answer", answer)])
     return load_prompt("memory")[1], user
 
@@ -364,7 +367,7 @@ def extract(ask_id: int) -> int:
         limits.refund(event)
         return 0
 
-    system, user = build_memory_messages(ask.question, ask.answer, facts)
+    system, user = build_memory_messages(ask.question, ask.answer, facts, cited_in(ask.citations))
     try:
         result = chat.complete(
             system, user, max_output_tokens=settings.MEMORY_EXTRACT_MAX_OUTPUT_TOKENS

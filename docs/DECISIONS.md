@@ -2969,3 +2969,80 @@ test, for a saving that matters only at many concurrent streams).
 - Format retry reuses the Idempotency-Key only if the note content is unchanged since the failed attempt (compared by the serialised doc, no new prop).
 - Push is released on auth loss and on sign-in as a different account; the reminder form defaults push to `usable && subscribed`.
 - Calendar day cells are `div role="group"`; `aria-live` on the format status only.
+
+### D500. A billed failure is its own error: `BilledChatError(ChatError)`, with its cost (conversation fixes, 2026-10-01)
+
+**Decided:** providers raise `chat.BilledChatError`, a `ChatError` subclass carrying `provider`,
+`model`, `input_tokens` and `output_tokens` (`.cost()`), for every failure after the vendor
+returned a response: a refusal, a cut-off answer, no text, an unexpected stop reason, OpenAI's
+`failed`/`incomplete`, Gemini's blocked prompt or non-`STOP` finish (stream or not). A plain
+`ChatError` now means rejected before generating (an HTTP 4xx, a missing key, an unreadable body,
+a non-transient stream error event). Condense and fold keep their system-limit use on a
+`BilledChatError` and record its cost; they refund only a plain `ChatError` or a
+`TransientChatError`. Existing `except ChatError` callers are unchanged. When the vendor's billing
+is unclear (OpenAI `failed`, Gemini blocked prompt), the use is kept: an over-counted system budget
+is the cheaper mistake.
+**Alternative:** a `billed` flag on `ChatError` (every raise site must remember it, and a missing
+flag silently means "free"); separate unrelated classes (would break every `except ChatError`).
+Not changed here: `memory.extract` and `notes/extraction.py` still refund on any `ChatError`
+(same pattern, outside this fix's scope).
+
+### D501. A turn condenses at most once: the attempt is marked before the call (conversation fixes, 2026-10-01)
+
+**Decided:** `prepare` stores the question as asked in `standalone_question` before calling the
+condenser, and replaces it with the rewrite on success. Any fallback (limit reached, provider
+failure, empty reply) leaves the mark, so a retry, a redelivery or a worker killed mid-call
+searches the question as asked and never pays again. A standalone question equal to the question
+now means "condensing was attempted and fell back".
+**Alternative:** mark only after a failed call (a crash mid-call would still condense twice); a
+separate boolean field (a migration for what the existing column already says).
+
+### D502. The condenser sees the conversation summary; `condense-v2` (conversation fixes, 2026-10-01)
+
+**Decided:** `build_condense_messages(question, turns, summary="")` puts a neutralised
+`<summary>` block before `<history>` when the conversation has one; `condense()` passes
+`ask.conversation.summary`. The prompt says a follow-up may point into the summary, and to prefer
+the history when both fit. `run_condenser` takes the summary as an optional argument, so the
+evaluation (no summaries) is unchanged.
+**Alternative:** fold the summary into the history as a pseudo-turn (blurs what the model is told
+is a question and an answer).
+
+### D503. History is sized in SQL for the fold check, and read newest-first only up to the budget (conversation fixes, 2026-10-01)
+
+**Decided:** `should_fold` is one `SUM(LENGTH(question) + LENGTH(answer))` over the done turns
+after `summary_through`. It counts the citation markers the prompt strips, so it may say yes a
+turn early; `fold()` still sizes the turns as the prompt does and folds nothing while they fit (a
+no-op task, no provider call). `history_for` reads done turns newest first, 16 at a time, and
+stops at the first turn that takes the total past the larger of `CHAT_HISTORY_MAX_CHARS` and
+`CHAT_CONDENSE_HISTORY_MAX_CHARS`, keeping that turn, so `fit_history` gives exactly what it gave
+with every turn loaded.
+**Alternative:** strip markers in SQL too (a regex in the database to match Python's); a server-side
+cursor (`iterator()`), which a transaction-pooling proxy would break.
+
+### D504. Only the numbers a turn cited are stripped from its answer; facts keep theirs as `(n)` (conversation fixes, 2026-10-01)
+
+**Decided:** `strip_markers(answer, cited)` removes a marker only if it names a number in
+`cited`, the turn's own `citations[].n` (`cited_in`), for history and for the memory extraction's
+answer. `[2024]`, a list's `[7]` or a marker pointing at no excerpt stay. Facts were stripped of
+any bracketed number; they cited nothing, so their numbers are kept, written `(2024)`, which keeps
+the D420 rule that nothing in `<facts>` looks citable.
+**Alternative:** leave facts' brackets as they are (a fact's `[1]` beside the excerpts could be
+cited); keep stripping facts entirely (loses the user's own text).
+
+### D505. A turn pending past `TURN_PENDING_STALE_SECONDS` (120) is failed by the next turn (conversation fixes, 2026-10-01)
+
+**Decided:** in `create_turn`, under the user lock, a previous turn still `pending` and older than
+`TURN_PENDING_STALE_SECONDS` is presumed lost (its message never reached a worker): a conditional
+UPDATE (still pending, still old) fails it with the sweeper's message, refunds its `chat_turns`
+use and publishes `failed` on commit, and the new turn proceeds. A worker that claimed it first
+makes it `running`, and `running` always blocks (it may be mid-answer, within its retries); a
+worker that arrives later finds it failed and does nothing.
+**Alternative:** lower `ASK_STUCK_AFTER_SECONDS` (it must outlast a running ask's retries); requeue
+the lost turn instead (two answers could race if the message was only slow, not lost).
+
+### D506. `eval_retrieval --by-kind`'s `n` is the answerable cases (conversation fixes, 2026-10-01)
+
+**Decided:** the `n` column counts the cases its scores average over, the answerable ones; a
+no-answer case in a kind no longer inflates it.
+**Alternative:** show answerable and no-answer counts side by side (wider table, for a case the
+fixtures do not have yet).

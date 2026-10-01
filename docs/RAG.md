@@ -564,7 +564,7 @@ A conversation is a thread of asks (`Conversation`, `AskQuery.conversation` and 
 are sequential, D141). A turn goes through the same task as a plain ask, with extra steps in
 `assistant/conversation.py`:
 
-1. **Condense** (turn 2 onward, `prompts/condense.md`, `condense-v1`). The follow-up and the
+1. **Condense** (turn 2 onward, `prompts/condense.md`, `condense-v2`). The follow-up and the
    newest earlier turns that fit `CHAT_CONDENSE_HISTORY_MAX_CHARS` (2,000) go to the chat provider,
    capped at `CHAT_CONDENSE_MAX_OUTPUT_TOKENS` (512), which rewrites it to stand alone. The
    rewrite is stored in `AskQuery.standalone_question` and is what retrieval searches. The call
@@ -667,7 +667,7 @@ search, the mode asks use:
 | Variant | The query |
 |---|---|
 | `raw` | the follow-up as the user wrote it |
-| `condensed` | what a turn would search: the follow-up as is if the cheap "stands alone" check passes (D221), otherwise the chat provider's rewrite (`conversation.run_condenser`, `condense-v1`), and the follow-up as is again if the condenser fails or returns nothing |
+| `condensed` | what a turn would search: the follow-up as is if the cheap "stands alone" check passes (D221), otherwise the chat provider's rewrite (`conversation.run_condenser`, `condense-v2`), and the follow-up as is again if the condenser fails or returns nothing |
 | `standalone` | the fixture's human rewrite: the upper bound |
 
 It prints how many last turns were condensed, stood alone, or fell back, then recall@k and MRR per

@@ -4,18 +4,23 @@ A turn is an ask (DECISIONS D140), answered by the same task. What a
 conversation adds happens here, before and around retrieval:
 
 1. **History.** The conversation's answered turns before this one that the
-   summary does not already cover, oldest first. Earlier answers lose their
-   ``[n]`` markers: those numbered another turn's excerpts, and this turn's
-   citations number only its own (DECISIONS D223).
+   summary does not already cover, oldest first -- read newest first, and
+   only as far back as a prompt could repeat (DECISIONS D503). Earlier
+   answers lose their citation markers: those numbered another turn's
+   excerpts, and this turn's citations number only its own (DECISIONS D223;
+   only the numbers that turn cited, D504).
 2. **Condense** (turn 2 onward). A follow-up that points back into the
    conversation ("when is it due?") is rewritten by the chat provider into
    a question that stands alone, and that is what is searched. A cheap
    heuristic skips the call when the follow-up already stands alone
    (DECISIONS D221). The call consumes the system-only ``condense`` limit
-   and records its cost on that event (DECISIONS D222). Any failure -- the
-   provider refusing or down, the limit reached, an empty reply -- falls
-   back to searching the follow-up as asked: condensing is an
-   improvement, never a reason to fail a turn.
+   and records its cost on that event (DECISIONS D222); a call the vendor
+   rejected before generating is refunded, an unusable reply it billed is
+   not (D500). Any failure -- the provider refusing or down, the limit
+   reached, an empty reply -- falls back to searching the follow-up as
+   asked: condensing is an improvement, never a reason to fail a turn. A
+   turn condenses at most once: the attempt is marked on the row before the
+   call, so a retry or a redelivery never pays for it again (D501).
 3. **The prompt** (prompts/chat.md): the summary, the newest turns that fit
    CHAT_HISTORY_MAX_CHARS, this turn's excerpts, what is known about the
    user (their memory, assistant/memory.py: context only, never a source,
@@ -34,11 +39,13 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Sum
+from django.db.models.functions import Length
 
 from limits import service as limits
 
 from . import chat
-from .citations import MARKER
+from .citations import MARKER, cited_numbers
 from .models import QUESTION_MAX_CHARS, AskQuery, Conversation
 from .prompt import Excerpt, excerpts_block, load_prompt, neutralise
 
@@ -86,14 +93,20 @@ class TurnContext:
 def prepare(ask: AskQuery) -> TurnContext:
     """History and the question to search for one conversation turn.
 
-    A turn taken up again (a retry, a redelivery) reuses the standalone
-    question it already stored instead of condensing -- and paying -- twice.
+    A turn condenses at most once (DECISIONS D501). Before the call, the
+    question as asked is stored as its standalone question: the mark that
+    the attempt was made. A rewrite replaces it; a fallback (the limit
+    reached, the provider failing, an empty reply) leaves it. A turn taken
+    up again (a retry, a redelivery, even after a crash mid-call) finds a
+    standalone question and searches it instead of condensing -- and paying
+    -- again.
     """
     history = history_for(ask)
     standalone = ask.standalone_question
     if not standalone and history and needs_condensing(ask.question):
-        standalone = condense(ask, history) or ""
-        if standalone:
+        AskQuery.objects.filter(pk=ask.pk).update(standalone_question=ask.question)
+        standalone = condense(ask, history) or ask.question
+        if standalone != ask.question:
             AskQuery.objects.filter(pk=ask.pk).update(standalone_question=standalone)
     return TurnContext(
         search_question=standalone or ask.question,
@@ -105,37 +118,90 @@ def prepare(ask: AskQuery) -> TurnContext:
 # --- History --------------------------------------------------------------
 
 
+# How many turns history_for reads per query, newest first (DECISIONS D503).
+HISTORY_BATCH = 16
+
+
 def history_for(ask: AskQuery) -> list[HistoryTurn]:
     """The answered turns before ``ask`` that the summary does not cover, oldest first.
 
     A failed turn has no answer to repeat and is left out; so is anything
     still unfinished (there is none: turns are sequential).
+
+    Only as many as a prompt can use (DECISIONS D503): read newest first, a
+    few rows at a time, and stopped at the first turn that takes the total
+    past the larger of the two history budgets (the answer's and the
+    condenser's). That turn is kept, so fit_history sees exactly what it
+    would have seen with every turn loaded: it keeps the newest turns that
+    fit, and the newest one even when it alone does not.
     """
-    return _answered_turns(
-        ask.conversation_id, after=ask.conversation.summary_through, before=ask.position
-    )
+    budget = max(settings.CHAT_HISTORY_MAX_CHARS, settings.CHAT_CONDENSE_HISTORY_MAX_CHARS)
+    rows = AskQuery.objects.filter(
+        conversation_id=ask.conversation_id,
+        position__gt=ask.conversation.summary_through,
+        position__lt=ask.position,
+        status=AskQuery.Status.DONE,
+    ).order_by("-position")
+    fields = ("position", "question", "answer", "citations")
+    newest_first: list[HistoryTurn] = []
+    total = 0
+    before = ask.position
+    while True:
+        batch = list(rows.filter(position__lt=before).values_list(*fields)[:HISTORY_BATCH])
+        for row in batch:
+            turn = _history_turn(*row)
+            newest_first.append(turn)
+            total += turn.size
+            if total > budget:
+                return newest_first[::-1]
+        if len(batch) < HISTORY_BATCH:
+            return newest_first[::-1]
+        before = batch[-1][0]
 
 
-def _answered_turns(
-    conversation_id: int, after: int, before: int | None = None
-) -> list[HistoryTurn]:
-    """The conversation's done turns with ``after`` < position < ``before``, oldest first."""
+def _answered_turns(conversation_id: int, after: int) -> list[HistoryTurn]:
+    """The conversation's done turns after position ``after``, oldest first."""
     rows = AskQuery.objects.filter(
         conversation_id=conversation_id, position__gt=after, status=AskQuery.Status.DONE
     )
-    if before is not None:
-        rows = rows.filter(position__lt=before)
     return [
-        HistoryTurn(position=position, question=question, answer=strip_markers(answer))
-        for position, question, answer in rows.order_by("position").values_list(
-            "position", "question", "answer"
+        _history_turn(*row)
+        for row in rows.order_by("position").values_list(
+            "position", "question", "answer", "citations"
         )
     ]
 
 
-def strip_markers(answer: str) -> str:
-    """An earlier answer without its ``[n]`` markers (DECISIONS D223)."""
-    text = MARKER.sub("", answer)
+def _history_turn(position: int, question: str, answer: str, citations: list) -> HistoryTurn:
+    return HistoryTurn(
+        position=position, question=question, answer=strip_markers(answer, cited_in(citations))
+    )
+
+
+def cited_in(citations: list) -> set[int]:
+    """The excerpt numbers an ask's stored ``citations`` hold."""
+    return {
+        citation["n"]
+        for citation in citations or []
+        if isinstance(citation, dict) and isinstance(citation.get("n"), int)
+    }
+
+
+def strip_markers(answer: str, cited: set[int]) -> str:
+    """An earlier answer without its citation markers (DECISIONS D223, D504).
+
+    Only a marker naming a number the turn actually cited (``cited``, from
+    its ``citations``) is a citation; any other bracketed number -- a year
+    (``[2024]``), a list index, a marker pointing at no excerpt -- is the
+    answer's own text and stays.
+    """
+    if not cited:
+        return answer.strip()
+
+    def replace(match: re.Match) -> str:
+        return "" if cited_numbers(match.group(0), cited) else match.group(0)
+
+    text = MARKER.sub(replace, answer)
     text = re.sub(r"[ \t]+([.,;:!?])", r"\1", text)
     text = re.sub(r"[ \t]+\n", "\n", text)
     return re.sub(r"[ \t]{2,}", " ", text).strip()
@@ -210,17 +276,26 @@ def needs_condensing(question: str) -> bool:
     return any(word.split("'")[0] in REFERRING for word in words)
 
 
-def run_condenser(question: str, history: list[HistoryTurn]) -> tuple[str, chat.ChatResult]:
+def _uncitable(text: str) -> str:
+    """``text`` with every marker-shaped ``[n]`` written ``(n)``: the number kept, not citable."""
+    return MARKER.sub(lambda match: "(" + match.group(0)[1:-1] + ")", text)
+
+
+def run_condenser(
+    question: str, history: list[HistoryTurn], summary: str = ""
+) -> tuple[str, chat.ChatResult]:
     """(the follow-up rewritten to stand alone, the provider's result): no bookkeeping.
 
     The part of condensing that needs no ask: it consumes no limit and
     records nothing, so the evaluation (eval_retrieval --conversations) can
     condense fixtures that have no AskQuery. The rewrite is "" when the
-    reply holds nothing usable. Raises chat.ChatError or
-    chat.TransientChatError.
+    reply holds nothing usable. ``summary`` is the conversation's summary of
+    the turns folded out of ``history`` (DECISIONS D502). Raises
+    chat.ChatError (chat.BilledChatError when the reply was generated but
+    unusable) or chat.TransientChatError.
     """
     turns = fit_history(history, settings.CHAT_CONDENSE_HISTORY_MAX_CHARS)
-    system, user = build_condense_messages(question, turns)
+    system, user = build_condense_messages(question, turns, summary)
     result = chat.complete(system, user, max_output_tokens=settings.CHAT_CONDENSE_MAX_OUTPUT_TOKENS)
     return clean_condensed(result.text), result
 
@@ -230,9 +305,12 @@ def condense(ask: AskQuery, history: list[HistoryTurn]) -> str | None:
 
     The ``condense`` use is recorded in its own short transaction before the
     call -- not held open across it -- linked to the turn, with user None
-    (it costs the user nothing, DECISIONS D91). A provider failure refunds
-    it (nothing was billed); a success records provider, model and tokens
-    on it (DECISIONS D222).
+    (it costs the user nothing, DECISIONS D91). A success records provider,
+    model and tokens on it (DECISIONS D222). A failure refunds it only when
+    the vendor rejected the call before generating -- a plain ChatError, or
+    a TransientChatError -- since nothing was billed; an unusable reply the
+    vendor generated (chat.BilledChatError: cut off, refused, empty) stays
+    counted, with whatever cost it reported (DECISIONS D500).
     """
     try:
         with transaction.atomic():
@@ -242,7 +320,11 @@ def condense(ask: AskQuery, history: list[HistoryTurn]) -> str | None:
         return None
 
     try:
-        rewritten, result = run_condenser(ask.question, history)
+        rewritten, result = run_condenser(ask.question, history, ask.conversation.summary)
+    except chat.BilledChatError as exc:
+        logger.warning("Ask %s: condensing failed; searching as asked", ask.pk, exc_info=True)
+        limits.describe_where({"pk": event.pk}, **exc.cost())
+        return None
     except (chat.ChatError, chat.TransientChatError):
         logger.warning("Ask %s: condensing failed; searching as asked", ask.pk, exc_info=True)
         limits.refund(event)
@@ -302,21 +384,34 @@ def summarize_prompt_version() -> str:
     return load_prompt("summarize")[0]
 
 
-def build_condense_messages(question: str, turns: list[HistoryTurn]) -> tuple[str, str]:
-    """(system, user) for condensing one follow-up."""
-    user = history_block(turns) + "\n\n" + _block("follow_up", question)
-    return load_prompt("condense")[1], user
+def build_condense_messages(
+    question: str, turns: list[HistoryTurn], summary: str = ""
+) -> tuple[str, str]:
+    """(system, user) for condensing one follow-up.
+
+    The summary first, when there is one (DECISIONS D502): a follow-up can
+    point at a turn already folded out of the history. Neutralised like the
+    rest, so it can never close its block early.
+    """
+    parts = []
+    if summary.strip():
+        parts.append(_block("summary", summary))
+    parts.append(history_block(turns))
+    parts.append(_block("follow_up", question))
+    return load_prompt("condense")[1], "\n\n".join(parts)
 
 
 def user_facts_block(facts: list[str]) -> str:
     """``<facts>`` with one ``<fact>`` per fact the user's memory holds (DECISIONS D420).
 
-    No ids and no ``[n]`` markers: nothing in the block looks like
-    something to cite. Neutralised like every other part, so a fact can
-    never close the block, or open another, early.
+    No ids, and no ``[n]``: nothing in the block looks like something to
+    cite. A fact never cited anything, so its bracketed numbers are its own
+    text ("[2024]") and are kept, in parentheses (DECISIONS D504).
+    Neutralised like every other part, so a fact can never close the block,
+    or open another, early.
     """
     lines = "".join(
-        f"<fact>{neutralise(' '.join(strip_markers(fact).split()), conversation=True)}</fact>\n"
+        f"<fact>{neutralise(' '.join(_uncitable(fact).split()), conversation=True)}</fact>\n"
         for fact in facts
     )
     return f"<facts>\n{lines}</facts>"
@@ -372,8 +467,12 @@ def build_summarize_messages(summary: str, turns: list[HistoryTurn]) -> tuple[st
 def should_fold(conversation_id: int) -> bool:
     """Whether the turns the summary does not cover outgrow the history budget.
 
-    The same turns, and the same sizes, that the next prompt would repeat
-    (history_for): folding starts when fit_history would begin dropping.
+    The same turns that the next prompt would repeat (history_for), sized
+    in SQL with their markers still in (DECISIONS D503): one aggregate
+    inside the finishing transaction, not every turn's text. The markers
+    make the size a little larger than the prompt's, so this may say yes a
+    turn early; fold() then sizes the turns as the prompt does and folds
+    nothing while they fit.
     """
     through = (
         Conversation.objects.filter(pk=conversation_id, deleted_at__isnull=True)
@@ -382,8 +481,10 @@ def should_fold(conversation_id: int) -> bool:
     )
     if through is None:
         return False
-    turns = _answered_turns(conversation_id, after=through)
-    return sum(turn.size for turn in turns) > settings.CHAT_HISTORY_MAX_CHARS
+    size = AskQuery.objects.filter(
+        conversation_id=conversation_id, position__gt=through, status=AskQuery.Status.DONE
+    ).aggregate(size=Sum(Length("question") + Length("answer")))["size"]
+    return (size or 0) > settings.CHAT_HISTORY_MAX_CHARS
 
 
 def plan_fold(turns: list[HistoryTurn], max_chars: int) -> list[HistoryTurn]:
@@ -427,9 +528,10 @@ def fold(conversation_id: int) -> bool:
     fold actually read (DECISIONS D282).
 
     Anything else leaves the conversation unchanged: the ``summarize_history``
-    limit reached, the provider refusing or down (the use is refunded:
-    nothing was billed), an unusable reply (the call was made: it stays
-    counted). The next finished turn tries again, since the history is still
+    limit reached, the provider rejecting the call or down (the use is
+    refunded: nothing was billed), a reply the vendor generated but that
+    cannot be used -- cut off, refused, empty (it stays counted, with its
+    cost, DECISIONS D500). The next finished turn tries again, since the history is still
     over budget (DECISIONS D284). The conversation's ``updated_at`` is not
     touched: folding is not activity.
     """
@@ -461,6 +563,10 @@ def fold(conversation_id: int) -> bool:
         result = chat.complete(
             system, user, max_output_tokens=settings.CHAT_SUMMARY_MAX_OUTPUT_TOKENS
         )
+    except chat.BilledChatError as exc:
+        logger.warning("Conversation %s: folding failed", conversation_id, exc_info=True)
+        limits.describe_where({"pk": event.pk}, **exc.cost())
+        return False
     except (chat.ChatError, chat.TransientChatError):
         logger.warning("Conversation %s: folding failed", conversation_id, exc_info=True)
         limits.refund(event)

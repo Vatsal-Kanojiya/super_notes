@@ -24,7 +24,7 @@ import base64
 from contextlib import closing
 from urllib.parse import quote
 
-from ..errors import ChatError, TransientChatError
+from ..errors import BilledChatError, ChatError, TransientChatError
 from ..types import ChatResult
 from ._http import api_key, excerpt, post_json, post_stream, status_error
 
@@ -69,17 +69,20 @@ class GeminiProvider:
         return self._answer(data, model)
 
     def _answer(self, data: dict, model: str) -> ChatResult:
-        check_prompt(data)
+        # Past this point the vendor answered: an unusable answer is still
+        # billed (DECISIONS D500).
+        cost = self._cost(data, model)
+        check_prompt(data, **cost)
         candidates = data.get("candidates") or []
         if not candidates:
-            raise ChatError("Gemini returned no answer")
+            raise BilledChatError("Gemini returned no answer", **cost)
         candidate = candidates[0]
-        check_finish_reason(candidate.get("finishReason"))
+        check_finish_reason(candidate.get("finishReason"), **cost)
 
         text = _text(candidate).strip()
         if not text:
-            raise ChatError("Gemini returned no text")
-        return self._result(text, data, model)
+            raise BilledChatError("Gemini returned no text", **cost)
+        return ChatResult(text=text, **cost)
 
     def stream(self, system: str, user: str, model: str, max_output_tokens: int):
         parts = []
@@ -94,7 +97,7 @@ class GeminiProvider:
                 data = event.json("Gemini")
                 if isinstance(data.get("error"), dict):
                     raise stream_error(data["error"])
-                check_prompt(data)
+                check_prompt(data, **self._cost(data, model))
                 for key in ("usageMetadata", "modelVersion"):
                     if key in data:
                         last[key] = data[key]
@@ -112,22 +115,23 @@ class GeminiProvider:
 
         if finish_reason is None:
             raise TransientChatError("Gemini's stream ended before the answer was finished")
-        check_finish_reason(finish_reason)
+        cost = self._cost(last, model)
+        check_finish_reason(finish_reason, **cost)
         text = "".join(parts).strip()
         if not text:
-            raise ChatError("Gemini returned no text")
-        yield self._result(text, last, model)
+            raise BilledChatError("Gemini returned no text", **cost)
+        yield ChatResult(text=text, **cost)
 
-    def _result(self, text: str, data: dict, model: str) -> ChatResult:
+    def _cost(self, data: dict, model: str) -> dict:
+        """Provider, model and tokens of a response: a ChatResult's or a BilledChatError's."""
         usage = data.get("usageMetadata") or {}
-        return ChatResult(
-            text=text,
-            provider=self.name,
-            model=data.get("modelVersion") or model,
-            input_tokens=int(usage.get("promptTokenCount") or 0),
-            output_tokens=int(usage.get("candidatesTokenCount") or 0)
+        return {
+            "provider": self.name,
+            "model": data.get("modelVersion") or model,
+            "input_tokens": int(usage.get("promptTokenCount") or 0),
+            "output_tokens": int(usage.get("candidatesTokenCount") or 0)
             + int(usage.get("thoughtsTokenCount") or 0),
-        )
+        }
 
 
 def _url(template: str, model: str) -> str:
@@ -163,18 +167,20 @@ def _text(candidate: dict) -> str:
     )
 
 
-def check_prompt(data: dict) -> None:
+def check_prompt(data: dict, **cost) -> None:
+    """BilledChatError for a blocked prompt: accepted and read, so counted (D500)."""
     block_reason = (data.get("promptFeedback") or {}).get("blockReason")
     if block_reason:
-        raise ChatError(f"Gemini declined to answer this question ({block_reason})")
+        raise BilledChatError(f"Gemini declined to answer this question ({block_reason})", **cost)
 
 
-def check_finish_reason(finish_reason) -> None:
+def check_finish_reason(finish_reason, **cost) -> None:
+    """BilledChatError unless the answer finished: generated, so billed (D500)."""
     if finish_reason == "MAX_TOKENS":
-        raise ChatError("Gemini's answer was cut off before finishing")
+        raise BilledChatError("Gemini's answer was cut off before finishing", **cost)
     if finish_reason != "STOP":
         # SAFETY, RECITATION, BLOCKLIST, PROHIBITED_CONTENT, SPII, OTHER...
-        raise ChatError(f"Gemini declined to answer this question ({finish_reason})")
+        raise BilledChatError(f"Gemini declined to answer this question ({finish_reason})", **cost)
 
 
 def stream_error(error: dict) -> Exception:

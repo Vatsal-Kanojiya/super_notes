@@ -13,11 +13,12 @@ from collections.abc import Iterator
 
 from django.conf import settings
 
-from .errors import ChatError, ImageTextNotSupported, TransientChatError
+from .errors import BilledChatError, ChatError, ImageTextNotSupported, TransientChatError
 from .registry import get_provider
 from .types import ChatResult
 
 __all__ = [
+    "BilledChatError",
     "ChatError",
     "ChatResult",
     "ImageTextNotSupported",

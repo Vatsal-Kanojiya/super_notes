@@ -650,6 +650,13 @@ ASK_STREAM_RECHECK_SECONDS = env.float("ASK_STREAM_RECHECK_SECONDS", default=10)
 # backoff between them -- 3,015 s. One hour leaves about 10 minutes for
 # queueing behind a backlog, so a slow ask is never failed under a worker.
 ASK_STUCK_AFTER_SECONDS = env.int("ASK_STUCK_AFTER_SECONDS", default=60 * 60)
+# A conversation turn still *pending* -- never claimed by a worker -- this
+# long after it was made is presumed lost (its Celery message never
+# arrived), and the next turn of its conversation fails and refunds it
+# instead of answering 409 for the hour above (DECISIONS D505). A worker
+# claims a turn within seconds; this leaves room for a short backlog. A
+# turn a worker has claimed (running) still blocks.
+TURN_PENDING_STALE_SECONDS = env.int("TURN_PENDING_STALE_SECONDS", default=120)
 
 # Format my note (notes/format_*.py, tasks.py; DECISIONS D240-D249). Uses per month
 # are the `format` limit in LIMIT_DEFAULTS.
