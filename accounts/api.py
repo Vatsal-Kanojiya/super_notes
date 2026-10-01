@@ -13,9 +13,13 @@ refresh into a 401. They share the ``auth`` throttle scope
 accounts/ratelimit.py.
 """
 
+import zoneinfo
+from functools import cache
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import update_last_login
 from django.db import transaction
+from django.db.models import F
 from django.http import Http404
 from django.urls import path
 from django.views.decorators.debug import sensitive_variables
@@ -34,7 +38,7 @@ from assistant import quota
 from assistant.api import AskUsageSerializer
 from config.api.common import RATE_LIMIT_RESPONSE, MessageSerializer
 
-from . import audit, devices, ratelimit
+from . import audit, devices, lifecycle, ratelimit, signals
 from .google import GoogleSignInError, google_signin_enabled, sign_in_with_google
 from .models import SignedInDevice
 
@@ -55,12 +59,71 @@ class MeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "email", "name", "avatar_url", "plan", "date_joined", "ask_usage"]
+        fields = [
+            "id",
+            "email",
+            "name",
+            "avatar_url",
+            "plan",
+            "date_joined",
+            "timezone",
+            "memory_enabled",
+            "memory_choice_explicit",
+            "ask_usage",
+        ]
         read_only_fields = fields
 
     @extend_schema_field(AskUsageSerializer)
     def get_ask_usage(self, user):
         return AskUsageSerializer(quota.usage(user)).data
+
+
+@cache
+def _timezone_names():
+    return frozenset(zoneinfo.available_timezones())
+
+
+class MeUpdateSerializer(serializers.Serializer):
+    """What ``PATCH me/`` accepts. Anything else is ignored."""
+
+    timezone = serializers.CharField(
+        required=False, max_length=64, help_text="An IANA timezone name, e.g. `Asia/Kolkata`."
+    )
+    memory_enabled = serializers.BooleanField(
+        required=False,
+        help_text="Also marks the choice as the user's own (`memory_choice_explicit`).",
+    )
+
+    def validate_timezone(self, value):
+        if value not in _timezone_names():
+            raise serializers.ValidationError("Not a valid IANA timezone name.")
+        return value
+
+
+class SessionOpenSerializer(serializers.Serializer):
+    platform = serializers.ChoiceField(choices=["web", "android"])
+    app_version = serializers.CharField(
+        max_length=64, allow_blank=True, help_text="The client's build id."
+    )
+    reason = serializers.ChoiceField(choices=["launch", "resume"])
+
+
+class NoticeSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=["update", "memory"])
+    required = serializers.BooleanField(
+        required=False, help_text="`update` only: the build is older than `min_supported`."
+    )
+    style = serializers.ChoiceField(
+        choices=["prominent", "subtle"], required=False, help_text="`memory` only."
+    )
+    state = serializers.ChoiceField(
+        choices=["on", "off"], required=False, help_text="`memory` only."
+    )
+
+
+class SessionOpenResponseSerializer(serializers.Serializer):
+    notices = NoticeSerializer(many=True)
+    server_time = serializers.DateTimeField()
 
 
 class TokenPairSerializer(serializers.Serializer):
@@ -115,7 +178,7 @@ class DeviceSerializer(serializers.ModelSerializer):
 DEVICE_CLAIM = "device"
 
 
-def issue_tokens(user, request=None):
+def issue_tokens(user, request=None, created=False):
     """A fresh access/refresh pair, plus the profile a client needs at once.
 
     Every path that signs a device in ends here, so this is where the new
@@ -126,6 +189,7 @@ def issue_tokens(user, request=None):
     device = devices.register(user, str(refresh["jti"]), request)
     refresh[DEVICE_CLAIM] = device.pk
     update_last_login(None, user)
+    signals.send(signals.user_signed_in, user=user, request=request, device=device, created=created)
     return {
         "access": str(refresh.access_token),
         "refresh": str(refresh),
@@ -198,12 +262,12 @@ class GoogleLoginView(PublicView):
         body.is_valid(raise_exception=True)
 
         try:
-            user, _created = sign_in_with_google(body.validated_data["id_token"], request=request)
+            user, created = sign_in_with_google(body.validated_data["id_token"], request=request)
         except GoogleSignInError:
             ratelimit.record_google_login_failure(request)
             return Response(GOOGLE_FAILED, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(issue_tokens(user, request))
+        return Response(issue_tokens(user, request, created=created))
 
 
 class RefreshView(TokenRefreshView):
@@ -315,6 +379,30 @@ class MeView(APIView):
     def get(self, request, *args, **kwargs):
         return Response(MeSerializer(request.user).data)
 
+    @extend_schema(
+        tags=AUTH_TAG,
+        summary="Update your settings",
+        description="`timezone` (an IANA name) and `memory_enabled`. Setting `memory_enabled` "
+        "also records that the user chose it themselves.",
+        request=MeUpdateSerializer,
+        responses={
+            200: MeSerializer,
+            400: OpenApiResponse(description="Invalid timezone."),
+            401: OpenApiResponse(MessageSerializer, description="Not signed in."),
+        },
+    )
+    def patch(self, request, *args, **kwargs):
+        body = MeUpdateSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        changed = dict(body.validated_data)
+        if "memory_enabled" in changed:
+            changed["memory_choice_explicit"] = True
+        if changed:
+            for field, value in changed.items():
+                setattr(request.user, field, value)
+            request.user.save(update_fields=list(changed))
+        return Response(MeSerializer(request.user).data)
+
 
 class DeviceListView(APIView):
     """The devices this account is signed in on."""
@@ -360,6 +448,58 @@ class DeviceDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class SessionOpenView(APIView):
+    """The app-open hook (D90)."""
+
+    @extend_schema(
+        tags=AUTH_TAG,
+        summary="Report an app open",
+        description="Sent when the app launches with a valid session, or resumes after "
+        "5 idle hours (D93). Returns the notices to show: `update` when `app_version` is older "
+        "than the latest build (`required` when older than the minimum supported), and "
+        "`memory` when it is due (first open, then every `MEMORY_NOTICE_EVERY_OPENS` opens "
+        "since it was last seen; confirm with `me/memory-notice/seen/`). A repeat from the "
+        "same device within `APP_OPEN_MIN_INTERVAL_SECONDS` is not counted; notices come "
+        "back either way.",
+        request=SessionOpenSerializer,
+        responses={
+            200: SessionOpenResponseSerializer,
+            400: OpenApiResponse(description="Invalid body."),
+            401: OpenApiResponse(MessageSerializer, description="Not signed in."),
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        body = SessionOpenSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        # The device claim names a row; only the caller's own is honoured.
+        device_id = request.auth.get(DEVICE_CLAIM) if request.auth is not None else None
+        device = lifecycle.device_for(request.user, device_id)
+        notices, server_time = lifecycle.open_app(
+            request.user, device, request=request, **body.validated_data
+        )
+        return Response({"notices": notices, "server_time": server_time})
+
+
+class MemoryNoticeSeenView(APIView):
+    """The client showed the memory notice."""
+
+    @extend_schema(
+        tags=AUTH_TAG,
+        summary="Memory notice seen",
+        description="Restarts the count to the next memory notice (D94).",
+        request=None,
+        responses={
+            204: None,
+            401: OpenApiResponse(MessageSerializer, description="Not signed in."),
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        User.objects.filter(pk=request.user.pk).update(
+            memory_notice_seen_at_open=F("app_open_count")
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 urlpatterns = [
     path("auth/google/", GoogleLoginView.as_view(), name="auth-google"),
     path("auth/refresh/", RefreshView.as_view(), name="auth-refresh"),
@@ -367,4 +507,6 @@ urlpatterns = [
     path("auth/devices/", DeviceListView.as_view(), name="auth-devices"),
     path("auth/devices/<int:pk>/", DeviceDetailView.as_view(), name="auth-device"),
     path("me/", MeView.as_view(), name="me"),
+    path("me/memory-notice/seen/", MemoryNoticeSeenView.as_view(), name="me-memory-notice-seen"),
+    path("session/open/", SessionOpenView.as_view(), name="session-open"),
 ]

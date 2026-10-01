@@ -6,6 +6,23 @@ info:
     with citations. Sign in with `POST /api/v1/auth/google/` and send `Authorization:
     Bearer <access>`.'
 paths:
+  /api/v1/app/version/:
+    get:
+      operationId: app_version_retrieve
+      description: Build ids look like `YYYYMMDDHHMM-<shortsha>` and compare by their
+        timestamp prefix.
+      summary: Client app version
+      tags:
+      - Health
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppVersion'
+          description: ''
   /api/v1/ask/:
     get:
       operationId: ask_list
@@ -372,6 +389,59 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Not signed in.
+    patch:
+      operationId: me_partial_update
+      description: '`timezone` (an IANA name) and `memory_enabled`. Setting `memory_enabled`
+        also records that the user chose it themselves.'
+      summary: Update your settings
+      tags:
+      - Account
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMeUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMeUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMeUpdateRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+          description: ''
+        '400':
+          description: Invalid timezone.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+  /api/v1/me/memory-notice/seen/:
+    post:
+      operationId: me_memory_notice_seen_create
+      description: Restarts the count to the next memory notice (D94).
+      summary: Memory notice seen
+      tags:
+      - Account
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
   /api/v1/notes/:
     get:
       operationId: notes_list
@@ -608,8 +678,60 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Too many, too recently.
+  /api/v1/session/open/:
+    post:
+      operationId: session_open_create
+      description: 'Sent when the app launches with a valid session, or resumes after
+        5 idle hours (D93). Returns the notices to show: `update` when `app_version`
+        is older than the latest build (`required` when older than the minimum supported),
+        and `memory` when it is due (first open, then every `MEMORY_NOTICE_EVERY_OPENS`
+        opens since it was last seen; confirm with `me/memory-notice/seen/`). A repeat
+        from the same device within `APP_OPEN_MIN_INTERVAL_SECONDS` is not counted;
+        notices come back either way.'
+      summary: Report an app open
+      tags:
+      - Account
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionOpenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SessionOpenRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SessionOpenRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionOpenResponse'
+          description: ''
+        '400':
+          description: Invalid body.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
 components:
   schemas:
+    AppVersion:
+      type: object
+      properties:
+        latest:
+          type: string
+        min_supported:
+          type: string
+      required:
+      - latest
+      - min_supported
     AskCreateRequest:
       type: object
       properties:
@@ -758,6 +880,14 @@ components:
           type: string
       required:
       - status
+    KindEnum:
+      enum:
+      - update
+      - memory
+      type: string
+      description: |-
+        * `update` - update
+        * `memory` - memory
     Me:
       type: object
       description: The signed-in account, as a client shows it.
@@ -784,6 +914,15 @@ components:
           type: string
           format: date-time
           readOnly: true
+        timezone:
+          type: string
+          readOnly: true
+        memory_enabled:
+          type: boolean
+          readOnly: true
+        memory_choice_explicit:
+          type: boolean
+          readOnly: true
         ask_usage:
           allOf:
           - $ref: '#/components/schemas/AskUsage'
@@ -795,8 +934,11 @@ components:
       - date_joined
       - email
       - id
+      - memory_choice_explicit
+      - memory_enabled
       - name
       - plan
+      - timezone
     Message:
       type: object
       description: 'A plain answer: what happened, and a stable code a client can
@@ -927,6 +1069,32 @@ components:
       - type
       - updated_at
       - version
+    Notice:
+      type: object
+      properties:
+        kind:
+          $ref: '#/components/schemas/KindEnum'
+        required:
+          type: boolean
+          description: '`update` only: the build is older than `min_supported`.'
+        style:
+          allOf:
+          - $ref: '#/components/schemas/StyleEnum'
+          description: |-
+            `memory` only.
+
+            * `prominent` - prominent
+            * `subtle` - subtle
+        state:
+          allOf:
+          - $ref: '#/components/schemas/StateEnum'
+          description: |-
+            `memory` only.
+
+            * `on` - on
+            * `off` - off
+      required:
+      - kind
     PaginatedAskQueryList:
       type: object
       required:
@@ -965,6 +1133,18 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Note'
+    PatchedMeUpdateRequest:
+      type: object
+      description: What ``PATCH me/`` accepts. Anything else is ignored.
+      properties:
+        timezone:
+          type: string
+          minLength: 1
+          description: An IANA timezone name, e.g. `Asia/Kolkata`.
+          maxLength: 64
+        memory_enabled:
+          type: boolean
+          description: Also marks the choice as the user's own (`memory_choice_explicit`).
     PatchedNoteUpdateRequest:
       type: object
       description: 'PATCH: the version the client edited, plus whatever it changed.'
@@ -987,6 +1167,14 @@ components:
       description: |-
         * `free` - Free
         * `premium` - Premium
+    PlatformEnum:
+      enum:
+      - web
+      - android
+      type: string
+      description: |-
+        * `web` - web
+        * `android` - android
     QuotaExceeded:
       type: object
       description: 'A plain answer: what happened, and a stable code a client can
@@ -1010,6 +1198,14 @@ components:
       - limit
       - resets_at
       - used
+    ReasonEnum:
+      enum:
+      - launch
+      - resume
+      type: string
+      description: |-
+        * `launch` - launch
+        * `resume` - resume
     RefreshRequest:
       type: object
       properties:
@@ -1075,6 +1271,42 @@ components:
       - snippet
       - text
       - title
+    SessionOpenRequest:
+      type: object
+      properties:
+        platform:
+          $ref: '#/components/schemas/PlatformEnum'
+        app_version:
+          type: string
+          description: The client's build id.
+          maxLength: 64
+        reason:
+          $ref: '#/components/schemas/ReasonEnum'
+      required:
+      - app_version
+      - platform
+      - reason
+    SessionOpenResponse:
+      type: object
+      properties:
+        notices:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notice'
+        server_time:
+          type: string
+          format: date-time
+      required:
+      - notices
+      - server_time
+    StateEnum:
+      enum:
+      - 'on'
+      - 'off'
+      type: string
+      description: |-
+        * `on` - on
+        * `off` - off
     StatusEnum:
       enum:
       - pending
@@ -1087,6 +1319,14 @@ components:
         * `running` - Running
         * `done` - Done
         * `failed` - Failed
+    StyleEnum:
+      enum:
+      - prominent
+      - subtle
+      type: string
+      description: |-
+        * `prominent` - prominent
+        * `subtle` - subtle
     TokenPair:
       type: object
       properties:

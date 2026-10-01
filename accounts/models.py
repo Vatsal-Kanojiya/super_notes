@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
-from django.utils import timezone
+from django.utils import timezone as dj_timezone
 
 
 class UserManager(BaseUserManager):
@@ -58,9 +58,21 @@ class User(AbstractBaseUser, PermissionsMixin):
     plan = models.CharField(max_length=10, choices=Plan.choices, default=Plan.FREE)
     notes_revision = models.BigIntegerField(default=0)
 
+    # Lifecycle (D88, D90, D94). ``timezone`` is an IANA name, validated where
+    # it is written (accounts/api.py).
+    timezone = models.CharField(max_length=64, default="Asia/Kolkata")
+    memory_enabled = models.BooleanField(default=True)
+    # True once the user has set ``memory_enabled`` themselves (D88): it picks
+    # the prominent or the subtle memory notice.
+    memory_choice_explicit = models.BooleanField(default=False)
+    # App opens counted so far, and the count when the user last saw the
+    # memory notice: the notice is due every MEMORY_NOTICE_EVERY_OPENS opens.
+    app_open_count = models.PositiveIntegerField(default=0)
+    memory_notice_seen_at_open = models.PositiveIntegerField(null=True, blank=True)
+
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
-    date_joined = models.DateTimeField(default=timezone.now)
+    date_joined = models.DateTimeField(default=dj_timezone.now)
 
     objects = UserManager()
 
@@ -146,13 +158,16 @@ class SignedInDevice(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="signed_in_devices"
     )
     refresh_jti = models.CharField(max_length=255, db_index=True)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=dj_timezone.now)
     # Moved on every refresh, so "oldest" means least recently used, not
     # first signed in: a phone used every day outlives a laptop left idle.
-    last_seen_at = models.DateTimeField(default=timezone.now)
+    last_seen_at = models.DateTimeField(default=dj_timezone.now)
     # The User-Agent, truncated: enough for a person to tell their phone
     # from their laptop. Untrusted text -- a client must escape it.
     label = models.CharField(max_length=200, blank=True)
+    # When this device's last *counted* app open was (D90, D93): the per-device
+    # throttle on ``app_opened`` reads it. Null: never opened.
+    last_app_open_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         # The foreign key's own index covers "this user's devices".

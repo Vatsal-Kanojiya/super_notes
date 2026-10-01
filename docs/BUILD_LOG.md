@@ -290,3 +290,18 @@ and the session-only stand-in on port 5433 is gone. One snag: copying the instal
 chat picked up a trailing full stop (`postgresql-16-pgvector.`), which apt reads as part of the
 package name.
 
+
+### V2 0e — lifecycle
+
+`v2-feat/0e-lifecycle` (D88-D90, D93, D94, D105-D111). `User` gained `timezone`, `memory_enabled`,
+`memory_choice_explicit`, `app_open_count` and `memory_notice_seen_at_open`; `PATCH me/` sets the
+first two (timezone checked against IANA names; a `memory_enabled` write marks the choice as the
+user's own). Two signals in `accounts/signals.py`, sent with `send_robust`: `user_signed_in` from
+`issue_tokens` on every Google sign-in, `app_opened` from `POST session/open/`. `GET app/version/`
+is public and unthrottled; `X-Client-Min-Version` rides on every `/api/` response and CORS exposes
+it. `session/open/` counts an open per device (throttled by `SignedInDevice.last_app_open_at`,
+default 300 s, race-safe), returns the update notice and the D88 memory notice (prominent / subtle,
+on / off), due on the first open and every 5 opens after the user last saw it;
+`me/memory-notice/seen/` records that. A device id from another account's token is ignored. New
+settings `CLIENT_LATEST_VERSION`, `CLIENT_MIN_VERSION`, `MEMORY_NOTICE_EVERY_OPENS`,
+`APP_OPEN_MIN_INTERVAL_SECONDS`.
