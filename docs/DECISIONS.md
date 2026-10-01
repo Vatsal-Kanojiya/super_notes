@@ -1805,3 +1805,1465 @@ the notice directly in the lifecycle store (would bypass those guards).
 launch only when the user is still on the server default `Asia/Kolkata` and the browser's zone
 differs; the page shows the zone but has no picker yet. **Alternative:** a Save button; a timezone
 picker (not asked for, and a long list to get right).
+
+### D240. A `FormatJob` points at its usage event; `limits` is untouched (4-format, 2026-10-01)
+
+**Decided:** `FormatJob.usage_event` (FK to `limits.UsageEvent`, SET_NULL) is set from what
+`limits.consume(user, "format")` returns. The task refunds with `refund_where(pk=<that event>)` and
+records provider/model/tokens on it with `describe_where`. Nothing in `limits/` changed, so no
+migration there and no clash with the other branches that touch the ledger. The key is `format`
+(the ledger has `key`, not the plan's `kind`). **Alternative:** a `format_job` FK on `UsageEvent`
+plus `"format_job"` in `META_FIELDS` (symmetrical with `ask`, but a `limits` migration that every
+parallel branch adding its own FK would conflict on).
+
+### D241. There is no apply endpoint: apply is `PATCH notes/<id>/` with `version = base_version` (4-format)
+
+**Decided:** as the brief says, the server never writes a note from a job. A stale `base_version`
+is the ordinary `409 version_conflict` of V1; a test covers the whole path (POST, poll, PATCH) and
+the stale case. **Alternative:** `POST format-jobs/<id>/apply/` (a second write path through the
+service, with its own conflict body).
+
+### D242. A failed job has `error_code` and a user-safe `error`; every unusable result is `format_changed_content` (4-format)
+
+**Decided:** `FormatJob.error_code` (for programs) beside `error` (for people). Codes:
+`format_changed_content` (the guardrail refused, which includes output that is not JSON or not a
+document, since the brief says a result failing the validator fails with it), `format_failed`
+(provider refused), `format_busy` (transient errors exhausted), `format_unexpected`,
+`format_stuck` (the sweeper), `format_note_changed`, `format_note_gone`. All are refunded.
+**Alternative:** `error` holding the code only (the client would need the English map).
+
+### D243. The guardrail: words kept >= 0.9, words from the original >= 0.8, numbers identical, no new month/weekday, same ticked count (4-format)
+
+**Decided:** `notes/format_guard.py::check_format`, pure. Words are lower-cased letter runs of
+`content_to_text` with list/quote markers stripped (so a numbered list adds no "1.", "2.").
+(1) Numbers (digit runs with `.,:/-`) must be the same multiset: a changed, added, dropped or
+re-punctuated amount or date fails. (2) No month or weekday name the original lacks (`may` and the
+ambiguous short forms excluded). (3) The number of ticked checklist items is unchanged. (4) Recall
+of the original's distinct words >= `FORMAT_MIN_WORDS_KEPT` (0.9, the brief's example). (5)
+Precision, the share of the result's words found in the original >= `FORMAT_MIN_WORDS_ORIGINAL`
+(0.8), so a heading or a few words may be added but a new paragraph of prose may not. A word
+pair that is a near spelling (difflib >= 0.8, 4+ letters) counts as a typo fix for (4) and (5).
+**Alternative:** recall only, as the brief literally says (lets a model append invented prose to a
+long note); stricter number handling that tolerates `4500` -> `4,500` (refused here: reformatting
+is not worth a risk of changing an amount; the prompt forbids it). Both thresholds are settings
+and need tuning on real notes.
+
+### D244. The task refuses to run on a note that has moved past `base_version`; refunded (4-format)
+
+**Decided:** if `note.version != job.base_version` when the task starts, the job fails with
+`format_note_changed` without a provider call, because an apply at `base_version` would 409 anyway
+and the model would be formatting text the person no longer has. A deleted note fails with
+`format_note_gone`. **Alternative:** format the current content and move `base_version` forward
+(works during typing, but the client's `base_version` changes under it after the 202).
+
+### D245. An empty note or one over `FORMAT_MAX_INPUT_CHARS` (24,000) is a 400 that uses nothing (4-format)
+
+**Decided:** `note_empty` and `note_too_long`, checked under the lock before `consume`. The result
+is the whole document as JSON, so a long note would be cut off at the output ceiling and fail
+after being paid for. **Alternative:** format long notes in chunks (a different feature: chunk
+borders break lists and the guardrail's whole-note comparison).
+
+### D246. `complete()` takes an optional `max_output_tokens`; formats use `FORMAT_MAX_OUTPUT_TOKENS` (16,384) (4-format)
+
+**Decided:** one backward-compatible keyword on `assistant.chat.complete`. `CHAT_MAX_OUTPUT_TOKENS`
+(2,048) suits a few cited sentences, not a rewritten document, and a cut-off answer is a `ChatError`
+(D54). **Alternative:** raise the global ceiling (every ask would be allowed 8x the output).
+
+### D247. The fake provider "formats" by turning a lone first paragraph into a heading (4-format)
+
+**Decided:** for a user message that starts with `<note>`, the fake returns the document as JSON
+with its first paragraph made a level-2 heading when the note has no heading and 2+ blocks;
+otherwise the document unchanged. Deterministic, visible in a poll, and keeps every word so the
+guardrail passes. Tests that are about what a model said mock `complete` with canned output.
+**Alternative:** an identity echo (an end-to-end test could not tell a format happened).
+
+### D248. The note travels as compact JSON in `<note>` tags with `<note` escaped as `<` (4-format)
+
+**Decided:** `notes/format_prompt.py::document_json`. An opening or closing `note` tag inside the
+note's text is written as the JSON escape `<`: identical to a JSON reader, inert as a
+delimiter. Rules live in `notes/prompts/format.md` (`version: format-v1`), stored per job.
+**Alternative:** HTML-escaping the whole JSON (changes every quote and `&` the model must undo).
+
+### D249. Format jobs get their own throttle scope, sweeper and stuck age (4-format)
+
+**Decided:** `POST notes/<id>/format/` uses throttle scope `format` (`API_FORMAT_THROTTLE`,
+30/hour; the limit is the real cap, the throttle stops a runaway script). `sweep_stuck_format_jobs`
+(beat every 5 minutes) fails jobs unfinished after `FORMAT_STUCK_AFTER_SECONDS` (1 hour, the same
+retry budget as asks, D78) and refunds them. Finished jobs and their `proposed_content` are kept
+(no retention purge yet). **Alternative:** share the `ask` throttle scope and `ASK_STUCK_AFTER_SECONDS`.
+
+### D140. A conversation turn is an `AskQuery` with `conversation` and `position` (1, 2026-10-01)
+
+**Decided:** `Conversation` (user, title, `summary`, `summary_through`, timestamps, `deleted_at`)
+holds no answers; each turn is an `AskQuery` with a nullable `conversation` FK, a `position` from 1
+and a blank `standalone_question` (filled by sub-task 2). Unique `(conversation, position)`, and a
+check constraint that both are set or neither (a plain `POST ask/`). `AskQuerySerializer` gains
+`conversation` and `position` (null for a plain ask); `standalone_question` is not exposed yet.
+A turn is polled at `GET ask/<id>/`. **Alternative:** a separate Turn model (plan D78 rejects a
+second job model).
+
+### D141. Turns are sequential, checked under the user's row lock (1, 2026-10-01)
+
+**Decided:** `create_turn` takes the same user lock as `create_ask`, then (in order) re-reads the
+conversation (deleted → 404), replays the idempotency key, refuses with `TurnInProgress` (409
+`turn_in_progress`, body names the unfinished `turn`) if any turn is pending/running, then creates
+position `max + 1` and consumes `chat_turns`. A replay comes before the 409, so retrying the turn
+that is running returns it (200). A failed turn does not block the next one. The unique
+`(conversation, position)` is the second guard: without the lock, a race ends in an
+IntegrityError, not a second turn (tested). **Alternative:** a per-conversation row lock (finer,
+but every ask and turn already takes the user lock for the quota, so it would add a lock without
+adding concurrency).
+
+### D142. An idempotency key replays only the same question in the same place (1, 2026-10-01)
+
+**Decided:** keys stay unique per user across asks and turns. A key replays only when both the
+question and the conversation (none, for `POST ask/`) match; a turn's key sent to `POST ask/`, or
+to another conversation, is 422 `idempotency_key_reused` (its text is unchanged: "already used
+for a different question"). **Alternative:** replay by key alone (would hand back a turn of another conversation as if it
+were this request).
+
+### D143. `POST conversations/` takes an optional first question; then it needs a key (1, 2026-10-01)
+
+**Decided:** without `question`, an empty conversation (201, no key, no quota). With one, turn 1
+is asked in the same transaction and `Idempotency-Key` is required; a replay returns the same
+conversation (200). A key that made a plain ask, a later turn, or a turn of a since-deleted
+conversation is 422. A refused first turn (429/503) leaves no conversation. Response is the
+conversation with its turns. **Alternative:** always require a key (an empty conversation costs
+nothing, and a duplicate empty one is harmless).
+
+### D144. The title comes from the first question; a rename does not reorder the list (1, 2026-10-01)
+
+**Decided:** the first turn sets `title` (the question on one line, cut at a word near 80
+characters, with "…") only if the title is still blank, so a rename made before it is kept.
+`updated_at` is moved by each new turn (explicitly, in the same transaction), not by a rename or a
+delete (both use `update()`, skipping `auto_now`). PATCH accepts only `title` (1-200, stripped,
+not blank); PUT is 405. **Alternative:** `auto_now` on every save (a rename would jump to the top).
+
+### D145. Deleting a conversation hides it and its turns everywhere; usage stays (1, 2026-10-01)
+
+**Decided:** soft delete (`deleted_at`) under the user lock, so a turn racing the delete either
+commits first and is hidden or gets a 404. A deleted conversation is 404 on every endpoint, and
+its turns drop out of `GET ask/` and `GET ask/<id>/` (filter `conversation__deleted_at__isnull`,
+a LEFT JOIN that keeps plain asks). Live conversations' turns stay in `GET ask/`. Usage events
+are untouched, so the month's count does not change. A turn already running finishes unseen.
+**Alternative:** keep a deleted conversation's turns visible in `ask/` (contradicts "hides its
+turns from history"); exclude every turn from `ask/` (a breaking change for no gain).
+
+### D146. `GET conversations/` pages by `(-updated_at, -id)` (1, 2026-10-01)
+
+**Decided:** a `CursorPagination` on `-updated_at` with `-id` as tie-break, despite the project
+pager's warning about moving fields. `updated_at` only moves up (a new turn), so paging never
+shows a conversation twice; one that gets a turn mid-paging is missed on that pass and is at the
+top of the next page-one fetch. **Alternative:** `-id` (stable, but not the "recent first" order
+the chat list needs).
+
+### D220. A conversation turn uses the chat prompt from turn 1, with the question as asked (2, 2026-10-01)
+
+**Decided:** every turn of a conversation is answered with `prompts/chat.md` (`chat-v1`, stored in
+`prompt_version`), turn 1 included (it simply has no history); a plain `POST ask/` keeps
+`ask-v1`. The user message is `<summary>` (if any), `<history>`, this turn's `<excerpts>`, then
+`<question>` holding the follow-up **as the user wrote it**: the model has the history to read it
+by, and the standalone rewrite is only for retrieval. The relevance floor applies to turns
+unchanged. **Alternative:** `ask-v1` for turn 1 (two prompts for one thread); the standalone
+question in `<question>` (a bad rewrite would then change what is answered, not only what is
+searched).
+
+### D221. The "already stands alone" heuristic: no pointing word, no continuation, four words, ASCII (2, 2026-10-01)
+
+**Decided:** `needs_condensing` sends a follow-up to the condenser if it has a word that points
+back (`it, its, they, them, their, this, that, these, those, he, him, his, she, her, there, one,
+ones, same, former, latter, else`…), opens with a continuation (`and, but, or, also, only, so,
+then, too`, "what about", "how about"), has fewer than four words, or has any non-ASCII letter (the
+word lists are English; anything else is always condensed). Over-inclusive on purpose: a false
+positive costs one cheap call that returns the question unchanged; a false negative searches
+"when is it due?" as is. Measured on the 17 multi-turn fixtures: all 12 follow-ups that need
+context are condensed, the 3 topic shifts and 2 no-answer follow-ups are not (a test pins this).
+**Alternative:** always condense (one extra call per turn, and a chance for a real model to drag
+the old topic into a shift).
+
+### D222. A condense call is a `condense` event with user None, linked to the turn; refunds and cost stay per key (2, 2026-10-01)
+
+**Decided:** before the provider call, `limits.consume(None, "condense", ask=turn)` in its own
+short transaction (the advisory lock is not held across the HTTP call). A provider error refunds
+it (nothing was billed); a reply records provider, model and tokens on it with `describe_where`.
+Because the event is linked to the turn, the task's `_finish` (D133), `_fail` (D102) and the
+sweeper now act on `key="chat_turns"` only: the answer's cost no longer lands on the condense
+event, and a turn that fails after condensing refunds its chat turn but not the condense call
+that was made. **Alternative:** the event under the user (attributable, but the brief and D91 say
+user None; the turn link gives the user anyway); no `ask` link (loses which turn it served).
+
+### D223. Earlier answers are repeated without their `[n]` markers (2, 2026-10-01)
+
+**Decided:** in the history (chat and condense prompts) an earlier answer has its citation markers
+removed (the `citations.MARKER` pattern), with the space before punctuation tidied. Those numbers
+referred to that turn's excerpts; left in, they invite the model to cite `[1]` meaning an old
+excerpt, while this turn's citations number only this turn's excerpts. **Alternative:** keep them
+(verbatim, but a source of wrong citations).
+
+### D224. History is trimmed by characters, newest whole turns, no gaps (2, 2026-10-01)
+
+**Decided:** the history is the conversation's `done` turns before this one with position after
+`summary_through` (failed turns have no answer and are skipped). `fit_history` keeps whole turns
+(question + answer characters) from the newest back while they fit `CHAT_HISTORY_MAX_CHARS`
+(6,000, ≈1,500 tokens) and stops at the first that does not, so there is never a gap. The newest
+turn is always kept, its answer cut at a word to the room left. Condensing uses the same function
+with `CHAT_CONDENSE_HISTORY_MAX_CHARS` (2,000) and no summary. The summary itself is included
+whole (sub-task 3 bounds what it writes). **Alternative:** a fixed number of turns (a long answer
+would blow the prompt); skipping an overflowing turn to fit an older one (a history with a hole).
+
+### D225. The fake condenser replaces the first pointing word with the previous question's content words (2, 2026-10-01)
+
+**Decided:** the fake provider recognises a condense call by `<follow_up>` and replaces the
+follow-up's first `it, its, them, they, their, this, that, these, those, one, ones` with the
+previous turn's question minus stop words ("How often do I have to take it?" after "What did
+Dr. Kulkarni say about my vitamin D?" → "How often do I have to take Dr Kulkarni say vitamin D?").
+No such word → the follow-up unchanged. Crude, but deterministic, and it moves retrieval the way a
+real condenser should, so tests can show a pronoun follow-up finding the right note and a shift
+not picking up the old topic. **Alternative:** prepend the previous question's keywords always
+(would drag every topic shift).
+
+### D226. Condensing never fails a turn; the rewrite is stored whenever the condenser gave one (2, 2026-10-01)
+
+**Decided:** `ChatError`, `TransientChatError` (not retried: the turn is not worth a minute of
+backoff for a better search), `SystemLimitExceeded` on `condense`, and an empty reply all log a
+warning and search the follow-up as asked; `standalone_question` stays blank. A usable reply is
+cleaned (first line, a "Question:" label and quotes removed, cut to 1,000 characters) and stored,
+even when it equals the follow-up, before retrieval; a turn taken up again (retry, redelivery)
+reuses it instead of condensing and paying twice. A bug in a provider (any other exception) still
+fails the turn, as it would the answer. **Alternative:** retry transient condense errors with the
+task (spends the turn's retries on an optional step).
+
+### D227. `chat.complete` takes an optional `max_output_tokens`; condensing gets 512 (2, 2026-10-01)
+
+**Decided:** `complete(system, user, max_output_tokens=None)` defaults to `CHAT_MAX_OUTPUT_TOKENS`;
+the condenser passes `CHAT_CONDENSE_MAX_OUTPUT_TOKENS` (512). A question needs a few dozen tokens,
+but OpenAI's reasoning tokens count against the ceiling, and a reply cut off by it is a
+`ChatError` (D54), which would make every condense fall back. **Alternative:** the shared 2,048
+ceiling (no cap on a runaway rewrite); a second entry point (`condense()` in the chat package).
+
+### D124. A reminder write stamps its note's revision; `changes` sends the note with all its reminders (5, 2026-10-02)
+
+**Decided:** create, change, done and delete of a reminder take the owner lock and the next
+`notes_revision`, and set it on the note with a queryset update — the note's `version` and
+`updated_at` are untouched and nothing is re-indexed (its content did not change, so an open editor
+must not conflict). A live note in `changes` carries `reminders`: every non-deleted reminder of the
+note, any status, so the client replaces the note's set. Tombstones carry none. Deleting a note
+turns its `scheduled` reminders `cancelled` in the same transaction; `done` stays `done`.
+**Alternative:** a separate `revision` per reminder and a `reminders` list beside `results` (a
+second stream for the client to page and merge, for no gain while reminders belong to one note).
+
+### D125. Skipped and repeated local times in the schedule (5, 2026-10-02)
+
+**Decided:** `occurrences()` builds each heads-up from the due time's wall-clock time with
+`fold=0`: a time skipped by a spring change lands just after it (01:30 → 02:30 BST), a repeated
+autumn time is its first instance. The due-day occurrence is always `due_at` itself. **Alternative:**
+drop a heads-up whose local time does not exist (one fewer notification that week, silently).
+
+### D126. Reminder date-times must carry an offset, and a new `due_at` must be in the future (5, 2026-10-02)
+
+**Decided:** `due_at`, `from` and `to` without an offset are 400, not read in the server's zone.
+`due_at` in the past is 400 on create and on change (delivery would otherwise fire a stale
+notification at once). `channels` needs at least one of `email`, `push`; duplicates are dropped.
+**Alternative:** accept naive times in the user's timezone (a guess about what the client meant);
+allow past due dates as calendar records.
+
+### D127. Changing a reminder never changes its status (5, 2026-10-02)
+
+**Decided:** `PATCH reminders/<id>/` changes `due_at`, `lead_days`, `channels` only; a done reminder
+moved to a new date stays done. "Done" twice is a no-op that takes no revision. **Alternative:** a
+new `due_at` reopens the series (a product call — parked with D95's snooze/stop refinements).
+
+### D128. At most 20 live reminders per note (5, 2026-10-02)
+
+**Decided:** `REMINDERS_PER_NOTE_MAX = 20` in notes/services.py, counted under the owner lock;
+deleted reminders don't count; past it, 400 `too_many_reminders`. **Alternative:** no cap (the
+calendar query and the delivery sweep would be unbounded per note); a Limit row (the limits layer
+is for AI usage).
+
+### D129. The calendar returns `{reminder, note_title, occurrences}` items (5, 2026-10-02)
+
+**Decided:** `GET reminders/?from=&to=` (half-open, ≤ 62 days) returns `{"results": [...]}`, each
+item nesting the reminder rather than flattening it, unpaginated. Done reminders are listed;
+deleted ones and those of deleted notes are not. Nested so `status` lives in one schema component:
+a second component with a reminder `status` makes drf-spectacular's enum naming collide with the
+asks' `status` and the schema check fail. The asks' enum is now `AskQueryStatusEnum` (was
+`StatusEnum`; nothing referenced the name). **Alternative:** a flat item plus an
+`ENUM_NAME_OVERRIDES` entry in config/settings.py (outside this sub-task's files).
+
+### D134. A reminder occurrence is claimed by `INSERT ... ON CONFLICT DO NOTHING RETURNING id` (5, 2026-10-02)
+
+**Decided:** the minute sweep (`notes/delivery.py`, beat entry `deliver-due-reminders`, 60 s,
+`expires` 55 s) reads scheduled live reminders with `due_at` in `[now − grace, now + 31 days]`
+(the `(status, due_at)` index) and the last delivered occurrence of each, works out the due
+occurrence in Python (the schedule depends on each owner's timezone), and inserts its
+`ReminderDelivery`. A returned id means this sweep won: it enqueues the send on commit. Each claim is
+its own transaction, so a later failure in the sweep never re-opens claims whose sends are queued.
+A test holds two sweeps at a barrier after they read their candidates. With the unique constraint,
+one claim succeeds. With it dropped, both do. **Alternative:** catching `IntegrityError` in a
+savepoint per claim (Postgres logs an error for every lost race); `SELECT ... FOR UPDATE SKIP
+LOCKED` on reminders (guards one sweep, not a resend by a later one).
+
+### D135. Which occurrence is due: the latest passed one, after the last delivered and the last change (5, 2026-10-02)
+
+**Decided:** due now = the latest occurrence `≤ now` that is later than the last delivered one and
+not before the reminder's `updated_at`. After an outage only the latest missed heads-up goes out. A
+reminder created or moved after that day's time has passed does not fire a heads-up at once; the
+next one is tomorrow's. **Alternative:** replay every missed occurrence (a burst of stale mail), or
+send the passed heads-up on creation (a notification for something the user just did).
+
+### D136. An occurrence missed by more than 24 hours is not sent (5, 2026-10-02)
+
+**Decided:** `REMINDER_MISSED_GRACE_HOURS` (env, default 24). It also bounds the sweep: a reminder
+due more than that long ago is no longer read. **Alternative:** no limit (after a long outage, a
+"due now" mail days late; and every past reminder rescanned each minute for ever).
+
+### D137. At most once also at send time; a failed send is recorded, not retried (5, 2026-10-02)
+
+**Decided:** the send task first sets `sent_at` with `UPDATE ... WHERE sent_at IS NULL`. If no row
+changes, another run already has it (Celery's `acks_late` can hand a task out twice). Then it
+re-checks the reminder (scheduled, not deleted, note live: `{"skipped": "inactive"}` if not), sends
+each channel and records `channel_results` (`sent`, `failed`, `no_address`). No retries. A worker
+dying mid-send, or an SMTP error, loses that one notification; the next day's still comes.
+**Alternative:** retry transient mail errors (risks duplicates, which the plan rules out); set
+`sent_at` after sending (a redelivered task would send again).
+
+### D138. The reminder email: title, due date, relative day and a link, plain text, never the note body (5, 2026-10-02)
+
+**Decided:** subject `Reminder: <title> (due in N days | due tomorrow | due now)`. The title is put
+on one line (a newline in a subject is header injection), cut to 100 characters, and "Untitled
+note" when empty. The body has the title, `Due Tue 27 Oct 2026, 09:00 GMT.` in the owner's
+timezone, `<WEB_APP_URL>/notes/<id>` and one line on how to stop it. It is sent from
+`DEFAULT_FROM_EMAIL` (defaults to `SERVER_EMAIL`). **Alternative:** HTML mail (templates to
+maintain, for three lines); including an excerpt (note text leaving the app by email).
+
+### D139. New settings `WEB_APP_URL` and `DEFAULT_FROM_EMAIL`; push is recorded `unavailable` until it exists (5, 2026-10-02)
+
+**Decided:** `WEB_APP_URL` (default `http://localhost:5173`) is where mail links point; the deploy
+sets it with the hosting discussion. Until sub-task 3 adds push, a reminder with the `push`
+channel records `"push": "unavailable"` and sends its email as usual. **Alternative:** build links
+from the API host (the web client is served elsewhere in dev).
+*Note: D172 supersedes the push line above; push now sends when VAPID keys are set.*
+
+### D170. Web push: pywebpush, VAPID keys from env, on only when both keys are set (5, 2026-10-02)
+
+**Decided:** `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (URL-safe base64 raw keys, as
+`manage.py generate_vapid_keys` prints them) and `VAPID_SUBJECT` (default `mailto:<SERVER_EMAIL>`).
+Push is "on" when both keys are non-empty (`accounts/push.py: push_enabled`). Off: `GET
+push/vapid-key/` and `POST me/push-subscriptions/` are 404 and a reminder's `push` channel records
+`"push": "unavailable"`; `DELETE` still works so a client can clean up. **Alternative:** a separate
+`PUSH_ENABLED` flag (a second switch that can disagree with the keys).
+
+### D171. `PushSubscription`: endpoint unique across users, a re-register moves it (5, 2026-10-02)
+
+**Decided:** `accounts.PushSubscription` (`user`, unique `endpoint`, `p256dh`, `auth`, `user_agent`
+truncated to 200, `created_at`, `last_success_at`). `POST me/push-subscriptions/` is an
+`update_or_create` by endpoint, so a different account signing in on the same browser profile takes
+the row over; the old account stops getting pushes on that browser. `DELETE` (body `{endpoint}`)
+removes only the caller's row and is 204 either way, so it does not reveal whether an endpoint
+belongs to someone else. Keys are never returned. **Alternative:** a 409 for another user's
+endpoint (the new sign-in could never subscribe, and the old owner is no longer using it).
+
+### D172. The push payload is ids and the title; outcomes are strings in `channel_results` (5, 2026-10-02)
+
+**Decided:** payload `{type: "reminder", reminder_id, note_id, title}` (title cleaned and cut as in
+the email, D138), never note content: push services see the payload only encrypted, but the
+service worker shows it on a lock screen. Sent to every subscription of the owner with a 12-hour
+TTL. A 404 or 410 deletes the subscription (not a failure). Other errors are logged and leave the
+subscription. `channel_results["push"]` is `sent`, `partial`, `failed`, `no_subscriptions` or
+`unavailable`. No retries (D137). **Alternative:** deleting a subscription after repeated 5xx
+(a push-service outage would drop everyone's subscriptions).
+
+### D173. A push endpoint must be a known push service: https, allowlisted host, no userinfo or odd port (5, 2026-10-02)
+
+**Decided:** the endpoint is a client-supplied URL the server later POSTs to, so
+`POST me/push-subscriptions/` refuses (400, code `invalid_endpoint`) anything but: `https`, a host in
+`PUSH_ENDPOINT_HOSTS` (exact, or `*.suffix` for subdomains only; defaults FCM, Mozilla, Windows
+(WNS) and Apple), no userinfo, no port but 443, no whitespace or backslash, at most 1000
+characters. An IP literal never matches. `accounts.push.send_to_user` re-checks each row before
+sending and deletes one that fails (rows older than the check, or a shrunk allowlist). `p256dh`
+must be base64url decoding to 65 bytes and `auth` 16 to 32. **Alternative:** resolving the host and
+refusing private addresses (racy against DNS rebinding, and still lets a user aim us at any public
+host); the allowlist needs a setting change for a new browser's service.
+
+### D200. The web client reads and writes reminder times in the account's timezone, and mirrors the schedule rule for display only (5, 2026-10-02)
+
+**Decided:** the due-time input is a `datetime-local` read as wall-clock time in `User.timezone` (not the
+browser's) and sent as a UTC instant (`...Z`). `web/src/lib/schedule.ts` re-implements
+`notes/schedule.py` (daily at the due time's local time of day, repeated time = first, skipped time = the
+pre-change offset) so a note can say "8 notifications, next Fri 2 Oct, 09:00" without a round trip; the
+server stays the only source for what is actually sent, and the calendar shows the server's occurrences.
+Editing sends only the changed fields, so an untouched past due time is not refused. Lead days are a
+number input 0-30 (the API's limit, default 7). **Alternative:** the browser's timezone for the input
+(a reminder set while travelling would not match what the server sends); no client schedule (needs an
+endpoint just for the summary).
+
+### D201. Calendar: Monday-first, view and day in the URL, ranges cut at the account's midnights (5, 2026-10-02)
+
+**Decided:** `/calendar?view=month|week&d=YYYY-MM-DD`; going into a note and back lands on the same page.
+A month view is the whole Monday-to-Sunday weeks around the month (28-42 days), a week is 7; the API range is
+the start of the first day to the start of the day after the last in the account's timezone (always well
+under 62 days) and each occurrence is filed under its day in that zone. It reloads when a sync advances the
+revision. A month cell shows 3 entries then "+N more" and the day number opens that week; filled entries
+are due dates, light ones heads-ups, done reminders are struck through. **Alternative:** Sunday-first or a
+locale-driven week start (a setting to add later if asked).
+
+### D202. The service worker is for push only: no fetch handler, never cached, clicks go through the open tab (5, 2026-10-02)
+
+**Decided:** `web/public/sw.js` (emitted unhashed at `/sw.js`; served `no-cache`, registered with
+`updateViaCache: 'none'`) has install (`skipWaiting`), activate (`clients.claim`), `push` and
+`notificationclick` handlers and no `fetch` handler, so it cannot serve stale code (D89). A push shows the
+payload title (text only) with a per-reminder tag (today's replaces yesterday's). A click posts
+`{type: 'open-path', path}` to an open tab (the app routes there, no reload, so a half-typed note is not
+lost) or opens a new window; both ends accept only `/notes/<id>` or `/calendar`. **Alternative:**
+`client.navigate(url)` (a full page load over unsaved edits).
+
+### D203. Reminders ride on their note in the notes store, from `notes/changes/` (5, 2026-10-02)
+
+**Decided:** `Note.reminders` is filled only by `changes` (which sends a note again whenever one of its
+reminders changes); an `upsert` of a copy without them (a save, the list, one note) keeps the ones held.
+After its own write the client applies the API's answer to the note at once and the next sync confirms it.
+A note opened before the first sync shows "Loading reminders"; once synced, no reminders means none.
+**Alternative:** a separate reminders store with its own cursor (a second sync loop for data that already
+arrives with the note).
+
+### D204. Push on this device: hidden when the server has it off; sign-out removes the subscription (5, 2026-10-02)
+
+**Decided:** `GET push/vapid-key/` 404 hides every push control (settings section, reminder channel,
+subscribe hint); a browser without service workers/Push/Notifications gets one line saying email still
+works. "Turn on notifications" asks the browser's permission, subscribes with the server's key and POSTs
+it; "Turn off" and signing out unsubscribe and DELETE it (sign-out waits at most 3 s, best effort), so a
+shared browser stops receiving the previous account's reminders. **Alternative:** leave the subscription
+on sign-out (the next account signing in on the browser takes it over, D171, but until then the old
+account's reminders pop up on someone else's screen).
+
+### D260. The web client locks the note while a format is made or looked at, and Format waits for pending saves (4-format)
+
+**Decided:** `FormatPanel` reports a phase to `NoteEditor`; from "saving" to "applying" the editor and
+title are read-only (`setEditable(false, false)`: the second argument matters, the default emits an
+update that autosaves a no-op and moves the version) and the preview replaces the editor on screen.
+Clicking Format with unsaved changes saves them first (`ensureSaved`) and only then starts the job,
+so `base_version` is the version the person sees; if the save fails or conflicts, nothing is
+formatted and the message says why. **Alternative:** leave the editor live and let Apply 409 whenever
+the person kept typing (a normal outcome of a feature that takes seconds).
+
+### D261. A 409 on Apply loads the server's copy and offers "Format again"; nothing is merged (4-format)
+
+**Decided:** everything the person typed was saved before the job started, so the 409's `current`
+is simply a newer note: the editor loads it, a notice says the note changed elsewhere and nothing
+was overwritten, and "Format again" starts a new job on it (a new use; the stale preview is dropped).
+**Alternative:** retry the PATCH on the new version (overwrites the other device's edit with a
+proposal made from older text).
+
+### D262. Job, poll, apply and error mapping are one pure module with injected API and clock (4-format)
+
+**Decided:** `web/src/lib/formatJob.ts` (`runFormat`, `pollFormatJob`, `applyFormat`,
+`describeStartError`, `describeJobFailure`, `whyDisabled`), tested without Vue or timers. Polling
+backs off 0.8 s to 5 s and gives up after 3 minutes (the server sweeps and refunds a stuck job); a
+POST with no answer or a 5xx retries with the same `Idempotency-Key`. A failed job shows its own
+`error` text (our wording only if it sent none); `format_note_gone` is the one code with no "Try
+again". **Alternative:** a Pinia store like asks (the state is per open note, so a component-local
+state with a pure core is simpler and cannot leak across accounts).
+
+### D263. The usage line and out-of-formats state come from `me/` `limits.format` (4-format)
+
+**Decided:** shown beside the button ("3 / 5 formats used · resets <date>"); at the limit the
+button is disabled with the reason, and a 429 `quota_exceeded` updates the stored usage from its
+body. `me/` is re-read after each job ends (a failed job is not counted). Dates use the existing
+`formatDate` (browser time zone, so a reset at midnight IST reads as the day before in UTC).
+**Alternative:** only react to the 429.
+
+### D300. A new conversation is created by its first question; `/chat/new` is a screen, not a row (1c, 2026-10-01)
+
+**Decided:** "New conversation" and `/ask` go to `/chat/new`, which shows an empty thread. Nothing is
+created until the first question: it is sent as `POST conversations/` with the question and an
+`Idempotency-Key` (the API's own one-call form), then the URL is replaced by `/chat/<id>` (so Back
+skips `/chat/new`) and the thread, already in hand, is not reloaded. **Alternative:** create an empty
+conversation on click and navigate to it (each abandoned click would leave a blank-titled row in the
+list, and a delete to clean up).
+
+### D301. Thread logic lives in `lib/thread.ts`; the store only does the network (1c, 2026-10-01)
+
+**Decided:** merging a polled turn (a snapshot never moves a turn backwards: a slow poll that
+overtakes the finished answer cannot bring "pending" back), the thread's phase (empty, sending,
+waiting, answering, failed, ready) and whether the composer may send, the list order, and the
+wording of 429/503/network/409 failures (using `limits.chat_turns` from `me/`, the 429 body's own
+numbers winning) are pure functions with vitest tests; `stores/chat.ts` has a smaller test with the
+API mocked. **Alternative:** keep it all in the store (as the ask store did; untestable without
+mocking timers and the network).
+
+### D302. A 409 `turn_in_progress` is waited out: poll the named turn, then send again with the same key (1c, 2026-10-01)
+
+**Decided:** on 409 the store shows the busy turn, polls it to the end (the "Waiting for the previous
+answer to finish…" state, composer disabled), and re-sends the same question with the same
+`Idempotency-Key`, up to 3 times (another tab may keep asking), then shows the error. The composer
+already blocks a second send while a turn of this tab is pending, so a 409 only arises from another
+tab or device. **Alternative:** show the 409 and make the person retry (the answer to "wait" is the
+only thing they would do).
+
+### D303. Retry of a failed turn asks its question again as a new turn (1c, 2026-10-01)
+
+**Decided:** the last turn, when failed, shows its error and a Retry button that sends the same
+question with a fresh key; the failed turn stays in the thread (it is history, and the backend skips
+failed turns in the prompt, D224). Earlier failed turns show the error without a button.
+**Alternative:** re-run the failed turn in place (the API has no such call; a failed turn is final).
+
+### D304. `/ask` is gone as a screen: AskPanel and the ask store are removed; the answer body is a component (1c, 2026-10-01)
+
+**Decided:** with `/ask` redirecting, nothing used `AskPanel.vue` and `stores/ask.ts` (a conversation
+turn is also listed by `GET ask/`, so a "history" list there would duplicate the chat list). The
+text-and-chips rendering (still `splitAnswer`, never `v-html`, D50) moved unchanged into
+`AnswerBody.vue`, shared by every turn; its CSS stays. `auth.setAskUsage` now also updates
+`limits.chat_turns` (the same numbers). **Alternative:** keep the unused panel until a later cleanup.
+
+
+### D280. Folding consumes its own system-only limit key, `summarize_history`, not `condense` (1, 2026-10-01)
+
+**Decided:** a fold call is `limits.consume(None, "summarize_history", ask=<last folded turn>)`,
+5,000 a month by default (`LIMIT_DEFAULTS`, overridable by a `Limit` row), user `None` like
+`condense` (D91, D222): the user pays nothing for it, only the system caps it. Provider, model and
+tokens are recorded on the event. A fold is rarer than a turn (one per few turns), so the default
+is a fraction of `condense`'s 20,000 (one per follow-up) and a little over twice
+`chat_turns`' system 2,000. **Alternative:** reuse `condense` (one key fewer, but a runaway summariser, or a
+provider outage that makes every fold retry, would then use up the budget every follow-up's
+condensing depends on, and the ledger could not tell the two costs apart).
+
+### D281. Folding starts when the unsummarised history exceeds the budget, and keeps half of it (1, 2026-10-01)
+
+**Decided:** after a turn is answered, `should_fold` is true when the done turns after
+`summary_through` -- exactly what the next prompt would repeat (`history_for`, same sizes) -- total
+more than `CHAT_HISTORY_MAX_CHARS`: folding starts when `fit_history` would start dropping. A fold
+keeps the newest turns that fit half the budget (`FOLD_KEEP_SHARE`; the newest turn always stays)
+and folds the older ones, so the next fold is a few turns away. `summary_through` becomes the last
+folded turn's position. **Alternative:** fold down to exactly the budget (every later turn would
+overflow it again, one summariser call per turn); fold a fixed number of turns (a long answer would
+still blow the prompt).
+
+### D282. Folds write with a conditional UPDATE on `summary_through`, not a held lock (1, 2026-10-01)
+
+**Decided:** `fold` reads `summary` and `summary_through`, calls the provider with no transaction
+and no row lock, then writes `UPDATE conversation SET summary=..., summary_through=<last folded>
+WHERE pk=? AND summary_through=<what it read>`. Two folds racing on one conversation: one UPDATE
+matches, the other matches no row and its result is dropped -- no turn is folded twice, and none
+is skipped, since `summary_through` only ever moves to the last turn this fold read. The loser's
+call was made and paid for, so its event stays counted. Proven three ways: the interleaving
+forced in one thread (a fold run to the end inside another's provider call), the same with the
+winner folding further than the loser read, and two real threads held by a barrier until both
+have read; each fails with the `summary_through` condition removed. **Alternative:**
+`SELECT ... FOR UPDATE` on the conversation across the provider call (up to a minute: a new
+turn's `updated_at` UPDATE of the same row, in `create_ask`, would wait behind it, so the user's
+POST would hang); a Postgres advisory lock (same problem, or an idle-in-transaction connection);
+the duplicate provider call it costs the rare loser is the price of not holding either.
+
+### D283. One fold call is bounded; a longer backlog is folded in batches that queue themselves (1, 2026-10-01)
+
+**Decided:** a fold sends the previous summary and at most 12,000 characters of turns, oldest
+first, one turn at least, each answer cut to 2,000 (`FOLD_INPUT_MAX_CHARS`,
+`FOLD_ANSWER_MAX_CHARS`). When the history is still over budget afterwards (a backlog left by
+failed folds or a lowered budget), `fold_history` queues itself again; each run advances
+`summary_through`, so it ends. **Alternative:** send everything unsummarised (an unbounded prompt
+after a long outage of the provider).
+
+### D284. A fold failure changes nothing; the next finished turn tries again; enqueueing never fails a turn (1, 2026-10-01)
+
+**Decided:** the limit reached, a `ChatError` or `TransientChatError` (refunded: nothing was
+billed), and an empty reply (stays counted: the call was made, like D226's) all leave `summary` and
+`summary_through` as they were. `fold_history` is not retried by Celery: the history is still over
+budget, so the next answered turn queues another fold, which is the retry, with no backoff to
+tune; meanwhile `fit_history` keeps the prompt within budget by dropping the oldest, as before
+folding existed. The fold is queued with `transaction.on_commit` from `_finish` (so it reads the
+committed answer) and the `.delay` is wrapped: a broker that is down is logged and costs the fold
+only, never the answer. A failed turn, a plain ask and a turn under budget queue nothing; a
+deleted conversation is not folded. **Alternative:** Celery autoretry (a fold that cannot succeed
+retries a minute for nothing, spending the limit each time); queueing the check in a task of its
+own for every turn (a message per turn to learn "no").
+
+### D285. The summary is bounded twice: 200 words in the prompt, `CHAT_SUMMARY_MAX_CHARS` in code (1, 2026-10-01)
+
+**Decided:** `summarize-v1` asks for at most 200 words and to drop the oldest, least relevant
+detail first; `clean_summary` removes a "Summary:" label and quotes and cuts whatever comes back to
+1,500 characters (about 375 tokens) at a word, with an ellipsis, so the cap holds even when the
+model ignores the rule. The summary rides in every later prompt of the conversation: its size is
+that prompt's fixed cost. The cut keeps the start, not the end (a model told to merge new turns
+into the old summary tends to put the newest last, so an over-long reply loses the newest: that
+is the model breaking a rule, and the next fold rewrites the summary anyway). **Alternative:**
+trust the prompt (an uncapped summary grows every fold); cut the head (starts mid-sentence).
+
+### D286. The fake summariser writes one line per folded turn and keeps the newest six (1, 2026-10-01)
+
+**Decided:** when the user message holds `<fold>`, the fake provider returns the old summary's
+lines plus `- <question> -> <first sentence of the answer>` for each folded turn, keeping the
+newest 6 (`FOLD_LINES`). Deterministic, so a test reads off exactly which turns were folded and in
+which order; bounded like a real one is told to be, forgetting the oldest. The `fold` tag is
+neutralised in history, excerpts and summary like the other delimiters (D56), so a note or an
+answer cannot make a chat call look like a fold. **Alternative:** a fixed string (cannot show
+which turns were folded); an unbounded concatenation (could not show the bound).
+
+### D287. `eval_retrieval --conversations`: hybrid, questions-only history, a pure `run_condenser` (1, 2026-10-01)
+
+**Decided:** the last turn of each fixture conversation is searched raw, condensed (the "stands
+alone" heuristic first, then `run_condenser`, falling back to raw on failure or an empty reply, as
+`prepare` does) and as the human `standalone`; recall@k and MRR in hybrid mode only (the mode asks
+use), `--by-kind` per kind, and a count of how each last turn was handled. `condense` is split:
+`run_condenser(question, history) -> (rewrite, result)` does the call with no bookkeeping, and
+`condense(ask, history)` wraps it with the `condense` event (consume, refund on failure, cost).
+The eval needs no AskQuery and consumes no limit. The earlier turns are given as the fixture's
+questions with empty answers: producing real answers would mean running the whole ask on each,
+and the fixtures carry none. This under-serves a follow-up that points at something only an
+answer said ("the second one"), which the fixtures were not checked for. **Alternative:** answer the earlier turns
+with the real pipeline first (costs a chat call and a search per turn, and makes the numbers depend
+on the answer model too); all three modes per variant (nine rows, and only hybrid is what a turn
+uses).
+
+### D320. Attachments have their own storage alias, resolved on every call (6, 2026-10-01)
+
+**Decided:** `STORAGES["attachments"]` is django-storages' `S3Storage` when `AWS_STORAGE_BUCKET_NAME` is
+set (no ACL on objects, so the bucket's private policy rules; `querystring_auth` on; no overwrite;
+credentials from boto3's own chain, never a setting), else `FileSystemStorage` under `MEDIA_ROOT`
+(files `0600`, folders `0700`; no URL route serves it). `Attachment.file` points at a small proxy
+(`notes/attachments.py`) that looks the alias up on each call, so the test runner swaps in a temp
+dir whatever `.env` says, and the proxy's `url()` refuses: bytes leave only through the download
+endpoint. **Alternative:** the `default` storage alias (static and future uses would share the
+bucket), or a storage instance built at import (tests could then write to a configured bucket).
+
+### D321. File type from magic bytes at offset 0; anything else is 415 (6, 2026-10-01)
+
+**Decided:** JPEG `FF D8 FF`, PNG's 8-byte signature, WebP `RIFF....WEBP`, PDF `%PDF-`, all at the
+first byte; the client's Content-Type and extension are ignored. Anything else, a renamed `.exe`
+included, is `415 unsupported_file_type` (a non-multipart body stays DRF's `415
+unsupported_media_type`). **Alternative:** `400` (the request is well formed; it is the file's type
+that is refused, which is what 415 says), or accepting `%PDF-` anywhere in the first 1 KB as
+readers do (lets a polyglot that is something else first through).
+
+### D322. Stored names are random; the shown name is cleaned and always carries the type's extension (6, 2026-10-01)
+
+**Decided:** stored as `attachments/<32 hex>.<ext of sniffed type>`. `original_name` keeps the last
+path component, NFC, without control/format characters (a right-to-left override cannot disguise
+an extension), trimmed of spaces and leading dots, at most 255 characters (the stem is cut, not the
+extension), `attachment.<ext>` if nothing is left; and it always ends in an extension of the
+sniffed type (`setup.exe` that is a PDF is shown and downloaded as `setup.exe.pdf`).
+`Content-Disposition` is built by Django (`filename*=` for non-ASCII, quotes escaped).
+**Alternative:** keep the name exactly as sent and fix it only in the download header (the list
+would show `setup.exe` for a PDF).
+
+### D323. Bytes are stored before the owner lock; dedup and quota are decided under it (6, 2026-10-01)
+
+**Decided:** the view checks size and type, hashes the bytes; the service looks for the same hash
+on the note without a lock (a re-upload returns at once, nothing stored), writes the bytes to
+storage, then in one transaction locks the owner, re-reads the note, looks for the hash again,
+consumes `storage_bytes` (user and system, D84), saves the row and stamps the note. A refusal or a
+duplicate found under the lock deletes the bytes it stored. A duplicate costs nothing, even with
+the quota full (`200`, the existing row). **Alternative:** write the file under the lock (a 10 MB
+S3 write would hold up every other save of that user).
+
+### D324. Deleting releases storage by refunding the upload's own event (6, 2026-10-01)
+
+**Decided:** `Attachment.usage_event` is the `storage_bytes` event its upload consumed; a delete
+(of the attachment or its note) marks it refunded, so the running total drops by exactly that
+size. **Alternative:** a negative release event (`amount` is positive by design and `consume`
+refuses less than 1; two rows per file for the same result).
+
+### D325. Files are deleted on commit, inline, best effort (6, 2026-10-01)
+
+**Decided:** `transaction.on_commit` deletes the files of soft-deleted attachments; a storage error
+is logged, never raised (the delete already happened). A file left behind is unreachable (no live
+row names it). Rows stay as soft-deleted tombstones. Deleting an *account* (CASCADE) does not yet
+delete its files. **Alternative:** a Celery task per delete (needs a broker for a millisecond job);
+a periodic orphan sweep (worth adding with account deletion).
+
+### D326. An attachment write stamps its note's revision; `changes` sends the note with its attachments (6, 2026-10-01)
+
+**Decided:** as reminders (D124): upload and delete take the owner lock and the next revision, set
+on the note by a queryset update (version and `updated_at` untouched, nothing re-indexed). A live
+note in `changes` carries `attachments`: every live one, metadata only (no bytes, no
+`extracted_text`). A duplicate upload takes no revision. Extraction (sub-task 2) starts from one
+seam, `services._after_attachment_added`, and must stamp the revision when it changes `status`.
+**Alternative:** a separate attachments stream in sync.
+
+### D327. The upload body allowance is keyed by view name, POST only (6, 2026-10-01)
+
+**Decided:** `UPLOAD_SIZE_ALLOWANCES = {"api:v1:note-attachments": ATTACHMENT_MAX_BYTES + 64 KiB}`;
+`MaxUploadSizeMiddleware` resolves the path only when a body is over the default limit, and only
+for POST. A file over `ATTACHMENT_MAX_BYTES` but inside the envelope reaches the view and gets the
+same `413 too_large`. **Alternative:** a path regex in the middleware (duplicates the URLconf).
+
+### D328. Uploads have their own throttle scope, `upload`, 120 an hour (6, 2026-10-01)
+
+**Decided:** POST only (listing is free), `API_UPLOAD_THROTTLE`. **Alternative:** only the general
+user rate (3,000/hour), which lets a script churn uploads and deletes inside the storage quota.
+
+### D329. Downloads are attachments with nosniff, a sandbox CSP and no-store (6, 2026-10-01)
+
+**Decided:** `GET attachments/<id>/file/` streams with `FileResponse`, the sniffed type,
+`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` (set explicitly, not only
+when `DEBUG` is off), `Content-Security-Policy: default-src 'none'; sandbox` and
+`Cache-Control: private, no-store`. Content negotiation is forced, so any `Accept` gets the file
+and an error still renders as JSON. A live row without its file is a logged 404.
+**Alternative:** presigned S3 redirects (no owner check at fetch time, links outlive sign-out).
+
+### D330. A note's attachment list is cursor-paged; no per-note count cap yet (6, 2026-10-01)
+
+**Decided:** `GET notes/<id>/attachments/` pages like every list (newest first). The only cap is
+`storage_bytes`; whether a note needs a count cap (reminders have 20) is left to the owner.
+**Alternative:** an unpaged list with a cap.
+
+### D340. Extraction is its own task with tighter limits; a hostile PDF fails, never crashes (6, 2026-10-01)
+
+**Decided:** `notes.tasks.extract_attachment`, enqueued on commit by `_after_attachment_added`, soft
+limit `ATTACHMENT_EXTRACT_SOFT_TIME_LIMIT` (120 s) and hard 180 s instead of the default 5/10
+minutes. pypdf runs inside `apply_configuration` with every decompression ceiling lowered to
+`ATTACHMENT_PDF_MAX_STREAM_BYTES` (20 MB, pypdf's own default is 75 MB) and `jbig2dec` off; at
+most `ATTACHMENT_PDF_MAX_PAGES` (100) pages and `ATTACHMENT_TEXT_MAX_CHARS` (100,000) characters
+are read. Any exception from pypdf is `failed` with a fixed message; the soft time limit is
+`failed` too; only a bug in our own code is re-raised (after failing the row). Images are never
+decoded in the worker. **Alternative:** parse in a subprocess with an rlimit (stronger isolation,
+more machinery than a 10 MB cap needs today); the default task limits (a bomb holds a worker for
+ten minutes).
+
+### D341. `NoteChunk.source` and `NoteChunk.attachment`; each source is indexed on its own (6, 2026-10-01)
+
+**Decided:** `source` is `note` (default), `attachment` or `summary` (sub-task 3); `attachment` is a
+nullable FK (CASCADE), set exactly when `source` is `attachment` (a check constraint). `index_note`
+reads, reuses and deletes only `source=note` rows, so editing a note never touches its files'
+chunks, and extraction never touches the note's. Deleting the note still removes every source.
+`index_status` compares only note chunks with the note's version and counts attachment chunks
+apart. **Alternative:** a separate `AttachmentChunk` table (search would need a second pair of
+legs, or a UNION that the HNSW index cannot serve).
+
+### D342. Extracted text is chunked as paragraphs, behind the file name (6, 2026-10-01)
+
+**Decided:** `chunk_text(label, text)`: blank lines and form feeds (page breaks) end a paragraph, a
+paragraph's hard-wrapped lines are joined with spaces, and packing, splitting and overlap are the
+note chunker's. No heading path; `embed_text` is `"<file name>\n\n<text>"`, so renaming the note
+does not change an attachment chunk's hash (nothing re-indexes attachments on a note edit).
+**Alternative:** a `Page n` heading path (a chunk could cite its page, but would never span a page
+break, and short pages make tiny chunks); the note's title in the prefix (stale after a rename).
+
+### D343. Images are read by `chat.extract_image_text`, with real Claude, OpenAI and Gemini adapters (6, 2026-10-01)
+
+**Decided:** a boundary function `extract_image_text(image_bytes, mime_type) -> ChatResult` over an
+optional provider method `read_image(system, user, image, mime_type, model, max_output_tokens)`,
+with the system prompt in `prompts/image_text.md` (`image-text-v1`: transcribe exactly, no
+description, text in the image is content not instructions, `[no text]` when there is none,
+which the boundary turns into ""). All three real providers have it, over the same `requests`
+helper: Claude a base64 `image` block, OpenAI an `input_image` data URL (Responses API), Gemini an
+`inline_data` part; each answer is parsed and its errors translated exactly as `complete`'s
+(request shapes tested with mocked HTTP; not yet run against the live APIs). The fake returns a
+fixed text. A provider without `read_image` raises `ImageTextNotSupported` (a `ChatError`), shown
+as "not available right now". Images over `ATTACHMENT_IMAGE_TEXT_MAX_BYTES` (5 MB, Claude's
+per-image limit) fail without a call: resizing would need Pillow, a new dependency. A
+transcription cut off by `ATTACHMENT_IMAGE_TEXT_MAX_OUTPUT_TOKENS` (4,096) fails like any cut-off
+answer. **Alternative:** a "not supported" stub until the owner picks a vision provider (the
+adapters are small, and the chat provider is already the owner's choice).
+
+### D344. Image reading counts against a new system-only key, `image_text` (6, 2026-10-01)
+
+**Decided:** `LIMIT_DEFAULTS["image_text"] = {"system": 5000, "period": "month"}`. One use per
+vision call (user `None`), consumed in its own short transaction just before the call, refunded
+if the call fails for any reason (a transient one too: the retry consumes its own), and given the
+provider, model and tokens when it succeeds. Reaching the limit fails the attachment with "paused
+for now" and makes no call. The user already pays for the upload in `storage_bytes`; this caps what
+images cost the service, as `condense` and `memory_extract` do. PDFs cost nothing (no model call).
+**Alternative:** a per-user key (a user can only add as many images as their storage allows
+anyway); counting under `summary` (that is the user's own summarize budget).
+
+**Amended by D520 and D524 (fix-notes, 2026-10-01):** `image_text` is now a per-user limit too
+(free 50, premium 250 a month, proposed), consumed for the owner under the owner's lock; and
+the same bytes the owner already had read are not read again.
+
+### D345. A broker error at upload is logged, and a sweeper fails what never finished (6, 2026-10-01)
+
+**Decided:** the on-commit enqueue catches and logs a broker error instead of raising: the upload
+has committed, and a 500 would make the client retry an upload that worked.
+`sweep_stuck_attachments` (beat, every 5 minutes) fails live attachments still `pending` or
+`extracting` `ATTACHMENT_STUCK_AFTER_SECONDS` (1 hour) after upload, through the same conditional
+service call, with "This file took too long to read." The hour outlasts the task's worst case
+(6 attempts of 180 s plus 5 backoffs of at most 300 s, a test checks it). A failed attachment stays
+attached and downloadable; there is no "retry extraction" endpoint yet (re-uploading the same
+bytes returns the failed row, so the user deletes and uploads again). **Alternative:** raise
+(the request 500s after a successful upload); no sweeper (a lost message leaves `pending`
+forever).
+
+### D346. Status changes take the owner lock and a revision; chunks are written under it, after a live check (6, 2026-10-01)
+
+**Decided:** `services.start_extraction` (pending -> extracting), `finish_extraction` (extracting ->
+ready, writing the chunks in the same transaction) and `fail_extraction` (pending or extracting
+-> failed, removing any chunk) each lock the owner, re-read the attachment (`FOR UPDATE OF` the
+attachment, live, note live, in the expected status) and stamp the note with the next revision
+only when the status really changes, so `changes` carries every status (D326) and a duplicate run
+or the sweeper changes it once. Deleting an attachment (or its note) deletes its chunks in the
+delete's own transaction, under the same owner lock, so a finish racing a delete either writes
+first and is deleted with it, or finds the attachment deleted and writes nothing; search can
+therefore keep reading chunks without a join on `attachment.deleted_at`. The note's own chunks are
+removed by its tombstone's index task as before. **Alternative:** filter search on the
+attachment's `deleted_at` (a join in the vector leg, which pgvector's index scan does not need
+today); no revision for `extracting` (one fewer, but a client would show "pending" while it runs).
+
+### D347. No text is not an error; a PDF that needs a password is (6, 2026-10-01)
+
+**Decided:** a scan without a text layer, or a photo with no words, ends `ready` with empty
+`extracted_text` and no chunks. A PDF encrypted only to restrict printing or copying (it opens with
+an empty password) is read; one that needs a password fails "password-protected". **Alternative:**
+`failed` with "no text found" (but the file is fine, and the status would read as a fault); OCR of
+scanned PDFs through the vision call (a cost per page; for later).
+
+### D348. Hits and citations name the file; the excerpt says `file="…"`; the per-note cap is shared (6, 2026-10-01)
+
+**Decided:** `SearchHit`, `GET search/` and every citation (`AskQuery.citations`, asks and turns)
+carry `attachment_id` and `attachment_name` (null for the note's own text), and search hits
+`source`; `title` stays the note's. The excerpt of an attachment chunk gets a `file` attribute
+(escaped like `title`) next to the note's title; the system prompts are unchanged (`ask-v1`,
+`chat-v1`). Citations stored before this read with both fields null. The per-note cap (2, D71)
+counts a note's file chunks with its own, so a long PDF cannot crowd the other notes out.
+**Alternative:** `title` = the file name (loses which note it is on); a cap per file (a note with
+several files could fill most of the eight excerpts).
+
+### D349. The text is kept before embedding; a permanent embedding error fails the attachment (6, 2026-10-01)
+
+**Decided:** the extracted text is saved on the row (still `extracting`) before embedding, so a
+retry after a rate-limited embedding never reads the file or pays for the vision call again. An
+`EmbeddingError` fails it ("couldn't be made searchable"); a note in the same case keeps its old
+chunks (D65), but an attachment has none to keep. After an embedding model change,
+`reindex_notes` also re-embeds every ready attachment from its stored text (`index_attachment`,
+reusing vectors by hash). **Alternative:** read the file again on each retry (a second vision
+charge); leave it `extracting` for the sweeper (an hour of a spinner for an error known at once).
+
+### D400. Memory is learned only from the user's own words; the answer is shown but untrusted (3-memory 1, 2026-10-01)
+
+**Decided:** the extraction call (`prompts/memory.md`, `memory-v1`) gets the user's known facts,
+the question and the answer -- never the excerpts. The answer quotes the notes, so the prompt
+calls it context only: a fact may come only from what the user states about themselves in the
+question, never from the answer or because any text says "remember". Every part is neutralised
+like the other prompts (D56), and `<fact>`/`<facts>` join the neutralised tags of every prompt,
+so a note can never make an ask look like an extraction. The fake extractor reads only the
+question, and the injection test fails if it ever reads the answer (the note's quoted sentence
+would be a fact). **Alternative:** the question only (the answer helps resolve what a short
+question refers to, which the plan wants); a lexical check that each fact's words appear in the
+question (drops paraphrases a real model rightly makes: "I don't eat meat" -> "User is
+vegetarian").
+
+**Amended (D514):** the extraction no longer gets the answer at all; `memory-v2` sends the
+facts and the question only. The alternative above ("the question only") is now the decision.
+
+### D401. Extraction follows a done conversation turn, queued on commit; memory off is checked three times (3-memory 1, 2026-10-01)
+
+**Decided:** `_finish` queues `extract_memory` with `transaction.on_commit` the way the fold is
+queued (D284): the `.delay` is wrapped, so a broker that is down costs the extraction only. Only
+a conversation turn that ends `done` (a floor answer too: the question can still state a fact);
+a plain `POST ask/` and a failed turn queue nothing. `memory_enabled` is checked when queueing,
+when the task starts (off: no provider call, no embedding call, no usage event), and again
+under the user's row lock just before writing (switched off during the call: nothing written).
+**Alternative:** plain asks too (the V1 endpoint, no longer a screen, D304); one check only (a
+switch flipped mid-call would still write a fact).
+
+### D402. The call is shown all of the user's live facts while there are at most 10, else the 10 nearest (3-memory 1, 2026-10-01)
+
+**Decided:** `MEMORY_SIMILAR_FACTS` (10). Up to 10 live facts are all sent with no embedding
+call; beyond that the question is embedded and the 10 nearest live facts of the current
+embedding model are sent, owner-scoped in SQL with `hnsw.ef_search` raised as the chunk search
+does (D68). The ids sent are the only ids an operation may name. **Alternative:** always
+vector-search (an embedding call per turn, and HNSW's post-filter can miss a user's few facts
+among many users'); send every fact (a prompt that grows without bound).
+
+**Amended (D517):** the nearest facts are found by an exact sort of the user's live facts, not
+through the HNSW index; `hnsw.ef_search` is no longer set for this query.
+
+### D403. A fact that looks like a secret is dropped in code, whoever stated it (3-memory 1, 2026-10-01)
+
+**Decided:** besides the prompt's rule, `parse_operations` drops a fact text that mentions a
+password, passcode, PIN (not "PIN code", the postal one), OTP, CVV, API/secret/private key or
+token, or holds a run of 9+ digits (card, account, phone and ID numbers; a date or a 6-digit
+PIN code is not). Memory rides in later prompts and is listed on screen: it is the wrong place
+for a secret even when the user typed it, and the filter also catches a model that obeyed a
+planted "remember the password" despite the prompt. **Alternative:** trust the prompt alone (one
+disobedient reply stores a credential).
+
+### D404. The reply schema: one bad reply drops all, one bad operation drops itself (3-memory 1, 2026-10-01)
+
+**Decided:** the reply must be `{"operations": [...]}` with at most `MEMORY_MAX_OPERATIONS` (5)
+entries, or all of it is dropped. Each entry is then checked alone: `op` in add / update /
+supersede / none; `id` a JSON integer (not `true`, not `"12"`) among the facts shown, targeted
+once; `text` non-empty and at most 200 characters after collapsing whitespace (dropped, never
+cut: a cut fact can change meaning) and not a secret (D403); `kind` static or dynamic (absent:
+static, or unchanged on an update). Keys beyond these are ignored, and one surrounding code
+fence is stripped, since models add both unasked. Dropped entries are logged by reason, never
+with their text. Nothing is retried. **Alternative:** reject the whole reply for any bad entry
+(one stray entry loses the good ones); reject extra keys (a "reason" field would lose facts).
+
+### D405. `superseded_by` cascades: deleting a fact deletes the facts it replaced (3-memory 1, 2026-10-01)
+
+**Decided:** `on_delete=CASCADE`. When a user deletes "User is vegan" (or it expires), the
+"User is vegetarian" it superseded goes with it. **Alternative:** SET_NULL (the replaced fact
+comes back to life: deleting one fact would resurrect an older, contradicted one); PROTECT
+(a fact could not be deleted while it has history).
+
+**Amended (D516):** expiry is the exception: a static fact is never deleted because a dynamic
+fact that superseded it expired (and D515 stops a dynamic fact superseding a static one).
+
+### D406. The daily purge: expired dynamic facts, and superseded ones 30 days after they were replaced (3-memory 1, 2026-10-01)
+
+**Decided:** `purge_expired_facts` (beat, daily) deletes facts whose `valid_until` has passed
+(dynamic ones, `MEMORY_DYNAMIC_FACT_DAYS` = 30 after they were learned or last updated) and
+facts whose superseding fact is older than `MEMORY_SUPERSEDED_RETENTION_DAYS` (30). A superseded
+fact is never used or shown to the extraction; it is kept a while only to debug an extraction
+that went wrong, and then it is personal data with no purpose. **Alternative:** keep superseded
+facts for ever (a growing record of what the user used to be); delete them on supersede (no
+trace when a model supersedes wrongly). No `superseded_at` column: the replacing fact's
+`created_at` is that moment.
+
+### D407. An extraction runs at most once per turn and never retries; refunds when nothing was billed (3-memory 1, 2026-10-01)
+
+**Decided:** the `memory_extract` use (user None, linked to the turn) is consumed in a short
+transaction that locks the turn's row and first looks for any earlier `memory_extract` event of
+that turn, refunded or not: a redelivered or duplicated task does nothing. The limit reached:
+skipped, no call. A `ChatError`/`TransientChatError`, or a question that cannot be embedded
+(checked before the call, so no chat call is paid for facts that could not be stored): refunded.
+A malformed reply, or facts that cannot be embedded after the call: dropped and logged, the use
+stays counted (the call was made). The task has no Celery retry: the user saying it again is
+the retry. **Alternative:** autoretry (spends the limit on a call that keeps failing, and could
+loop on a reply that is always malformed); store facts unembedded (they would be listed but
+never found by the vector search that uses them).
+
+### D408. Write rules: update in place, supersede by a new row, exact repeats skipped, all under the user's lock (3-memory 1, 2026-10-01)
+
+**Decided:** one transaction that locks the user's row, then re-reads and locks the target
+facts live and owner-scoped in SQL. `update` rewrites text, kind, vector and `source_ask` and
+recomputes `valid_until` (restating a dynamic fact renews it). `supersede` creates the new fact
+and sets the old one's `superseded_by`. `add` is skipped when a live fact has the same text,
+ignoring case. A target superseded or expired since the call is dropped, so of two extractions
+racing on one fact only the first supersedes it. **Alternative:** no lock (two extractions could
+both supersede one fact, leaving two live successors); fuzzy duplicate detection (the model is
+shown the similar facts and is the better judge).
+
+**Amended (D515):** an `update` or `supersede` with kind dynamic whose target is static is
+written as an `add`; an update never turns a static fact dynamic.
+
+### D409. The fake extractor: "I'm X" / "my X is Y" in the question, superseding by subject (3-memory 1, 2026-10-01)
+
+**Decided:** when the user message starts with `<facts>`, the fake provider reads only the
+`<question>`. Each sentence that is not a question and says "I'm X" / "I am X" (or "I'm not X",
+"I'm no longer X") or "my X is Y", in at most six words of value, is a statement about a
+subject ("is X", "my X"). A subject no known fact covers is an `add` ("User is X." / "User's X
+is Y."); a different statement about a known fact's subject supersedes it; the same statement
+is nothing; none at all is `{"op": "none"}`. "Today", "this week", "currently"... make it
+dynamic. Deterministic, so the flow is tested without mocks. **Alternative:** a fixed reply
+(cannot show add vs supersede); reading the answer too (would defeat the boundary test).
+
+### D360. Streaming is an optional provider method; the boundary falls back to `complete` (2-streaming 1, 2026-10-01)
+
+**Decided:** a provider may have `stream(system, user, model, max_output_tokens)`, yielding text
+deltas and then one `ChatResult`, last (the `StreamingChatProvider` Protocol; `ChatProvider` is
+unchanged, so a provider without it still matches). `chat.stream()` sits beside `chat.complete()`:
+same provider, model and ceiling; it drops empty deltas, raises `ChatError` if no result comes, and
+closes the provider's stream (and so its connection) when closed early. A provider without `stream`
+is called through `complete` and yields its whole answer as one delta. The result's text is the
+deltas joined and stripped, with the same stop-reason, status and finish-reason checks as
+`complete`, so a streamed answer and a complete one are stored identically. Only the answer call
+streams; condense, fold and format stay on `complete`. **Alternative:** an `on_delta` callback on
+`complete` (changes the signature every existing caller and test double has); make `stream`
+required (every test double and future provider would need one).
+
+### D361. One SSE reader in `_http`; a stream that just stops is transient; error events map like statuses (2-streaming 1, 2026-10-01)
+
+**Decided:** `post_stream` sends the request with `stream=True`, checks the status exactly as
+`post_json` does (before any delta), then feeds `iter_content(chunk_size=None)` to `parse_sse`:
+lines split on `\n` (a trailing `\r` dropped) and decoded only once whole, so a character split
+between chunks survives; `:` comments (keep-alives), `id:` and `retry:` ignored; an event the stream
+ends inside of is dropped, never parsed half-received; a line over 1 MB is refused. A connection that
+drops or stalls (`CHAT_TIMEOUT_SECONDS` between two reads), or a stream that ends without the
+vendor's last event (`message_stop`, `response.completed/incomplete/failed`, a `finishReason`), is
+`TransientChatError`: that is what a dropped connection looks like. Mid-stream error events are
+translated as their HTTP status would have been: Claude's `rate_limit_error`, `api_error`,
+`overloaded_error` retry; OpenAI's `error` event by code (`rate_limit_exceeded`, `server_error`...);
+Gemini's `error` object by `code` through the same status table, else by `status`
+(`UNAVAILABLE`, `RESOURCE_EXHAUSTED`...). Everything else is `ChatError`. Tested against
+handwritten recordings of each vendor's documented events (`assistant/tests/fixtures/streams/`),
+whole, a byte at a time and in odd chunks, plus one opt-in live test each (D40). **Alternative:**
+`iter_lines()` (its own buffering and decoding, harder to prove on split characters); a vendor SDK
+(three new dependencies, D53).
+
+### D362. The fake streams word by word, replaying the boundary's `chat.complete` (2-streaming 1, 2026-10-01)
+
+**Decided:** `FakeProvider.stream` cuts its answer before each word that follows whitespace (joined,
+the pieces are the answer exactly) and yields the result last. When the fake is the configured
+provider, the answer it cuts up comes from `assistant.chat.complete`, looked up at call time (with
+the ceiling as a keyword, so a spy still sees `(system, user)`); otherwise from its own `complete`.
+So the 30-odd existing task and turn tests that script `chat.complete` (refusals, retries, token
+counts, prompt contents) script the streamed answer too and pass unchanged. **Alternative:** point
+those tests at `chat.stream` (a large diff to tests whose behaviour did not change, and they would no
+longer prove the polling path unchanged).
+
+### D363. Events on Redis pub/sub `ask:<id>`: numbered deltas with offsets, `reset`, and `done`/`failed` carrying the row (2-streaming 1, 2026-10-01)
+
+**Decided:** every message is compact JSON with `seq` and `type`: `delta` (`offset`, `text`),
+`reset`, and `done` or `failed` whose `ask` is the row through `AskQuerySerializer` -- exactly what
+`GET ask/<id>/` returns, parsed citations included. The end event is published on commit
+(`transaction.on_commit(..., robust=True)`), so a reader that fetches the row on `done` finds it
+done; the row is read afresh for it. `seq` counts from 1 in each run of the task (a retry is a new
+run), so 1 may follow anything and any other jump means missed messages. `offset` is where the delta
+starts in the run's text, in code points: the same text `partial_answer` holds, so a reader that
+caught up from the row skips what it has. **Alternative:** a Redis stream (`XADD`) with replay
+(keys to expire and trim, for a catch-up the row already gives); a seq kept across runs in Redis (a
+write per run, and it fails exactly when Redis does).
+
+### D364. `partial_answer` is a new field, saved at most every 0.5 s while running, not in the API (2-streaming 1, 2026-10-01)
+
+**Decided:** `AskQuery.partial_answer` (migration 0003) holds the text streamed so far; written by
+an UPDATE conditional on `status=running` at most every `ASK_PARTIAL_SAVE_SECONDS` (0.5), so a
+late save can never touch a finished row; cleared by the claim, by done (`answer` has it), by
+failed and by the sweeper. Not serialized: polling shows a finished answer only, as before; the
+stream endpoint (sub-task 2) reads it for catch-up. **Alternative:** reuse `answer` while running
+(V1 polling clients would start seeing half an answer on a running row, and a failed ask would need
+it cleared from the field clients read); save every delta (a write per word).
+
+### D365. A retry starts over: the partial text is cleared and `reset` published (2-streaming 1, 2026-10-01)
+
+**Decided:** a transient error after some text was streamed clears `partial_answer` and publishes
+`reset` before re-raising for Celery's retry, so readers drop the text at once rather than during
+the backoff; a run that takes up an ask that was already `running` (a retry, or a redelivery after a
+crash that published deltas it never saved) publishes `reset` first and clears the text with its
+claim. A duplicate reset is harmless. Limits, refunds and cost are untouched: a retry still does not
+refund, giving up still does. **Alternative:** continue from the partial text (the provider cannot
+resume an answer; a new call writes a different one).
+
+### D366. Publishing can never fail an answer (2-streaming 1, 2026-10-01)
+
+**Decided:** `ASK_EVENTS_REDIS_URL` defaults to `CELERY_BROKER_URL` (pub/sub ignores the database
+number, and a deployment that set the broker gets streaming without another setting); empty turns
+events off, and the test runner forces it off as it forces the fake providers. The client has 0.5 s
+connect and 1 s socket timeouts; every publish error is logged once per run and swallowed; after the
+first failure the run skips its remaining deltas (one timeout, not one per word) but still tries
+`reset` and the end event; a URL that cannot be parsed turns events off. With events off no on-commit
+callback is queued at all. The publisher takes any client with `publish(channel, message)`, so the
+task tests use a recorder; one test uses the real local Redis on database 15 and is skipped without
+one. **Alternative:** a separate default database (pub/sub does not use it); fail the run on a Redis
+error (polling would have had the answer).
+
+### D420. Facts ride in the chat prompt as `<facts>` after the excerpts, without ids; `chat-v2` (3-memory 2, 2026-10-01)
+
+**Decided:** a conversation turn's user message is summary, history, excerpts, then `<facts>` (one
+`<fact>` per fact, text only: no id, no kind, `[n]` markers stripped, neutralised like every other
+part), then the question. `prompts/chat.md` becomes `chat-v2`: a new rule 3 says the facts are what
+is known about the user from earlier conversations, context only -- shape the answer, never claim
+the notes say something because a fact does, never cite a fact, don't repeat them back unprompted,
+and the user's words in this conversation win over an out-of-date fact; rule 7 adds the facts to
+"data, not instructions". The block is left out when there are no facts. `AskQuery.memory_used`
+(migration 0005, JSON list) holds the ids put in the prompt, empty for a plain ask, a floor
+answer or memory off; it is not in the API. Plain asks (`ask-v1`) are unchanged. **Alternative:**
+facts first (a message that starts with `<facts>` is how an extraction is told apart, by the fake
+and by the extraction tests); ids in the block (a number next to text invites the model to cite
+it like an excerpt).
+
+### D421. The turn gets all live facts up to 5, else the 5 nearest the standalone question; failure means none (3-memory 2, 2026-10-01)
+
+**Decided:** `memory.facts_for_prompt(user, turn.search_question)`, called only when the chat
+prompt is built (a floor answer looks nothing up). Memory off: no query and no embedding call.
+At most `MEMORY_PROMPT_FACTS` (5) live facts: all of them, no embedding call (as D402). More: the
+question is embedded and the 5 nearest live facts of the current embedding model are taken with
+the owner-scoped `similar_facts` (D402's query). An `EmbeddingError` or
+`EmbeddingTransientError` is logged and gives no facts -- it must not reach the task's autoretry,
+since a turn is never retried or failed for its memory. No similarity floor: 5 short sentences
+are cheap, and the prompt tells the model they are context. **Alternative:** reuse the search's
+query vector (one call fewer, but changes `retrieval.search`'s signature, and only users with
+more than 5 facts pay the extra call); a similarity floor (a threshold to tune with no
+evaluation set for facts yet).
+
+### D422. `User.memory_reset_at`: a fact is only written from a turn created after it (3-memory 2, 2026-10-01)
+
+**Decided:** a nullable timestamp on the user (accounts migration 0007), moved by "forget
+everything" and by `PATCH me/ {memory_enabled: false}` (every such PATCH, not only a change:
+harmless and simpler). `apply_operations` reads it under the user's row lock it already takes
+and writes nothing when `ask.created_at <= memory_reset_at`; `extract` checks it up front too,
+so a turn asked before a reset makes no provider call. This closes the race left by D401: an
+extraction in flight while the user forgets everything (its `add` would land after the delete),
+or switches memory off and on again (`memory_enabled` alone reads true again by the write).
+`forget_all` locks the user row *before* deleting, so an extraction mid-write (holding the lock)
+commits first and its facts are in the delete's snapshot; the guard test fails with the lock
+after the delete. Switching off needs no explicit lock: its UPDATE waits for the row lock the
+same way. Both clocks are the app servers'; a turn and a reset are serialised by the user lock
+(`create_turn` takes it too), so only clock skew between two servers within the same instant
+could misorder them. **Alternative:** a counter (`memory_epoch`) stamped on each turn when it is
+created (exact, but a column on `AskQuery` and a change to `create_turn` for a sub-millisecond
+case); deleting facts on switch-off (the plan keeps them: off means not learned and not used).
+
+### D423. The memory API: list live facts, delete any of your own, forget all; nothing writable (3-memory 2, 2026-10-01)
+
+**Decided:** `GET memory/facts/` lists the user's live facts (`id`, `text`, `kind`,
+`valid_until`, `created_at`), newest first with the usual id cursor; superseded and expired
+facts are not listed, as they are not used. `DELETE memory/facts/<id>/` deletes any fact of the
+user's (a superseded one too, if its id is known), owner-scoped in SQL, else 404 `not_found`;
+the facts it superseded go with it (D405). `DELETE memory/facts/` deletes all the user's facts,
+superseded ones included, moves the reset marker (D422) and leaves `memory_enabled` alone.
+No create or edit: facts come only from the user's own words through extraction (D400), so a
+client cannot plant one. The fact `kind` enum is `FactKindEnum` in the schema, and the app-open
+notice's keeps the name `KindEnum`. **Alternative:** a 404 for a superseded fact (a fact
+superseded while the list was on screen could not be deleted); a `POST` to add facts by hand
+(a second path into the prompt that skips the secret filter, D403).
+
+### D370. The stream endpoint is a DRF view returning an async body (2-streaming 2, 2026-10-01)
+
+**Decided:** `GET ask/<id>/stream/` is a synchronous DRF `APIView`: authentication (the API's
+JWT), throttles, the `{detail, code}` errors and the schema are the API's own. Under ASGI Django
+runs it in a worker thread (so nothing blocks the event loop), and it does only the ownership
+check; it returns a `StreamingHttpResponse` whose body is an async generator
+(`assistant/stream.py`) that the server drives on its event loop, so an open stream holds a
+coroutine and a Redis connection, never a thread -- and, since D510, no database connection
+between its reads of the row (before it, the request thread's connection stayed open with it). Errors are JSON whatever the client's `Accept`
+says (a content negotiation that always picks JSON), so `Accept: text/event-stream` cannot turn a
+404 into a 406. Opening a stream counts against the general `user` rate, like polling, not the
+`ask` scope. **Alternative:** an `async def` view that re-implements bearer auth, throttling and
+the error shape through `sync_to_async` (more code to keep in step, and drf-spectacular would not
+see it).
+
+**Amended (D510):** as first written this said only "a coroutine and a Redis connection", which
+was wrong: under ASGI the view and every row read run in the request's thread-sensitive thread,
+whose database connection Django kept until the response ended -- up to 5 minutes per stream. The
+view now closes it before returning, and each row read closes it after itself.
+
+### D371. The client gets contiguous deltas: the server dedupes by offset (2-streaming 2, 2026-10-01)
+
+**Decided:** events to the client are `snapshot {text, offset}` (first, for an unfinished ask),
+`delta {offset, text}`, `reset`, and exactly one last event: `done`/`failed {ask}` (the row as
+`GET ask/<id>/` returns it, taken from the worker's event or read from the row), `timeout` or
+`unavailable`. Each is `event: <type>` plus one `data:` line of JSON repeating `type`. The worker's
+`seq` is not passed on. The server keeps the text the client has (`Relay`) and sends only what
+extends it, cutting an overlapping delta, so the client just appends; `offset` is informational
+(code points, which JavaScript does not count). **Alternative:** relay the worker's events as they
+are and let each client dedupe (the same logic in the web client and later in Android, in UTF-16).
+
+### D372. Subscribe, confirmed, before reading the row; a gap is filled from the row (2-streaming 2, 2026-10-01)
+
+**Decided:** the stream waits for Redis to confirm `SUBSCRIBE` before it reads the row, so every
+later publish reaches it. Deltas published after the row's last save but before the subscription
+are in neither: a delta that starts beyond the client's text waits (`Relay.pending`) and the row
+is read again every `ASK_PARTIAL_SAVE_SECONDS` until its text fills the gap, then the waiting
+deltas follow. Row text is used only if it starts with the client's text (otherwise it is a newer
+run whose `reset` is on the way). **Alternative:** ask the worker to save on every delta (a write
+per word, D364); a Redis stream with replay (D363's alternative).
+
+### D373. Time limits: 15 s keep-alive, row re-checked every 10 s, 5-minute cap (2-streaming 2, 2026-10-01)
+
+**Decided:** a `: keep-alive` comment after `ASK_STREAM_HEARTBEAT_SECONDS` (15) without output.
+The row is read every `ASK_STREAM_RECHECK_SECONDS` (10): a finished row ends the stream (the
+sweeper failed the ask, or the worker could not reach Redis, so no event came), and running text
+the events never brought is sent. After `ASK_STREAM_MAX_SECONDS` (300) the stream ends with
+`timeout` and the client polls. All three are settings. **Alternative:** a cap as long as the task's
+worst case (about 50 minutes with retries, ASK_STUCK_AFTER_SECONDS) holds a connection for an answer
+that is almost certainly lost; re-checking more often costs a query per stream per interval.
+
+### D374. Without live events the stream still catches up, then says `unavailable` (2-streaming 2, 2026-10-01)
+
+**Decided:** events off (`ASK_EVENTS_REDIS_URL` empty), Redis unreachable when subscribing (0.5 s
+connect, 1.5 s for the confirmation), or the subscription failing mid-stream: the client gets what
+the row has (the end event for a finished ask, else a snapshot) and then `unavailable`, and polls.
+**Alternative:** a 503 before streaming (the subscription happens in the body, after the status
+is sent, and a finished ask needs no Redis at all); polling the row server-side every half second
+(the client already knows how to poll).
+
+### D375. Under WSGI the endpoint answers from the row only (2-streaming 2, 2026-10-01)
+
+**Decided:** served by `runserver` (a `WSGIRequest`), the endpoint returns the catch-up at once
+from the row: the end event, or a snapshot and `unavailable`. **Alternative:** the async body under
+WSGI, which Django buffers whole and sends only when the stream ends (up to the 5-minute cap), with
+a warning on every request.
+
+### D376. uvicorn serves everything; static files too while DEBUG (2-streaming 2, 2026-10-01)
+
+**Decided:** `config/asgi.py` wraps the app in `ASGIStaticFilesHandler` when `DEBUG` is on, so
+`uvicorn config.asgi:application --reload` replaces `runserver` in development (the admin and the
+Swagger UI keep their CSS). The README's run steps use it, with `runserver` still fine for anything
+but live streaming; the deploy note says to serve the API with uvicorn, without proxy buffering.
+**Alternative:** run both servers in development (two ports, and the web client has one base URL).
+
+### D377. A Redis connection per stream, made and closed with it; no cap on open streams yet (2-streaming 2, 2026-10-01)
+
+**Decided:** each stream opens its own asyncio Redis client and closes it (with the
+subscription) when the body ends, is closed or is cancelled because the client went away. No
+shared pool: an asyncio pool is bound to one event loop, and a subscribed connection serves only
+its channel anyway. Open streams per user are limited only by the request rate (a stream is one
+request); a per-user cap on concurrent streams is left until there is load to size it.
+**Alternative:** one shared subscription per process fanning out to streams (a router to write and
+test, for a saving that matters only at many concurrent streams).
+
+## D530 — Web review fixes (chat poll, reminders, push, a11y)
+- Chat polling is keyed by `id:epoch`, so leaving and re-entering a thread never skips the poll (alternative: clear the set on reset).
+- A sync response drops the reminder lists of notes with a reminder write newer than the request (alternative: re-apply pending writes afterwards).
+- An unchanged reminder due time is detected by comparing the form text with `toLocalInput(currentDue)` and the original `due_at` is kept, so seconds survive.
+- Format retry reuses the Idempotency-Key only if the note content is unchanged since the failed attempt (compared by the serialised doc, no new prop).
+- Push is released on auth loss and on sign-in as a different account; the reminder form defaults push to `usable && subscribed`.
+- Calendar day cells are `div role="group"`; `aria-live` on the format status only.
+
+### D500. A billed failure is its own error: `BilledChatError(ChatError)`, with its cost (conversation fixes, 2026-10-01)
+
+**Decided:** providers raise `chat.BilledChatError`, a `ChatError` subclass carrying `provider`,
+`model`, `input_tokens` and `output_tokens` (`.cost()`), for every failure after the vendor
+returned a response: a refusal, a cut-off answer, no text, an unexpected stop reason, OpenAI's
+`failed`/`incomplete`, Gemini's blocked prompt or non-`STOP` finish (stream or not). A plain
+`ChatError` now means rejected before generating (an HTTP 4xx, a missing key, an unreadable body,
+a non-transient stream error event). Condense and fold keep their system-limit use on a
+`BilledChatError` and record its cost; they refund only a plain `ChatError` or a
+`TransientChatError`. Existing `except ChatError` callers are unchanged. When the vendor's billing
+is unclear (OpenAI `failed`, Gemini blocked prompt), the use is kept: an over-counted system budget
+is the cheaper mistake.
+**Alternative:** a `billed` flag on `ChatError` (every raise site must remember it, and a missing
+flag silently means "free"); separate unrelated classes (would break every `except ChatError`).
+Not changed here: `memory.extract` and `notes/extraction.py` still refund on any `ChatError`
+(same pattern, outside this fix's scope).
+
+### D501. A turn condenses at most once: the attempt is marked before the call (conversation fixes, 2026-10-01)
+
+**Decided:** `prepare` stores the question as asked in `standalone_question` before calling the
+condenser, and replaces it with the rewrite on success. Any fallback (limit reached, provider
+failure, empty reply) leaves the mark, so a retry, a redelivery or a worker killed mid-call
+searches the question as asked and never pays again. A standalone question equal to the question
+now means "condensing was attempted and fell back".
+**Alternative:** mark only after a failed call (a crash mid-call would still condense twice); a
+separate boolean field (a migration for what the existing column already says).
+
+### D502. The condenser sees the conversation summary; `condense-v2` (conversation fixes, 2026-10-01)
+
+**Decided:** `build_condense_messages(question, turns, summary="")` puts a neutralised
+`<summary>` block before `<history>` when the conversation has one; `condense()` passes
+`ask.conversation.summary`. The prompt says a follow-up may point into the summary, and to prefer
+the history when both fit. `run_condenser` takes the summary as an optional argument, so the
+evaluation (no summaries) is unchanged.
+**Alternative:** fold the summary into the history as a pseudo-turn (blurs what the model is told
+is a question and an answer).
+
+### D503. History is sized in SQL for the fold check, and read newest-first only up to the budget (conversation fixes, 2026-10-01)
+
+**Decided:** `should_fold` is one `SUM(LENGTH(question) + LENGTH(answer))` over the done turns
+after `summary_through`. It counts the citation markers the prompt strips, so it may say yes a
+turn early; `fold()` still sizes the turns as the prompt does and folds nothing while they fit (a
+no-op task, no provider call). `history_for` reads done turns newest first, 16 at a time, and
+stops at the first turn that takes the total past the larger of `CHAT_HISTORY_MAX_CHARS` and
+`CHAT_CONDENSE_HISTORY_MAX_CHARS`, keeping that turn, so `fit_history` gives exactly what it gave
+with every turn loaded.
+**Alternative:** strip markers in SQL too (a regex in the database to match Python's); a server-side
+cursor (`iterator()`), which a transaction-pooling proxy would break.
+
+### D504. Only the numbers a turn cited are stripped from its answer; facts keep theirs as `(n)` (conversation fixes, 2026-10-01)
+
+**Decided:** `strip_markers(answer, cited)` removes a marker only if it names a number in
+`cited`, the turn's own `citations[].n` (`cited_in`), for history and for the memory extraction's
+answer. `[2024]`, a list's `[7]` or a marker pointing at no excerpt stay. Facts were stripped of
+any bracketed number; they cited nothing, so their numbers are kept, written `(2024)`, which keeps
+the D420 rule that nothing in `<facts>` looks citable.
+**Alternative:** leave facts' brackets as they are (a fact's `[1]` beside the excerpts could be
+cited); keep stripping facts entirely (loses the user's own text).
+
+### D505. A turn pending past `TURN_PENDING_STALE_SECONDS` (120) is failed by the next turn (conversation fixes, 2026-10-01)
+
+**Decided:** in `create_turn`, under the user lock, a previous turn still `pending` and older than
+`TURN_PENDING_STALE_SECONDS` is presumed lost (its message never reached a worker): a conditional
+UPDATE (still pending, still old) fails it with the sweeper's message, refunds its `chat_turns`
+use and publishes `failed` on commit, and the new turn proceeds. A worker that claimed it first
+makes it `running`, and `running` always blocks (it may be mid-answer, within its retries); a
+worker that arrives later finds it failed and does nothing.
+**Alternative:** lower `ASK_STUCK_AFTER_SECONDS` (it must outlast a running ask's retries); requeue
+the lost turn instead (two answers could race if the message was only slow, not lost).
+
+### D506. `eval_retrieval --by-kind`'s `n` is the answerable cases (conversation fixes, 2026-10-01)
+
+**Decided:** the `n` column counts the cases its scores average over, the answerable ones; a
+no-answer case in a kind no longer inflates it.
+**Alternative:** show answerable and no-answer counts side by side (wider table, for a case the
+fixtures do not have yet).
+
+**Amended (D511):** there is now a per-user cap, `STREAM_MAX_PER_USER` (3), counted in Redis.
+
+### D510. A stream gives its database connection back; it reconnects for each row read (review fixes, 2026-10-01)
+
+**Decided:** `AskStreamView` calls `stream.release_db_connection()` before returning the
+`StreamingHttpResponse`, and `_read_row` calls it in a `finally`. Under ASGI both run in the
+request's thread-sensitive thread, so this closes the one connection the stream would otherwise hold
+for up to `ASK_STREAM_MAX_SECONDS`. It does nothing inside a transaction (a `TestCase`), where
+closing would break the test's own connection. Each re-check (every 10 s, or every 0.5 s while a gap
+waits on the row) opens a fresh connection. The test counts the test database's backends while a
+stream is open under Django's own ASGI handler. **Alternative:** an `async` row read on the event loop
+(Django's async ORM still runs in a thread, with the same connection); `CONN_MAX_AGE`/pooling
+(keeps connections open by design, the opposite of the goal).
+
+### D511. At most `STREAM_MAX_PER_USER` (3) open streams per user, counted in Redis; one more is a 429 (review fixes, 2026-10-01)
+
+**Decided:** the view takes a slot before it builds the body: a Lua `INCR` of `ask-streams:<user>`
+in `ASK_EVENTS_REDIS_URL`'s Redis, refused past the cap (`429 too_many_streams`, JSON like the other
+errors). The body's `finally` releases it (`DECR`; the key is deleted at 0) when the stream ends, is
+closed, or is cancelled because the client went away; a release happens once. The safety net is
+the key's TTL, `ASK_STREAM_MAX_SECONDS` + 60 s, set only when a slot is granted, so a count leaked
+by a body that never started expires after every stream it could have counted, and a user retrying
+against a leaked count does not keep it alive. It fails open: cap 0, live events off, or Redis
+unreachable means no count (such a stream ends with `unavailable` at once anyway). Only the ASGI
+path counts; the WSGI catch-up answers at once. **Alternative:** a per-process counter (each
+uvicorn worker would allow 3); the general request rate alone (D377: does not bound open streams);
+failing closed when Redis is down (no stream could open, though polling works).
+
+### D512. A `failed` OpenAI response with a transient error is retried (review fixes, 2026-10-01)
+
+**Decided:** `check_status` raises `TransientChatError` for `status: "failed"` whose
+`error.code` or `error.type` is in `TRANSIENT_ERRORS` (server error, rate limit, overloaded...),
+as it already did for an `error` event; any other failure stays a `ChatError`. This covers both
+`complete` and a stream's `response.failed`. **Alternative:** retry every failed response (an
+invalid prompt would be paid for five times).
+
+### D513. A subscription cancelled while subscribing is closed before the cancel goes on (review fixes, 2026-10-01)
+
+**Decided:** `subscribe` closes the half-open Redis client quietly on any `BaseException`
+(the client going away cancels the body mid-`SUBSCRIBE`) and re-raises it; until it returns,
+the caller has nothing to close. **Alternative:** rely on garbage collection (redis' asyncio
+client warns and may leak the socket until then).
+
+### D514. The memory extraction gets the question only; `memory-v2` (review fixes, 2026-10-01)
+
+**Decided:** `build_memory_messages(question, facts)`: `<facts>` and `<question>`, no `<answer>`.
+The answer quotes notes and attachments, which may hold text pasted from anywhere; a prompt rule
+("context only") was the whole defence, and now the text is simply not sent. The prompt says the
+call does not see the answer or the notes, and that text the question only quotes teaches
+nothing. `MEMORY_ANSWER_MAX_CHARS` is removed. The cost: a short question that leans on the answer
+("yes, that one is mine") teaches less. **Alternative:** keep the answer behind the prompt rule
+(D400 as it was).
+
+### D515. A dynamic fact never updates or supersedes a static one: it is added beside it (review fixes, 2026-10-01)
+
+**Decided:** in `apply_operations`, an `update` or `supersede` with kind dynamic whose target is
+static is written as an `add` of the dynamic fact; the static fact is untouched and both stay live
+("User lives in Pune." and "User is in Goa."). The prompt says so too. A static update or
+supersede of either kind, and a dynamic one of a dynamic fact, are unchanged. **Alternative:** keep
+the target static and apply the new text (a passing state would be remembered for ever); drop the
+operation (loses what the user said).
+
+### D516. The purge never deletes a static fact because its replacement expired (review fixes, 2026-10-01)
+
+**Decided:** `superseded_by` stays CASCADE (D405: deleting a fact by hand still takes what it
+replaced). Before deleting expired facts, the purge clears `superseded_by` on static facts whose
+replacement has expired, so they are live again; and the retention purge skips a static fact
+superseded by a dynamic one. After D515 such pairs exist only from before it. Done in one
+transaction. No migration. **Alternative:** `SET_NULL` (deleting a fact by hand would bring back
+the contradicted one it replaced, D405's reason); delete such pairs whole (the lasting fact lost).
+
+### D517. The nearest facts are an exact sort of the user's live facts, never the HNSW index (review fixes, 2026-10-01)
+
+**Decided:** `similar_facts_queryset` orders by `distance + 0`, which the HNSW index cannot serve,
+so the planner reads the user's facts through the owner index (or a scan) and sorts them exactly.
+HNSW returns its `ef_search` nearest of every user's facts and filters after, so a user with a few
+facts among many users' close ones could get none. A user's live facts are few (at most 5 written
+per turn, dynamic ones expire, superseded ones are purged). The test drops the other indexes and
+disables sequential scans inside its transaction so HNSW is the planner's only cheap choice, with
+400 of another user's facts nearer the question. **Alternative:** `SET LOCAL enable_indexscan =
+off` (also turns off the owner index: a full-table scan); pgvector's iterative index scans (needs
+pgvector 0.8 and still stops at a tuple limit). The chunk search (D68) has the same shape and is not
+changed here.
+
+### D520. `image_text` is a per-user limit as well as a system one (fix-notes, 2026-10-01)
+
+**Decided:** `LIMIT_DEFAULTS["image_text"] = {"user_free": 50, "user_premium": 250, "system":
+5000, "period": "month"}` -- **the per-user values are proposed, owner to confirm**. The use is
+the owner's (`UsageEvent.user` is the attachment's owner), consumed by
+`services.consume_for_owner`, which locks the owner's row and consumes in that transaction, as
+every other per-user key is. Over the user's limit the attachment fails, without a call, with
+"You've reached this month's limit for reading text from images. Please try again next month."
+(over the system's, still "paused for now"). Refund on a failed call is unchanged. Reason:
+storage alone did not bound it -- upload, delete (storage refunded), upload again spent a vision
+call each time, so one account could use the whole system month. **Alternative:** system-only
+(D344, the defect); a per-user daily cap (a month matches every other model-call key).
+
+### D521. Negations, number words and relative dates are compared like numbers (fix-notes, 2026-10-01)
+
+**Decided:** a new rule in the format guardrail, after the date rule: the multiset of
+fact-bearing words (`FACT_WORDS`: not, no, never, don't, doesn't, didn't, won't, can't, cannot,
+isn't, aren't, wasn't, without; zero to twenty, thirty to ninety by tens, hundred, thousand, lakh,
+crore, million, half, once, twice; today, tomorrow, yesterday, tonight, next, last, ago) must be
+exactly the original's, else `fact_word_changed`. A curly apostrophe counts as a straight one.
+"Pay rent" -> "Do not pay rent", "five" -> "six", an added "tomorrow" all fail.
+**Amended (fix-notes review, 2026-10-01):** two common harmless rewrites pass. (1) "next" and
+"last" count only when the next word in the same text node is a time word (day, week, month,
+year, weekend, Monday-Sunday, morning, evening, night, time): an added "Next steps" or "last item"
+passes; an added "next week", or "next week" -> "last week", fails. (2) Negation contractions are
+spelt out before comparing, in the fact rule and in the word-overlap rules alike (don't -> do
+not, doesn't -> does not, didn't -> did not, won't -> will not, can't -> cannot, isn't -> is
+not, aren't -> are not, wasn't -> was not; curly forms too), so "do not" <-> "don't" passes and
+an added negation in either form still fails. A mark splitting "next" from "week" into two text
+nodes makes "next" not count (rare; a model rarely bolds half a phrase). **Alternative:** a
+negation/number-word list for warnings only (logs nobody reads); an NLI model (a dependency and
+a model call for a check that must be cheap and certain).
+
+### D522. An absolute cap on new words besides the ratio (fix-notes, 2026-10-01)
+
+**Decided:** besides precision (`FORMAT_MIN_WORDS_ORIGINAL`), the result's new distinct words
+(typo fixes not counted) may number at most `max(FORMAT_NEW_WORDS_FLOOR, FORMAT_NEW_WORDS_SHARE x
+the original's distinct words)`: 8 and 0.05 by default, settings, passed to the pure
+`check_format` as `new_words_floor`/`new_words_share`. In a 150-word note the ratio alone allowed
+some 35 new words, a whole invented paragraph; the cap allows 8. A few headings still pass.
+**Alternative:** tightening the ratio (still scales with length; and fails short notes with one
+heading).
+
+### D523. The guardrail's numbers come from the document, not derived text (fix-notes, 2026-10-01)
+
+**Decided:** numbers are read from the text nodes (joined per textblock, so a mark splitting
+"4500" is still one number; split on hard breaks), plus the item numbers of an ordered list whose
+`start` is not 1. List-marker numbers are no longer stripped by regex, so "250) deposit" ->
+"500) deposit" fails, and so does re-basing `start: 12` -> `start: 1`. One allowance keeps the
+guard's "typed numbering becomes a real list": a number typed as a line's marker ("2) ") may
+disappear where a real list starting at 1 gains that position, and the reverse. A list starting
+at 1 adds no numbers (paragraphs -> numbered list still passes). Words still come from
+`content_to_text`. **Alternative:** counting every list's item numbers (then paragraphs ->
+numbered list "adds" 1, 2, 3 and fails); comparing only `start` (typed "12. a / 13. b" -> a list
+from 12 would fail on the 13).
+
+### D524. Text already read from the same bytes is reused (fix-notes, 2026-10-01)
+
+**Decided:** before reading a file, `run` looks for an earlier attachment of the **same owner**
+with the same `sha256` that is `ready` -- on any note, deleted or not (a soft-deleted row keeps
+its text) -- and takes its `extracted_text`: no file read, no model call, no `image_text` use.
+An empty text is a real answer (no words in the image) and is reused too. A `failed` one is not.
+Never another owner's: identical bytes are not permission to read someone else's row.
+**Alternative:** live attachments only (then delete-and-upload pays again, the loop D520 closes);
+a cache keyed by hash alone across users (leaks whether another user has the file).
+
+### D525. A fact word may stand for a typo it fixed (fix-notes, 2026-10-01)
+
+**Decided:** D521 would refuse the existing "tomorow" -> "tomorrow" typo fix. So a fact word the
+result adds may pair with an original word that is gone from the result, is a near spelling (the
+guard's typo rule: ratio 0.8, four letters or more) and is **not itself a fact word** -- so
+"seventy" -> "seven" still fails. More than 5 added fact words are never typo fixes (and pairing
+them would be slow). **Alternative:** no allowance (a typo fix in a date word fails, and the
+existing test with it).
+
+### D526. A push endpoint moves to another account only with its keys (fix-notes, 2026-10-01)
+
+**Decided:** registering an endpoint that belongs to another account moves the row only when the
+posted `p256dh` and `auth` equal the stored ones (compared in constant time); otherwise 409
+`endpoint_in_use` and nothing changes. The same account may re-key its own endpoint as before.
+The row is locked (`select_for_update`); a concurrent first registration that wins the unique
+constraint is decided again. Reason: an endpoint is not secret (it travels to the push service
+and into logs); the keys exist only in the browser that subscribed, so they prove the caller is
+that browser with another account signed in -- the case D87 meant. **Alternative:** never move
+(a shared browser's second account would get 409 for ever until the first unsubscribes); move
+always (the defect: anyone who learns an endpoint takes another person's reminders).
+
+### D527. Network timeouts on web push and mail: 10 seconds (fix-notes, 2026-10-01)
+
+**Decided:** `webpush(..., timeout=10)` (`accounts.push.WEBPUSH_TIMEOUT_SECONDS`) and
+`EMAIL_TIMEOUT` (env, default 10). Both had none: a push service or SMTP server that accepts the
+connection and never answers held a reminder-delivery worker until the task's hard limit, or for
+ever. A timeout is an ordinary failure, recorded and retried as before. **Alternative:** rely on
+the Celery time limits (they kill the worker process, not the one call).
+
+### D528. The upload counts its own bytes; the proxy limit is documented (fix-notes, 2026-10-01)
+
+**Decided:** `UploadCapHandler` (notes/api/attachments.py) is put first in the attachment
+upload's handler chain (`initialize_request`, POST only). It counts the files' bytes as the
+multipart parser hands them over and raises 413 `too_large` once they pass `ATTACHMENT_MAX_BYTES
++ ATTACHMENT_UPLOAD_HEADROOM_BYTES` (64 KB), whatever Content-Length said. It raises rather than
+`StopUpload`, which would give the view a truncated file that passes the size check. Under
+uvicorn the server reads the whole body before Django runs, so the README now tells the deployer
+to set the reverse proxy's body limit to about 10.1 MB. **Alternative:** a global
+`FILE_UPLOAD_HANDLERS` entry (every view would count against the attachment cap); a raw ASGI
+middleware counting body messages (a second, lower-level code path for what the proxy does
+better).
+
+### D529. `image_text` is not shown in `me/` yet (fix-notes, 2026-10-01)
+
+**Decided:** `USER_KEYS` (what `me/` reports) is unchanged: adding `image_text` changes the API
+schema and needs the web client to show it, which is a product call. A user at the limit sees it
+on the attachment's `error`. **Needs the owner:** whether to list it (and where in the UI).
+**Alternative:** add it to `me/` now (a schema change no client renders).

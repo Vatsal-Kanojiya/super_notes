@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
@@ -15,28 +14,59 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='AskQuery',
+            name="AskQuery",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('question', models.CharField(max_length=1000)),
-                ('status', models.CharField(choices=[('pending', 'Pending'), ('running', 'Running'), ('done', 'Done'), ('failed', 'Failed')], default='pending', max_length=10)),
-                ('answer', models.TextField(blank=True)),
-                ('citations', models.JSONField(blank=True, default=list)),
-                ('retrieved', models.JSONField(blank=True, default=list)),
-                ('error', models.CharField(blank=True, max_length=255)),
-                ('provider', models.CharField(blank=True, max_length=20)),
-                ('model', models.CharField(blank=True, max_length=100)),
-                ('prompt_version', models.CharField(blank=True, max_length=50)),
-                ('input_tokens', models.PositiveIntegerField(default=0)),
-                ('output_tokens', models.PositiveIntegerField(default=0)),
-                ('idempotency_key', models.CharField(max_length=100)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('completed_at', models.DateTimeField(blank=True, null=True)),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='asks', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("question", models.CharField(max_length=1000)),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending"),
+                            ("running", "Running"),
+                            ("done", "Done"),
+                            ("failed", "Failed"),
+                        ],
+                        default="pending",
+                        max_length=10,
+                    ),
+                ),
+                ("answer", models.TextField(blank=True)),
+                ("citations", models.JSONField(blank=True, default=list)),
+                ("retrieved", models.JSONField(blank=True, default=list)),
+                ("error", models.CharField(blank=True, max_length=255)),
+                ("provider", models.CharField(blank=True, max_length=20)),
+                ("model", models.CharField(blank=True, max_length=100)),
+                ("prompt_version", models.CharField(blank=True, max_length=50)),
+                ("input_tokens", models.PositiveIntegerField(default=0)),
+                ("output_tokens", models.PositiveIntegerField(default=0)),
+                ("idempotency_key", models.CharField(max_length=100)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("completed_at", models.DateTimeField(blank=True, null=True)),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="asks",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'indexes': [models.Index(fields=['user', 'created_at'], name='ask_user_created'), models.Index(fields=['user', '-id'], name='ask_user_id')],
-                'constraints': [models.UniqueConstraint(fields=('user', 'idempotency_key'), name='ask_user_idempotency_key')],
+                "indexes": [
+                    models.Index(fields=["user", "created_at"], name="ask_user_created"),
+                    models.Index(fields=["user", "-id"], name="ask_user_id"),
+                ],
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("user", "idempotency_key"), name="ask_user_idempotency_key"
+                    )
+                ],
             },
         ),
     ]

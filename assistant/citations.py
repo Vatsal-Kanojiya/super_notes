@@ -23,6 +23,8 @@ from .prompt import Excerpt
 
 # "[1]", "[1, 2]", "[1;2]", "[1-3]", "[1–3]" (en dash), with any spacing.
 _MARKER = re.compile(r"\[\s*(\d+(?:\s*[,;\-–]\s*\d+)*)\s*\]")
+# Public for stripping markers out of an earlier answer (assistant/conversation.py).
+MARKER = _MARKER
 _PART = re.compile(r"(\d+)(?:\s*[\-–]\s*(\d+))?")
 
 # How much of the excerpt a citation shows: enough to recognise the
@@ -56,7 +58,11 @@ def cited_numbers(answer: str, valid: set[int] | None = None) -> list[int]:
 
 
 def parse_citations(answer: str, excerpts: list[Excerpt]) -> list[dict]:
-    """The AskQuery.citations list: ``{n, note_id, chunk_id, title, snippet}``."""
+    """The AskQuery.citations list.
+
+    ``{n, note_id, chunk_id, title, attachment_id, attachment_name, snippet}``;
+    the attachment's id and file name are null for a note's own text (D348).
+    """
     by_number = {excerpt.n: excerpt for excerpt in excerpts}
     return [
         {
@@ -64,6 +70,8 @@ def parse_citations(answer: str, excerpts: list[Excerpt]) -> list[dict]:
             "note_id": by_number[n].note_id,
             "chunk_id": by_number[n].chunk_id,
             "title": by_number[n].title,
+            "attachment_id": by_number[n].attachment_id,
+            "attachment_name": by_number[n].attachment_name,
             "snippet": snippet(by_number[n].text),
         }
         for n in cited_numbers(answer, set(by_number))

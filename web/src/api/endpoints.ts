@@ -7,8 +7,11 @@ import type {
   AskQuery,
   AskRequest,
   ChangesResponse,
+  Conversation,
+  ConversationDetail,
   CursorPage,
   Device,
+  FormatJob,
   Id,
   Me,
   MeUpdateRequest,
@@ -16,10 +19,15 @@ import type {
   NoteCreateRequest,
   NoteListParams,
   NoteUpdateRequest,
+  PushSubscriptionRequest,
+  Reminder,
+  ReminderInRange,
+  ReminderWriteRequest,
   SearchHit,
   SearchParams,
   SessionOpenResponse,
   SignInResponse,
+  VapidKey,
 } from './types'
 
 export const authApi = {
@@ -68,4 +76,51 @@ export const askApi = {
     request<AskQuery>('ask/', { method: 'POST', body, headers: { 'Idempotency-Key': idempotencyKey } }),
   get: (id: Id) => request<AskQuery>(`ask/${id}/`),
   list: (cursor?: string) => request<CursorPage<AskQuery>>('ask/', { query: { cursor } }),
+}
+
+export const remindersApi = {
+  create: (noteId: Id, body: ReminderWriteRequest & { due_at: string }) =>
+    request<Reminder>(`notes/${noteId}/reminders/`, { method: 'POST', body }),
+  update: (id: Id, body: ReminderWriteRequest) => request<Reminder>(`reminders/${id}/`, { method: 'PATCH', body }),
+  done: (id: Id) => request<Reminder>(`reminders/${id}/done/`, { method: 'POST' }),
+  remove: (id: Id) => request<void>(`reminders/${id}/`, { method: 'DELETE' }),
+  /** Reminders with a notification in [from, to) (at most 62 days), with those notifications. */
+  range: (from: string, to: string) =>
+    request<{ results: ReminderInRange[] }>('reminders/', { query: { from, to } }),
+}
+
+export const pushApi = {
+  /** 404 means web push is off on this server. */
+  vapidKey: () => request<VapidKey>('push/vapid-key/'),
+  subscribe: (body: PushSubscriptionRequest) => request<void>('me/push-subscriptions/', { method: 'POST', body }),
+  unsubscribe: (endpoint: string) =>
+    request<void>('me/push-subscriptions/', { method: 'DELETE', body: { endpoint } }),
+}
+
+export const formatApi = {
+  /** Starts a format job; the note is not changed. A fresh `Idempotency-Key` per request. */
+  create: (noteId: Id, idempotencyKey: string) =>
+    request<FormatJob>(`notes/${noteId}/format/`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey } }),
+  get: (id: Id) => request<FormatJob>(`format-jobs/${id}/`),
+}
+
+export const conversationsApi = {
+  list: (cursor?: string) => request<CursorPage<Conversation>>('conversations/', { query: { cursor } }),
+  /** Empty (201), or with a question asked as turn 1 (needs the key; 201, or 200 for a replayed key). */
+  create: (question?: string, idempotencyKey?: string) =>
+    request<ConversationDetail>('conversations/', {
+      method: 'POST',
+      body: question === undefined ? {} : { question },
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+    }),
+  get: (id: Id) => request<ConversationDetail>(`conversations/${id}/`),
+  rename: (id: Id, title: string) => request<Conversation>(`conversations/${id}/`, { method: 'PATCH', body: { title } }),
+  remove: (id: Id) => request<void>(`conversations/${id}/`, { method: 'DELETE' }),
+  /** 202 with the pending turn, 200 for a replayed key, 409 `turn_in_progress` while the last turn runs. */
+  ask: (id: Id, question: string, idempotencyKey: string) =>
+    request<AskQuery>(`conversations/${id}/turns/`, {
+      method: 'POST',
+      body: { question },
+      headers: { 'Idempotency-Key': idempotencyKey },
+    }),
 }

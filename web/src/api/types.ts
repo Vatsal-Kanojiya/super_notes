@@ -51,9 +51,23 @@ export interface AskUsage {
   resets_at: DateTime | null
 }
 
+/** Use and limit of one limit key (`limits` in `me/`); same fields as `AskUsage`. */
+export type LimitUsage = AskUsage
+
+/** `limits` in `me/`: one entry per user-facing limit key (D84). */
+export interface UserLimits {
+  /** Asks and chat turns, per month. */
+  chat_turns: LimitUsage
+  format: LimitUsage
+  summary: LimitUsage
+  storage_bytes: LimitUsage
+}
+
 /** `GET me/`; the sign-in response's `user` has the same shape. */
 export interface Me extends User {
   ask_usage: AskUsage
+  /** Every user-facing limit (D84); `chat_turns` is what a chat turn counts against. */
+  limits: UserLimits
   /** An IANA name; the server's default is Asia/Kolkata. */
   timezone: string
   memory_enabled: boolean
@@ -147,6 +161,12 @@ export interface Note {
   updated_at: DateTime
   /** Always null on a live note (every endpoint except `changes` leaves deleted ones out). */
   deleted_at: DateTime | null
+  /**
+   * Only `notes/changes/` carries these (all of the note's live reminders, so
+   * replace, never merge). A note fetched any other way leaves them out; the
+   * notes store keeps the ones it already holds.
+   */
+  reminders?: Reminder[]
 }
 
 /** A deleted note, as `changes` reports it: no title, content or content_text. */
@@ -242,6 +262,10 @@ export interface Citation {
 
 export interface AskQuery {
   id: Id
+  /** The conversation this is a turn of; null for a plain ask. */
+  conversation: Id | null
+  /** The turn's number in its conversation, from 1; null for a plain ask. */
+  position: number | null
   question: string
   status: AskStatus
   answer: string
@@ -260,4 +284,112 @@ export interface AskRequest {
 export interface QuotaExceededBody extends AskUsage {
   detail: string
   code: 'quota_exceeded'
+}
+
+// ------------------------------------------------------------- reminders --
+
+export type ReminderChannel = 'email' | 'push'
+export type ReminderStatus = 'scheduled' | 'done' | 'cancelled'
+
+/** A reminder, as every reminder endpoint (and `changes`) returns it. */
+export interface Reminder {
+  id: Id
+  /** The note's id. */
+  note: Id
+  /** The due instant (UTC, with offset). */
+  due_at: DateTime
+  /** 0-30: daily heads-ups for this many days before, then the due day itself. */
+  lead_days: number
+  channels: ReminderChannel[]
+  status: ReminderStatus
+  created_at: DateTime
+  updated_at: DateTime
+}
+
+/** `POST notes/<id>/reminders/` (due_at required) and `PATCH reminders/<id>/` (any of them). */
+export interface ReminderWriteRequest {
+  due_at?: DateTime
+  lead_days?: number
+  channels?: ReminderChannel[]
+}
+
+/** One item of `GET reminders/?from=&to=`: the reminder with its notification times in the range. */
+export interface ReminderInRange {
+  reminder: Reminder
+  note_title: string
+  occurrences: DateTime[]
+}
+
+// ------------------------------------------------------------------ push --
+
+/** `GET push/vapid-key/` (404 when web push is off on this server). */
+export interface VapidKey {
+  public_key: string
+}
+
+/** `POST me/push-subscriptions/`: the browser's `PushSubscription.toJSON()`, flattened. */
+export interface PushSubscriptionRequest {
+  endpoint: string
+  p256dh: string
+  auth: string
+}
+
+// ---------------------------------------------------------------- format --
+
+export type FormatStatus = AskStatus
+
+/**
+ * `POST notes/<id>/format/` (with an `Idempotency-Key` header) → 202, or 200 for a replayed key;
+ * `GET format-jobs/<id>/`. There is no apply endpoint: Apply is `PATCH notes/<id>/` with
+ * `content = proposed_content` and `version = base_version`.
+ */
+export interface FormatJob {
+  id: Id
+  note_id: Id
+  status: FormatStatus
+  /** The note's version the proposal was made from. */
+  base_version: number
+  /** The restructured document once `status` is `done`, else null. */
+  proposed_content: DocNode | null
+  /** Set on a failed job; branch on it, show `error`. */
+  error_code: string
+  /** User-facing message of a failed job. */
+  error: string
+  created_at: DateTime
+  completed_at: DateTime | null
+}
+
+/** 429 `quota_exceeded` of the format POST: the `format` limit's numbers. */
+export interface FormatQuotaBody extends LimitUsage {
+  detail: string
+  code: 'quota_exceeded'
+}
+
+// --------------------------------------------------------- conversations --
+
+export interface Conversation {
+  id: Id
+  /** The first question, shortened, until renamed. Blank until the first turn. */
+  title: string
+  created_at: DateTime
+  /** When the last turn was asked; the list is ordered by it. */
+  updated_at: DateTime
+}
+
+/** `GET conversations/<id>/`, and the reply of `POST conversations/`: the turns, oldest first. */
+export interface ConversationDetail extends Conversation {
+  turns: AskQuery[]
+}
+
+/** `POST conversations/`: with a `question` it is asked as turn 1 (and needs an `Idempotency-Key`). */
+export interface ConversationCreateRequest {
+  question?: string
+}
+
+/** 409 body of `POST conversations/<id>/turns/` while the previous turn is unfinished. */
+export interface TurnInProgressBody {
+  detail: string
+  code: 'turn_in_progress'
+  /** The unfinished turn: poll `GET ask/<turn>/`. */
+  turn: Id
 }

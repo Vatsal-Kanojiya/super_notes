@@ -215,17 +215,140 @@ CELERY_BEAT_SCHEDULE = {
         "task": "assistant.tasks.sweep_stuck_asks",
         "schedule": 5 * 60,
     },
+    # The same net for "format my note" jobs (notes/tasks.py).
+    "sweep-stuck-format-jobs": {
+        "task": "notes.tasks.sweep_stuck_format_jobs",
+        "schedule": 5 * 60,
+    },
+    # And for attachments whose text extraction never finished.
+    "sweep-stuck-attachments": {
+        "task": "notes.tasks.sweep_stuck_attachments",
+        "schedule": 5 * 60,
+    },
+    # Expired dynamic facts and old superseded ones (assistant/memory.py, D406).
+    "purge-expired-facts": {
+        "task": "assistant.tasks.purge_expired_facts",
+        "schedule": 24 * 60 * 60,
+    },
+    # Reminders notify on the minute (D95). A sweep claims each occurrence
+    # once (notes/delivery.py), so an overlapping or repeated run is
+    # harmless; one that waited past the next run is dropped.
+    "deliver-due-reminders": {
+        "task": "notes.tasks.deliver_due_reminders",
+        "schedule": 60,
+        "options": {"expires": 55},
+    },
 }
+
+# A reminder occurrence missed by more than this (the worker was down) is
+# not sent late at all (DECISIONS D136).
+REMINDER_MISSED_GRACE_HOURS = env.int("REMINDER_MISSED_GRACE_HOURS", default=24)
 
 
 # Upload size
 #
-# Nothing here accepts files; the largest body is a note, whose serialized
-# TipTap content the serializer caps at NOTE_CONTENT_MAX_BYTES. The request
-# limit leaves headroom above that for the title and the JSON around it,
-# and MaxUploadSizeMiddleware refuses anything larger from the header alone.
+# Apart from attachment uploads (below), the largest body is a note, whose
+# serialized TipTap content the serializer caps at NOTE_CONTENT_MAX_BYTES.
+# The request limit leaves headroom above that for the title and the JSON
+# around it, and MaxUploadSizeMiddleware refuses anything larger from the
+# header alone.
 NOTE_CONTENT_MAX_BYTES = 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = NOTE_CONTENT_MAX_BYTES + 512 * 1024
+
+# Attachments (notes/attachments.py, DECISIONS D85, D91, D320-D330). The one
+# endpoint that takes a file gets its own, larger body limit: one file of up
+# to ATTACHMENT_MAX_BYTES plus the multipart envelope around it (boundaries,
+# part headers, the file name). MaxUploadSizeMiddleware looks the request's
+# view up only when a body is over DATA_UPLOAD_MAX_MEMORY_SIZE, and allows
+# it only for a view named here, on POST.
+ATTACHMENT_MAX_BYTES = env.int("ATTACHMENT_MAX_BYTES", default=10 * 1024 * 1024)
+# Room above the file for the multipart envelope (boundaries, part headers).
+ATTACHMENT_UPLOAD_HEADROOM_BYTES = 64 * 1024
+UPLOAD_SIZE_ALLOWANCES = {
+    "api:v1:note-attachments": ATTACHMENT_MAX_BYTES + ATTACHMENT_UPLOAD_HEADROOM_BYTES
+}
+# The header check is cheap but trusts the header. The upload view also
+# counts the bytes as they are parsed (UploadCapHandler, D528) and stops at
+# ATTACHMENT_MAX_BYTES + ATTACHMENT_UPLOAD_HEADROOM_BYTES, whatever
+# Content-Length said; the reverse proxy's body limit (README) is the
+# outermost guard.
+
+# Text extraction (notes/extraction.py, DECISIONS D340-D349). After an upload
+# a worker reads the file's text -- a PDF's with pypdf, an image's through the
+# chat provider's vision call -- and indexes it for search and Ask. Every cap
+# bounds what one hostile file can cost: a PDF's pages read, the text kept,
+# the bytes any one compressed stream may inflate to (a "zip bomb" in a PDF),
+# and the task's own time.
+ATTACHMENT_PDF_MAX_PAGES = env.int("ATTACHMENT_PDF_MAX_PAGES", default=100)
+# About 25,000 tokens, or some 60 chunks to embed; the rest of a longer file
+# is not searched.
+ATTACHMENT_TEXT_MAX_CHARS = env.int("ATTACHMENT_TEXT_MAX_CHARS", default=100_000)
+# pypdf's own ceiling is 75 MB per stream; a page's text needs far less.
+ATTACHMENT_PDF_MAX_STREAM_BYTES = env.int(
+    "ATTACHMENT_PDF_MAX_STREAM_BYTES", default=20 * 1024 * 1024
+)
+# The largest image sent to the vision call. Claude takes at most 5 MB per
+# image; a larger one fails with a clear message instead of a vendor 400.
+ATTACHMENT_IMAGE_TEXT_MAX_BYTES = env.int(
+    "ATTACHMENT_IMAGE_TEXT_MAX_BYTES", default=5 * 1024 * 1024
+)
+# The ceiling on an image's transcribed text (about 16,000 characters).
+ATTACHMENT_IMAGE_TEXT_MAX_OUTPUT_TOKENS = env.int(
+    "ATTACHMENT_IMAGE_TEXT_MAX_OUTPUT_TOKENS", default=4096
+)
+# The extraction task's own limits, tighter than the default task's: the soft
+# one fails the attachment cleanly, the hard one kills a stuck parser.
+ATTACHMENT_EXTRACT_SOFT_TIME_LIMIT = env.int("ATTACHMENT_EXTRACT_SOFT_TIME_LIMIT", default=120)
+ATTACHMENT_EXTRACT_TIME_LIMIT = env.int("ATTACHMENT_EXTRACT_TIME_LIMIT", default=180)
+# An attachment still pending or extracting this long after its upload is
+# failed by notes.tasks.sweep_stuck_attachments: a lost task message, or a
+# worker killed at the hard limit. It outlasts every retry (6 attempts of at
+# most 180 s, with at most 10 minutes of backoff between them).
+ATTACHMENT_STUCK_AFTER_SECONDS = env.int("ATTACHMENT_STUCK_AFTER_SECONDS", default=60 * 60)
+
+
+# File storage (DECISIONS D85, D320)
+#
+# Attachments live in their own storage alias. With AWS_STORAGE_BUCKET_NAME
+# set it is S3 (django-storages): a private bucket, objects written without
+# an ACL (the bucket's own policy decides, and it should block public
+# access), never served by URL. boto3 reads its credentials from its usual
+# chain (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, an instance role...),
+# never a setting here. Without a bucket, local disk under MEDIA_ROOT, which
+# no URL serves: there is no MEDIA_URL route, and the only way to a file's
+# bytes is the owner-scoped download endpoint. Either way the stored name is
+# random, never the client's. The test runner always swaps in a temp dir.
+MEDIA_ROOT = env("MEDIA_ROOT", default=str(BASE_DIR / "media"))
+AWS_STORAGE_BUCKET_NAME = env("AWS_STORAGE_BUCKET_NAME", default="")
+if AWS_STORAGE_BUCKET_NAME:
+    _attachment_storage = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {
+            "bucket_name": AWS_STORAGE_BUCKET_NAME,
+            "region_name": env("AWS_S3_REGION_NAME", default="") or None,
+            # For an S3-compatible service (MinIO, R2...); empty is AWS itself.
+            "endpoint_url": env("AWS_S3_ENDPOINT_URL", default="") or None,
+            "default_acl": None,
+            "querystring_auth": True,
+            "file_overwrite": False,
+            "location": env("AWS_S3_LOCATION", default=""),
+        },
+    }
+else:
+    _attachment_storage = {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        # 0o600/0o700: readable by the app's own user only.
+        "OPTIONS": {
+            "location": MEDIA_ROOT,
+            "file_permissions_mode": 0o600,
+            "directory_permissions_mode": 0o700,
+        },
+    }
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    "attachments": _attachment_storage,
+}
 
 
 # Security
@@ -277,6 +400,36 @@ ADMINS = [
 ]
 EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
 SERVER_EMAIL = env("SERVER_EMAIL", default="no-reply@super-notes.local")
+# The sender of mail to users (reminders); SERVER_EMAIL is for admin mail.
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=SERVER_EMAIL)
+# Seconds the SMTP backend waits on the mail server before giving up, so a
+# hung server cannot hold a reminder delivery's worker for ever (D527).
+# Django's default is no timeout at all.
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=10)
+
+# Where the web client is served, for links in mail ("open the note").
+# No trailing slash.
+WEB_APP_URL = env("WEB_APP_URL", default="http://localhost:5173").rstrip("/")
+
+# Web push (reminders, D87). Push is on only when both keys are set; make
+# a pair with ``manage.py generate_vapid_keys``. The subject is a mailto: or
+# https: contact the push service can reach.
+VAPID_PUBLIC_KEY = env("VAPID_PUBLIC_KEY", default="")
+VAPID_PRIVATE_KEY = env("VAPID_PRIVATE_KEY", default="")
+# Hosts a push endpoint may point at: the server POSTs to it, so an open
+# list would be an SSRF hole. Exact host, or ``*.suffix`` for subdomains.
+PUSH_ENDPOINT_HOSTS = env.list(
+    "PUSH_ENDPOINT_HOSTS",
+    default=[
+        "fcm.googleapis.com",
+        "updates.push.services.mozilla.com",
+        "*.push.services.mozilla.com",
+        "*.notify.windows.com",
+        "web.push.apple.com",
+        "*.push.apple.com",
+    ],
+)
+VAPID_SUBJECT = env("VAPID_SUBJECT", default=f"mailto:{SERVER_EMAIL}")
 
 
 # Logging
@@ -362,6 +515,9 @@ REST_FRAMEWORK = {
         "auth": env("API_AUTH_THROTTLE", default="30/hour"),
         "search": env("API_SEARCH_THROTTLE", default="120/hour"),
         "ask": env("API_ASK_THROTTLE", default="60/hour"),
+        "format": env("API_FORMAT_THROTTLE", default="30/hour"),
+        # Attachment uploads: each costs storage and, later, an extraction.
+        "upload": env("API_UPLOAD_THROTTLE", default="120/hour"),
     },
     # Unset, DRF identifies an anonymous caller by the whole X-Forwarded-For
     # header -- which the caller writes.
@@ -426,6 +582,17 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": r"/api/v1",
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    # Four models have a `status`: asks and format jobs share one choice set
+    # (StatusEnum); a reminder's and an attachment's are their own.
+    "ENUM_NAME_OVERRIDES": {
+        "StatusEnum": "assistant.models.AskQuery.Status",
+        "ReminderStatusEnum": "notes.models.Reminder.Status",
+        "AttachmentStatusEnum": "notes.models.Attachment.Status",
+        # Two `kind`s: an app-open notice's keeps the name it had first.
+        "KindEnum": ["update", "memory"],
+        "FactKindEnum": "assistant.models.UserFact.Kind",
+        "ChunkSourceEnum": "retrieval.models.NoteChunk.Source",
+    },
 }
 
 
@@ -465,9 +632,32 @@ CHAT_MODELS = {
 # A ceiling on the answer, which is a few cited sentences. OpenAI counts its
 # reasoning tokens against this too, so it is not set tighter.
 CHAT_MAX_OUTPUT_TOKENS = env.int("CHAT_MAX_OUTPUT_TOKENS", default=2048)
-# Read timeout of one provider call, in seconds. A timeout is transient
-# (retried); CELERY_TASK_SOFT_TIME_LIMIT still bounds the whole task.
+# Read timeout of one provider call, in seconds -- for a streamed answer, the
+# longest wait between two pieces of it. A timeout is transient (retried);
+# CELERY_TASK_SOFT_TIME_LIMIT still bounds the whole task.
 CHAT_TIMEOUT_SECONDS = env.int("CHAT_TIMEOUT_SECONDS", default=60)
+
+# Streaming answers (assistant/events.py, DECISIONS D363-D366). The answer
+# task publishes its progress on Redis pub/sub, channel ask:<id>; empty turns
+# that off, and polling works either way. Pub/sub ignores the database
+# number, so the broker's Redis is the natural default.
+ASK_EVENTS_REDIS_URL = env("ASK_EVENTS_REDIS_URL", default=CELERY_BROKER_URL)
+# The text streamed so far is saved on the ask (partial_answer) at most this
+# often, so a reader that connects mid-answer can catch up from the row.
+ASK_PARTIAL_SAVE_SECONDS = env.float("ASK_PARTIAL_SAVE_SECONDS", default=0.5)
+# GET ask/<id>/stream/ (assistant/stream.py, DECISIONS D370-D377), served
+# under uvicorn. A stream closes with a "timeout" event after this long, and
+# the client goes on by polling: the answer task can take minutes, but an
+# open stream should not outlive it by much.
+ASK_STREAM_MAX_SECONDS = env.float("ASK_STREAM_MAX_SECONDS", default=300)
+# A comment line after this long without output, so a proxy keeps it open.
+ASK_STREAM_HEARTBEAT_SECONDS = env.float("ASK_STREAM_HEARTBEAT_SECONDS", default=15)
+# How often an open stream reads its ask again, so one that ends without an
+# event (swept as stuck, or the worker could not reach Redis) still ends it.
+ASK_STREAM_RECHECK_SECONDS = env.float("ASK_STREAM_RECHECK_SECONDS", default=10)
+# Streams one user may have open at once, counted in ASK_EVENTS_REDIS_URL's
+# Redis (DECISIONS D511); one more is a 429 too_many_streams. 0 turns the cap off.
+STREAM_MAX_PER_USER = env.int("STREAM_MAX_PER_USER", default=3)
 
 # An ask still pending or running this long after it was made is failed by
 # assistant.tasks.sweep_stuck_asks. It must outlast every way a live ask
@@ -476,6 +666,35 @@ CHAT_TIMEOUT_SECONDS = env.int("CHAT_TIMEOUT_SECONDS", default=60)
 # backoff between them -- 3,015 s. One hour leaves about 10 minutes for
 # queueing behind a backlog, so a slow ask is never failed under a worker.
 ASK_STUCK_AFTER_SECONDS = env.int("ASK_STUCK_AFTER_SECONDS", default=60 * 60)
+# A conversation turn still *pending* -- never claimed by a worker -- this
+# long after it was made is presumed lost (its Celery message never
+# arrived), and the next turn of its conversation fails and refunds it
+# instead of answering 409 for the hour above (DECISIONS D505). A worker
+# claims a turn within seconds; this leaves room for a short backlog. A
+# turn a worker has claimed (running) still blocks.
+TURN_PENDING_STALE_SECONDS = env.int("TURN_PENDING_STALE_SECONDS", default=120)
+
+# Format my note (notes/format_*.py, tasks.py; DECISIONS D240-D249). Uses per month
+# are the `format` limit in LIMIT_DEFAULTS.
+#
+# The guardrail on a formatted note: the share of the original's words the
+# result keeps (recall), and the share of the result's words that were in
+# the original (precision, looser so a new heading or two is allowed).
+FORMAT_MIN_WORDS_KEPT = env.float("FORMAT_MIN_WORDS_KEPT", default=0.9)
+FORMAT_MIN_WORDS_ORIGINAL = env.float("FORMAT_MIN_WORDS_ORIGINAL", default=0.8)
+# And an absolute cap on the result's new distinct words: at most the
+# larger of the floor and the share of the original's distinct words, so a
+# long note cannot gain an invented paragraph inside the ratio (D522).
+FORMAT_NEW_WORDS_FLOOR = env.int("FORMAT_NEW_WORDS_FLOOR", default=8)
+FORMAT_NEW_WORDS_SHARE = env.float("FORMAT_NEW_WORDS_SHARE", default=0.05)
+# The note's TipTap JSON, compact, must fit in this many characters (about
+# 6,000 tokens); a longer note is refused up front rather than cut off.
+FORMAT_MAX_INPUT_CHARS = env.int("FORMAT_MAX_INPUT_CHARS", default=24000)
+# The result is the whole document again, in JSON, so the ceiling is far
+# above CHAT_MAX_OUTPUT_TOKENS (a few cited sentences).
+FORMAT_MAX_OUTPUT_TOKENS = env.int("FORMAT_MAX_OUTPUT_TOKENS", default=16384)
+# As ASK_STUCK_AFTER_SECONDS, for format jobs (same retry budget).
+FORMAT_STUCK_AFTER_SECONDS = env.int("FORMAT_STUCK_AFTER_SECONDS", default=60 * 60)
 
 # Asks per month are the chat_turns limit in LIMIT_DEFAULTS (DECISIONS D101).
 # How many chunks retrieval hands the prompt.
@@ -495,6 +714,50 @@ ASK_NO_ANSWER_TEXT = env(
 # tokens at four characters a token -- eight chunks of the chunker's target
 # size, with headroom. The cost of an ask is mostly this.
 ASK_EXCERPT_MAX_CHARS = env.int("ASK_EXCERPT_MAX_CHARS", default=12000)
+
+# Conversations (assistant/conversation.py, DECISIONS D220-D227)
+#
+# The earlier turns a conversation turn's prompt repeats verbatim, newest
+# kept, in characters (about 1,500 tokens): on top of the excerpts, so a
+# turn costs at most about half as much again as a plain ask.
+CHAT_HISTORY_MAX_CHARS = env.int("CHAT_HISTORY_MAX_CHARS", default=6000)
+# The same for the condense call, which only needs what a follow-up can
+# point back to: the last turn or two.
+CHAT_CONDENSE_HISTORY_MAX_CHARS = env.int("CHAT_CONDENSE_HISTORY_MAX_CHARS", default=2000)
+# The ceiling on a condensed question. A question is a sentence; this is
+# not tighter because OpenAI's reasoning tokens count against it too.
+CHAT_CONDENSE_MAX_OUTPUT_TOKENS = env.int("CHAT_CONDENSE_MAX_OUTPUT_TOKENS", default=512)
+# Folding (assistant/conversation.py, DECISIONS D280-D287): when the turns the
+# summary does not cover grow past CHAT_HISTORY_MAX_CHARS, the oldest are
+# folded into Conversation.summary. The summary is cut to this many
+# characters (about 375 tokens) whatever the model wrote: it rides in every
+# later prompt, so it must not grow without limit.
+CHAT_SUMMARY_MAX_CHARS = env.int("CHAT_SUMMARY_MAX_CHARS", default=1500)
+# The ceiling on a folding call's reply; like the condenser's, generous
+# because reasoning tokens count against it.
+CHAT_SUMMARY_MAX_OUTPUT_TOKENS = env.int("CHAT_SUMMARY_MAX_OUTPUT_TOKENS", default=1024)
+
+# User memory (assistant/memory.py, DECISIONS D400-D409). Extraction after a
+# finished conversation turn is capped by the system-only memory_extract
+# limit in LIMIT_DEFAULTS; memory_enabled off means no extraction at all.
+#
+# A dynamic fact ("is moving house this month") expires this many days after
+# it was learned; the daily purge deletes it.
+MEMORY_DYNAMIC_FACT_DAYS = env.int("MEMORY_DYNAMIC_FACT_DAYS", default=30)
+# A superseded fact is kept this many days after the fact that replaced it,
+# then purged with the expired ones (D406).
+MEMORY_SUPERSEDED_RETENTION_DAYS = env.int("MEMORY_SUPERSEDED_RETENTION_DAYS", default=30)
+# The user's existing facts an extraction call is shown (the most similar
+# to the question), so it can update or supersede instead of repeating.
+MEMORY_SIMILAR_FACTS = env.int("MEMORY_SIMILAR_FACTS", default=10)
+# Operations one extraction reply may hold; a reply with more is dropped whole.
+MEMORY_MAX_OPERATIONS = env.int("MEMORY_MAX_OPERATIONS", default=5)
+# The ceiling on an extraction reply: a few short JSON operations, with room
+# for reasoning tokens, as for the condenser.
+MEMORY_EXTRACT_MAX_OUTPUT_TOKENS = env.int("MEMORY_EXTRACT_MAX_OUTPUT_TOKENS", default=1024)
+# The user's live facts a conversation turn's prompt carries at most: the
+# nearest to the (standalone) question (DECISIONS D421).
+MEMORY_PROMPT_FACTS = env.int("MEMORY_PROMPT_FACTS", default=5)
 
 # Chunking (retrieval/chunking.py, DECISIONS D33)
 #
@@ -576,8 +839,8 @@ MAX_SIGNED_IN_DEVICES = env.int("MAX_SIGNED_IN_DEVICES", default=2)
 # system-wide value, over a period: "month" or "day" (calendar, in
 # TIME_ZONE) or "total". None (or absent) is unlimited. A Limit row in the
 # admin with the same key overrides all of a key's values, so changing one
-# needs no deploy. condense and memory_extract are model calls the user
-# never pays for; only the system caps them.
+# needs no deploy. condense, summarize_history and memory_extract are model calls
+# the user never pays for; only the system caps them.
 LIMIT_DEFAULTS = {
     "chat_turns": {"user_free": 20, "user_premium": 100, "system": 2000, "period": "month"},
     "format": {"user_free": 5, "user_premium": 25, "system": 500, "period": "month"},
@@ -590,7 +853,13 @@ LIMIT_DEFAULTS = {
     },
     "signups": {"system": 30, "period": "day"},
     "condense": {"system": 20000, "period": "month"},
+    "summarize_history": {"system": 5000, "period": "month"},
     "memory_extract": {"system": 20000, "period": "month"},
+    # Reading an image's text with the chat provider's vision call, one per
+    # image attachment (notes/extraction.py, D344, D520). Per user too, so
+    # one account cannot spend the system's month (upload, delete, upload).
+    # The per-user values are proposed, for the owner to confirm.
+    "image_text": {"user_free": 50, "user_premium": 250, "system": 5000, "period": "month"},
 }
 
 # App lifecycle (D88-D94, D106-D111). A build id is YYYYMMDDHHMM-<shortsha>;

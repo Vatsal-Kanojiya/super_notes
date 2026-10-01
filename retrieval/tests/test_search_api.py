@@ -50,9 +50,16 @@ class SearchApiTests(TestCase):
                 "score",
                 "similarity",
                 "keyword_rank",
+                "source",
+                "attachment_id",
+                "attachment_name",
             },
         )
         self.assertEqual(body[0]["title"], "Passport")
+        self.assertEqual(
+            (body[0]["source"], body[0]["attachment_id"], body[0]["attachment_name"]),
+            ("note", None, None),
+        )
         self.assertEqual(body[0]["snippet"], "renew the passport before the trip")
 
     def test_k_limits_the_hits(self):

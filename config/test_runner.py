@@ -1,6 +1,9 @@
 import logging
+import shutil
+import tempfile
 
 from django.conf import settings
+from django.core.files.storage import storages
 from django.test.runner import DiscoverRunner
 
 
@@ -22,6 +25,12 @@ class FastTestRunner(DiscoverRunner):
     * **Providers.** The fake embedding and chat providers, whatever .env
       says, so no test run ever makes a paid network call by accident. The
       real providers' opt-in tests override this themselves.
+    * **Attachment storage.** Local disk in a temp dir removed afterwards,
+      whatever .env says, so no test ever writes to a real bucket or to a
+      developer's MEDIA_ROOT. Attachments resolve their storage on every
+      call (notes/attachments.py), so swapping it here is enough.
+    * **Answer events.** Off (no Redis needed, as for the broker); a test
+      about them passes its own client, or overrides ASK_EVENTS_REDIS_URL.
     """
 
     def setup_test_environment(self, **kwargs):
@@ -41,3 +50,20 @@ class FastTestRunner(DiscoverRunner):
         for name in ("EMBEDDING_PROVIDER", "CHAT_PROVIDER"):
             if hasattr(settings, name):
                 setattr(settings, name, "fake")
+        settings.ASK_EVENTS_REDIS_URL = ""
+
+        self._attachments_dir = tempfile.mkdtemp(prefix="sn-test-attachments-")
+        settings.STORAGES = {
+            **settings.STORAGES,
+            "attachments": {
+                "BACKEND": "django.core.files.storage.FileSystemStorage",
+                "OPTIONS": {"location": self._attachments_dir},
+            },
+        }
+        # As override_settings does on a STORAGES change: forget built backends.
+        storages._backends = None
+        storages._storages = {}
+
+    def teardown_test_environment(self, **kwargs):
+        shutil.rmtree(self._attachments_dir, ignore_errors=True)
+        super().teardown_test_environment(**kwargs)

@@ -1,6 +1,6 @@
 /**
  * "Back" from a note: the browser's own back when the user came from inside
- * the app (a citation goes back to the answer), else the notes list (a deep
+ * the app (a citation goes back to the conversation), else the notes list (a deep
  * link or a refreshed page has nowhere to go back to).
  */
 import { computed } from 'vue'
@@ -21,7 +21,7 @@ export function useGoBack() {
   const backLabel = computed(() => {
     // Read the route so the label re-evaluates on navigation.
     void router.currentRoute.value.fullPath
-    return previous()?.startsWith('/ask') ? 'Answer' : 'Notes'
+    return previous()?.startsWith('/chat') ? 'Chat' : 'Notes'
   })
 
   return { goBack, backLabel }

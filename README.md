@@ -57,10 +57,16 @@ python manage.py migrate
 python manage.py createsuperuser   # for /admin/
 
 # 6. Run: three terminals
-python manage.py runserver
+uvicorn config.asgi:application --reload --port 8000   # or: python manage.py runserver
 celery -A config worker -l info
 cd web && npm install && npm run dev      # cp web/.env.example web/.env.local first
 ```
+
+`uvicorn` (ASGI) serves everything `runserver` does, static files included while `DEBUG` is on,
+and also streams answers live (`GET ask/<id>/stream/`). Under `runserver` (WSGI) that endpoint
+answers from the saved row only and says `unavailable`, and the web client polls instead; every
+other endpoint is the same under both. Live answers need the worker and the API to share a Redis:
+`ASK_EVENTS_REDIS_URL`, which defaults to `CELERY_BROKER_URL`.
 
 API docs: <http://localhost:8000/api/v1/docs/> · Schema: `/api/v1/schema/` · Health:
 `/api/v1/health/`.
@@ -74,7 +80,27 @@ All under `/api/v1/`, `Authorization: Bearer <access>`, errors as `{"detail", "c
 | Auth | `POST auth/google/` `{id_token}`, `POST auth/refresh/`, `POST auth/logout/`, `GET me/` (plan and this month's ask usage), `GET auth/devices/`, `DELETE auth/devices/<id>/` |
 | Notes | `GET/POST notes/`, `GET/PATCH/DELETE notes/<id>/` (PATCH needs `version`; stale → `409 version_conflict`), `GET notes/changes/?after=<revision>` |
 | Search | `GET search/?q=&k=` — hybrid (vector + keyword, RRF), your notes only |
-| Ask | `POST ask/` with an `Idempotency-Key` header → `202`, then poll `GET ask/<id>/`; `GET ask/` for history; over quota → `429 quota_exceeded` |
+| Ask | `POST ask/` with an `Idempotency-Key` header → `202`, then poll `GET ask/<id>/` or stream `GET ask/<id>/stream/` (server-sent events, under uvicorn); `GET ask/` for history; over quota → `429 quota_exceeded` |
+
+## Deploying: notes for the streaming endpoint
+
+Serve the API with uvicorn behind the reverse proxy, e.g.
+`uvicorn config.asgi:application --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers`
+(`DEBUG` off; static files are the proxy's job). Every endpoint works there; only
+`GET ask/<id>/stream/` needs it. For that path the proxy must not buffer the response (the app
+sends `X-Accel-Buffering: no`, which nginx honours; others need `proxy_buffering off` or the
+like) and must allow at least 30 s between bytes (a keep-alive comment comes every 15 s). Each
+open stream holds one Redis connection for at most `ASK_STREAM_MAX_SECONDS` (5 minutes), and no
+database connection between its reads of the row; a user may have `STREAM_MAX_PER_USER` (3) open
+at once. Size Redis' `maxclients` and the proxy's connection limits for the streams you expect. The hosting
+target itself is still an open question (`docs/V2_PLAN.md`).
+
+**Request body limit.** Set the proxy's body limit to about **10.1 MB**
+(`ATTACHMENT_MAX_BYTES`, 10 MB, plus 64 KB for the multipart envelope), e.g. nginx
+`client_max_body_size 10400k;`. The app checks `Content-Length` and counts an upload's bytes as
+it parses them, but under uvicorn the whole body is read before the app sees it, so only the proxy
+can stop a body that lies about its length, or has none, before it is read in full. If you raise
+`ATTACHMENT_MAX_BYTES`, raise the proxy's limit with it.
 
 ## Turning on the real services
 

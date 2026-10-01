@@ -346,3 +346,70 @@ Concurrency is proven at the user edge and the system edge (exactly N pass), and
 - The "mail once" marker lives in the cache, so it is best effort (D99).
 - `enabled` off on a limit means "not enforced"; this is parked for the owner (D100).
 - During a rolling deploy, asks made by old code after the migration get no event (D103). Rerun the backfill if that happens.
+
+### V2 5 — reminders
+
+`v2-feat/5-reminders` (D95, D124-D139, D170-D173, D200-D204). `Reminder` and `ReminderDelivery`
+on notes, written under the owner lock and carried by `notes/changes/`; a due date plus daily
+heads-ups `lead_days` before it, computed in the account's timezone (DST tested). A beat task
+every minute claims each due occurrence by inserting its `ReminderDelivery` (the unique
+constraint makes delivery at most once across workers; after an outage only the latest missed
+occurrence is sent) and sends email (title, due date, link — never the body) and web push via
+`pywebpush` (VAPID keys from env; push off when unset; 404/410 drops the subscription). Web: a
+push-only service worker (`/sw.js`, no fetch handler, never caches app code), a reminder panel
+on each note (add/edit/delete/done, channels, lead days), a `/calendar` month and week view
+(Monday first) that opens the note on click, and a notifications switch in Settings; sign-out
+removes this browser's push subscription. 138 web tests. Checked headless against the real
+backend with push off and on (worker push and click driven through CDP).
+Left: a real push delivery through FCM/Mozilla could not be reached from the sandbox; only
+Chromium was tried. Unsure: the Monday-first week (D201) is a guess for the owner to confirm.
+Hosting must serve `/sw.js` `no-cache` and set the three VAPID variables.
+
+### V2 4 — format my note
+
+`v2-feat/4-format` (D240-D249, D260-D263). `FormatJob` on notes, the ask job shape: `POST
+notes/<id>/format/` (Idempotency-Key) makes it under the owner lock, consuming one `format` use
+(refunded on any failure); a Celery task sends the TipTap JSON with `prompts/format.md`
+(`format-v1`) and keeps the proposal only if the guardrail passes — at least 90% of the
+original's words kept, 80% of the result's words from the original, numbers identical, no new
+month or weekday, the same ticked checkboxes — else `format_changed_content`. A note edited
+before the task runs fails `format_note_changed` without a provider call. `GET
+format-jobs/<id>/` polls; there is no apply endpoint: the client PATCHes at `base_version`, so
+an edit meanwhile is the usual 409. A sweeper fails stuck jobs. Web: a Format button (waits for
+pending saves), spinner with cancel, a before/after preview, Apply / Discard, 409 → reload the
+server copy and "Format again", the 429 state from `me/` `limits.format`; the editor is locked
+while a format is made or previewed. 111 web tests; checked headless against the real backend
+with a worker and the fake provider, including the 409 and 429 paths.
+Left: thresholds and prompt untested on a real model (number reformatting such as 4500 →
+4,500 is refused on purpose); no retention purge of `proposed_content`; no undo after Apply.
+
+### V2 1 — conversations
+
+`v2-feat/1-conversations` and `v2-feat/1c-chat-web` (D140-D146, D220-D227, D280-D287,
+D300-D304). `Conversation` (title from the first question, running `summary`,
+`summary_through`, soft delete); a turn *is* an `AskQuery` (D78) with `conversation`,
+`position` and `standalone_question`, created through the ask's lock, limit and idempotency;
+`conversations/` CRUD and `conversations/<id>/turns/` (202 / 200 replay / 409
+`turn_in_progress` / 429 / 503). A follow-up is condensed to stand alone before retrieval
+(`condense-v1`, system-only `condense` limit, any failure falls back to the raw question) and
+answered with `chat-v1`, which carries the summary and the newest whole turns within a
+character budget. Over budget, a task folds the oldest turns into the summary
+(`summarize-v1`, system-only `summarize_history` limit, a conditional write so racing folds
+write once). `eval_retrieval --conversations` on the fake providers: recall@5 raw 0.733,
+condensed 0.900, human standalone 0.933 (MRR 0.532 / 0.668 / 0.710). Web: `/chat` list
+(rename, delete, new) and `/chat/:id` thread with citation chips, polling, the 409 wait and
+retry of a failed turn; `/ask` redirects to a new conversation and the old Ask panel is gone.
+Left: real-provider numbers and prompt quality need an API key; `summarize_history` at
+5000/month is a guess; streaming (phase 2) and memory (phase 3) build on this.
+
+### Paused — 2026-10-01 (remote session, branch `claude/friendly-clarke-blov3x`)
+
+Paused by the owner at clean sub-task boundaries; everything below is merged here and green
+(1381 backend tests, 213 web tests). Resume from each brief's checklist:
+- `2-streaming`: 1-2 done; **next: 3 (web streaming)**.
+- `3-memory`: 1-2 done; **next: 3 (web memory settings)**.
+- `6-attachments`: 1-2 done; **next: 3 (summaries)**, then 4 (web).
+- Done this session: queue items 4 (conversations), 5 (format), 8 (reminders).
+Owner to confirm: Monday-first calendar week (D201), memory only from chat turns (D401),
+superseded facts kept 30 days (D406), real image reading and the `image_text` limit (D343,
+D344), the extraction caps (D340).

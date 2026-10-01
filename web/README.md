@@ -40,12 +40,12 @@ src/
   api/types.ts      every request/response shape (reconcile with docs/openapi.yml here)
   api/client.ts     fetch wrapper: bearer token, single-flight refresh, ApiError
   api/endpoints.ts  one typed function per endpoint
-  stores/           auth, notes (sync via notes/changes/), ask (submit + poll), appVersion
-  components/       SignIn, NotesList, NotePage/NoteEditor, AskPanel, AppHeader, DevicesList
-  lib/              GIS loader, citation splitter, uuid, date formatting
+  stores/           auth, notes (sync via notes/changes/), chat (conversations, turn polling), appVersion
+  components/       SignIn, NotesList, NotePage/NoteEditor, ChatList, ChatThread, AnswerBody, AppHeader, DevicesList
+  lib/              GIS loader, citation splitter, thread logic, uuid, date formatting
 ```
 
-Routes (vue-router, history mode): `/notes`, `/notes/:id`, `/ask`, `/settings`, and `/signin`
+Routes (vue-router, history mode): `/notes`, `/notes/:id`, `/chat`, `/chat/new`, `/chat/:id` (`/ask` redirects to `/chat/new`), `/settings`, and `/signin`
 for signed-out users (DECISIONS D86, D112). Route components are lazy-loaded.
 
 ## Hosting

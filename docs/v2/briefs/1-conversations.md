@@ -28,22 +28,22 @@
   question's keywords) — documented.
 
 ## Sub-tasks (conductor's checklist)
-- [ ] 1. **Models, services, API** (Opus) — `Conversation` (user, title from the first question,
+- [x] 1. **Models, services, API** (Opus) — `Conversation` (user, title from the first question,
   `summary`, `summary_through`, timestamps, `deleted_at`); AskQuery fields + migration;
   `create_turn(user, conversation, question, idempotency_key)` reusing `create_ask`'s lock, limit
   and idempotency; `POST/GET conversations/`, `GET/PATCH/DELETE conversations/<id>/`,
   `POST conversations/<id>/turns/` (202 / 200 replay / 409 `turn_in_progress` / 429 / 503);
   owner-scoped (404); tests incl. sequential turns under concurrency.
-- [ ] 2. **Condense + chat prompt in the task** (Opus) — the condenser, the `condense` limit, the
+- [x] 2. **Condense + chat prompt in the task** (Opus) — the condenser, the `condense` limit, the
   history budget, `chat.md`, the task branching for conversation turns, citations per turn, fake
   provider rules; tests: a pronoun follow-up retrieves the right note, a topic shift doesn't drag
   old context, condense failure falls back, history trimmed to budget.
-- [ ] 3. **Summary folding + evaluation** (Sonnet) — fold the oldest turns into
+- [x] 3. **Summary folding + evaluation** (Sonnet) — fold the oldest turns into
   `Conversation.summary` when history exceeds the budget (async, after a turn, its own system-only
   limit key `summarize_history` or reuse `condense` — decide); `eval_retrieval --conversations`
   reporting recall@5 and MRR for raw vs condensed vs the human `standalone`; docs/RAG.md
   "Conversations" section.
-- [ ] 4. **Web chat** (Sonnet) — `/chat` (list) and `/chat/:id` (thread, composer, polling, the
+- [x] 4. **Web chat** (Sonnet) — `/chat` (list) and `/chat/:id` (thread, composer, polling, the
   citation chips), "New conversation"; `/ask` redirects to a new conversation; vitest for the
   thread logic; headless check against the real backend.
 

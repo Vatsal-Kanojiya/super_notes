@@ -10,8 +10,9 @@ import { computed, ref } from 'vue'
 import { ApiError, setAuthLostHandler } from '../api/client'
 import { authApi } from '../api/endpoints'
 import { clearTokens, getAccess, getRefresh, onTokensChangedElsewhere, setTokens } from '../api/tokens'
-import type { AskUsage, Me, MeUpdateRequest } from '../api/types'
+import type { AskUsage, LimitUsage, Me, MeUpdateRequest } from '../api/types'
 import { disableGoogleAutoSelect } from '../lib/gis'
+import { usePushStore } from './push'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<Me | null>(null)
@@ -32,6 +33,8 @@ export const useAuthStore = defineStore('auth', () => {
   // The API client calls this when a refresh is refused: the session ended
   // elsewhere (device limit, signed out from another device, account gone).
   setAuthLostHandler(() => {
+    // The token is gone, so the server call will likely fail; the local subscription is still dropped.
+    if (user.value) void usePushStore().release()
     if (user.value) reset('You were signed out. Please sign in again.')
   })
 
@@ -67,6 +70,8 @@ export const useAuthStore = defineStore('auth', () => {
   async function signIn(idToken: string) {
     notice.value = ''
     const response = await authApi.google(idToken)
+    // A different account on this browser must not inherit the last one's push subscription.
+    if (user.value && user.value.id !== response.user.id) await releasePush()
     setTokens(response)
     user.value = response.user
   }
@@ -80,11 +85,26 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** Keep the usage line in step without a round trip (e.g. from a 429 body). */
   function setAskUsage(usage: AskUsage) {
-    if (user.value) user.value = { ...user.value, ask_usage: usage }
+    if (!user.value) return
+    // `ask_usage` and `limits.chat_turns` are the same numbers (D84).
+    const limits = user.value.limits ? { ...user.value.limits, chat_turns: usage } : user.value.limits
+    user.value = { ...user.value, ask_usage: usage, limits }
+  }
+
+  /** The same for the `format` limit (from a 429 body). */
+  function setFormatUsage(usage: LimitUsage) {
+    if (user.value?.limits) user.value = { ...user.value, limits: { ...user.value.limits, format: usage } }
+  }
+
+  function releasePush() {
+    return Promise.race([usePushStore().release(), new Promise((resolve) => setTimeout(resolve, 3000))])
   }
 
   async function signOut() {
     const refresh = getRefresh()
+    // This browser must stop getting the account's push reminders; it needs the
+    // token, so it goes before the reset. Best effort, and not worth a long wait.
+    await releasePush()
     reset()
     disableGoogleAutoSelect()
     if (refresh) {
@@ -97,5 +117,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { user, ready, notice, signedIn, init, loadMe, signIn, signOut, setAskUsage, updateMe }
+  return { user, ready, notice, signedIn, init, loadMe, signIn, signOut, setAskUsage, setFormatUsage, updateMe }
 })

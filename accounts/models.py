@@ -65,6 +65,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     # True once the user has set ``memory_enabled`` themselves (D88): it picks
     # the prominent or the subtle memory notice.
     memory_choice_explicit = models.BooleanField(default=False)
+    # Moved by "forget everything" and by switching memory off, under this
+    # row's lock: an extraction may only write facts learned from a turn
+    # created after it, so one in flight at that moment writes nothing
+    # (assistant/memory.py, DECISIONS D422). Null: never reset.
+    memory_reset_at = models.DateTimeField(null=True, blank=True)
     # App opens counted so far, and the count when the user last saw the
     # memory notice: the notice is due every MEMORY_NOTICE_EVERY_OPENS opens.
     app_open_count = models.PositiveIntegerField(default=0)
@@ -175,3 +180,31 @@ class SignedInDevice(models.Model):
 
     def __str__(self):
         return f"Device {self.pk} for user {self.user_id}"
+
+
+class PushSubscription(models.Model):
+    """One browser's web push subscription, for reminder notifications (D87).
+
+    ``endpoint`` is unique across all users: a browser profile is one
+    subscription, and if a different account signs in on it the row moves to
+    that account -- only when it posts the same keys, which only that
+    browser holds (accounts/api.py, D526). ``p256dh`` and ``auth`` are the keys the
+    payload is encrypted to; treat them as secrets and never show them back.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="push_subscriptions"
+    )
+    endpoint = models.TextField(unique=True)
+    p256dh = models.CharField(max_length=255)
+    auth = models.CharField(max_length=255)
+    # Untrusted text, truncated: lets a person tell their browsers apart.
+    user_agent = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(default=dj_timezone.now)
+    last_success_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"Push subscription {self.pk} for user {self.user_id}"

@@ -14,7 +14,7 @@ import requests
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
-from assistant.chat import ChatError, TransientChatError, complete
+from assistant.chat import BilledChatError, ChatError, TransientChatError, complete
 from assistant.chat.providers.claude import ClaudeProvider
 from assistant.chat.providers.gemini import GeminiProvider
 from assistant.chat.providers.openai import OpenAIProvider
@@ -56,8 +56,10 @@ class ErrorTranslationMixin:
     def test_permanent_statuses_are_chat_errors(self):
         for status in (400, 401, 403, 404, 422):
             with self.subTest(status=status), patch(POST, return_value=http(status, {})):
-                with self.assertRaises(ChatError):
+                with self.assertRaises(ChatError) as caught:
                     self.call()
+                # Rejected before generating: nothing billed (D500).
+                self.assertNotIsInstance(caught.exception, BilledChatError)
 
     def test_connection_failures_and_timeouts_are_retryable(self):
         for exc in (requests.ConnectionError("down"), requests.Timeout("slow")):
@@ -72,8 +74,9 @@ class ErrorTranslationMixin:
 
     def test_a_body_that_is_not_json_is_a_chat_error(self):
         with patch(POST, return_value=http(200, ValueError("no json"), text="<html>")):
-            with self.assertRaises(ChatError):
+            with self.assertRaises(ChatError) as caught:
                 self.call()
+        self.assertNotIsInstance(caught.exception, BilledChatError)
 
     def test_a_missing_key_is_a_chat_error_before_any_request(self):
         names = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
@@ -157,13 +160,24 @@ class ClaudeProviderTests(ErrorTranslationMixin, SimpleTestCase):
             with self.subTest(stop_reason=stop_reason):
                 body = claude_body(stop_reason=stop_reason)
                 with patch(POST, return_value=http(200, body)):
-                    with self.assertRaisesMessage(ChatError, message):
+                    with self.assertRaisesMessage(BilledChatError, message) as caught:
                         self.call()
+                # Generated, so billed, with what it cost (D500).
+                self.assertEqual(
+                    caught.exception.cost(),
+                    {
+                        "provider": "claude",
+                        "model": "claude-haiku-4-5-20251001",
+                        "input_tokens": 120,
+                        "output_tokens": 8,
+                    },
+                )
 
     def test_no_text_is_a_chat_error(self):
         with patch(POST, return_value=http(200, claude_body(content=[]))):
-            with self.assertRaisesMessage(ChatError, "no text"):
+            with self.assertRaisesMessage(BilledChatError, "no text") as caught:
                 self.call()
+        self.assertEqual(caught.exception.output_tokens, 8)
 
     def test_a_vendor_error_body_is_kept_short(self):
         with patch(POST, return_value=http(400, {}, text="x" * 5000)):
@@ -238,7 +252,24 @@ class OpenAIProviderTests(ErrorTranslationMixin, SimpleTestCase):
         )
         for body, message in cases:
             with self.subTest(message=message), patch(POST, return_value=http(200, body)):
-                with self.assertRaisesMessage(ChatError, message):
+                with self.assertRaisesMessage(BilledChatError, message) as caught:
+                    self.call()
+                cost = caught.exception.cost()
+                self.assertEqual((cost["provider"], cost["model"]), ("openai", body["model"]))
+                self.assertEqual((cost["input_tokens"], cost["output_tokens"]), (90, 40))
+
+    def test_a_failed_response_with_a_transient_error_is_retried(self):
+        # D512: a server error or a rate limit is worth a retry, not a failed ask.
+        cases = (
+            ({"code": "server_error", "message": "oops"}, TransientChatError),
+            ({"code": "rate_limit_exceeded", "message": "slow"}, TransientChatError),
+            ({"type": "server_error", "code": None, "message": "x"}, TransientChatError),
+            ({"code": "invalid_prompt", "message": "no"}, ChatError),
+        )
+        for error, expected in cases:
+            body = openai_body(status="failed", error=error)
+            with self.subTest(error=error), patch(POST, return_value=http(200, body)):
+                with self.assertRaises(expected):
                     self.call()
 
 
@@ -318,8 +349,11 @@ class GeminiProviderTests(ErrorTranslationMixin, SimpleTestCase):
         )
         for body, message in cases:
             with self.subTest(message=message), patch(POST, return_value=http(200, body)):
-                with self.assertRaisesMessage(ChatError, message):
+                with self.assertRaisesMessage(BilledChatError, message) as caught:
                     self.call()
+                usage = body.get("usageMetadata") or {}
+                self.assertEqual(caught.exception.input_tokens, usage.get("promptTokenCount", 0))
+                self.assertEqual(caught.exception.provider, "gemini")
 
 
 LIVE_SYSTEM = "Reply with exactly one word."

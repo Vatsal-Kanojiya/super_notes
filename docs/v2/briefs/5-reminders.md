@@ -17,7 +17,7 @@ occurrences are: one per day at `due_at`'s **local time of day in the user's tim
 A pure function `occurrences(due_at, lead_days, tz) -> list[datetime]` is the single source.
 
 ## Sub-tasks (conductor's checklist)
-- [ ] 1. **Model, schedule, API** (Opus) — `Reminder` (`note`, `owner`, `due_at`, `lead_days`,
+- [x] 1. **Model, schedule, API** (Opus) — `Reminder` (`note`, `owner`, `due_at`, `lead_days`,
   `channels`, `status` `scheduled|done|cancelled`, timestamps, `deleted_at`), `ReminderDelivery`
   (`reminder`, `occurrence_at`, unique together, `sent_at`, `channel_results`), migration;
   `occurrences()`; `POST notes/<id>/reminders/`, `PATCH/DELETE reminders/<id>/`,
@@ -26,19 +26,19 @@ A pure function `occurrences(due_at, lead_days, tz) -> list[datetime]` is the si
   included per note in `notes/changes/`; a deleted note cancels its reminders. Tests: DST
   (`Europe/London` across the October change), lead 0 and 7, ownership (other user → 404),
   range validation, sync.
-- [ ] 2. **Delivery engine + email** (Opus) — a Celery beat task every minute: find due
+- [x] 2. **Delivery engine + email** (Opus) — a Celery beat task every minute: find due
   occurrences (≤ now, not yet delivered, reminder `scheduled`, note live), claim each by inserting
   its `ReminderDelivery` (the unique constraint makes a second worker's insert fail → at most
   once), enqueue sending on commit. After an outage, only the latest missed occurrence per
   reminder is sent. Email channel via Django's mail (no note body unless D-decided otherwise —
   title + due date + link). Tests: exactly-once with two concurrent sweeps
   (`TransactionTestCase` + threads), outage catch-up, done/cancelled/deleted never sent.
-- [ ] 3. **Web push backend** (Sonnet) — `pywebpush` (approved D87; the conductor adds it to
+- [x] 3. **Web push backend** (Sonnet) — `pywebpush` (approved D87; the conductor adds it to
   `requirements.txt`), `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` settings (env),
   a `generate_vapid_keys` management command, `PushSubscription` model, `GET push/vapid-key/`,
   `POST/DELETE me/push-subscriptions/`, the push channel in delivery (payload: reminder id, note
   id, title only), 404/410 → subscription deleted. Push off (no keys) → channel skipped silently.
-- [ ] 4. **Web UI** (Sonnet) — a service worker for push only (D89: never caches app code;
+- [x] 4. **Web UI** (Sonnet) — a service worker for push only (D89: never caches app code;
   `no-cache`, `skipWaiting` + `clients.claim`), the permission prompt and subscribe flow, a
   reminder control on a note (date-time + lead days), "mark done", a calendar page `/calendar`
   (month and week views of occurrences; clicking opens the note), reminders kept in sync from

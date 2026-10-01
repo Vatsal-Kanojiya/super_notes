@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
+from .attachments import ORIGINAL_NAME_MAX, attachment_path, attachment_storage
 from .content import content_to_text, empty_doc
 from .search import note_search_vector
 
@@ -68,3 +69,242 @@ class Note(models.Model):
             if update_fields is not None:
                 kwargs["update_fields"] = {*update_fields, "content_text"}
         super().save(*args, **kwargs)
+
+
+class FormatJob(models.Model):
+    """One "format my note" request and, once the task has run, its proposal.
+
+    The job shape of AskQuery (assistant/models.py): the API creates the row
+    pending and returns at once, notes/tasks.py moves it to running and then
+    done or failed, and the client polls. It consumes one ``format`` use of
+    the limits ledger when it is made (``usage_event``), refunded if the job
+    fails (DECISIONS D102, D240).
+
+    **The job never writes the note.** ``proposed_content`` is only a
+    proposal; the client applies it with an ordinary PATCH carrying
+    ``version = base_version``, so a note edited meanwhile is the usual 409.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        RUNNING = "running"
+        DONE = "done"
+        FAILED = "failed"
+
+    note = models.ForeignKey(Note, on_delete=models.CASCADE, related_name="format_jobs")
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="format_jobs",
+        db_index=False,
+    )
+    # The note's version when the job was made, and the content the model was
+    # shown (the task refuses to run on any other version).
+    base_version = models.PositiveIntegerField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+
+    # A TipTap document that passed the guardrail; null until done.
+    proposed_content = models.JSONField(null=True, blank=True)
+    # For programs (``format_changed_content``...) and, user-safe, for people.
+    # The vendor's own message goes to the log.
+    error_code = models.CharField(max_length=50, blank=True)
+    error = models.CharField(max_length=255, blank=True)
+
+    provider = models.CharField(max_length=20, blank=True)
+    model = models.CharField(max_length=100, blank=True)
+    prompt_version = models.CharField(max_length=50, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+
+    # The ``format`` use this job consumed: the task refunds it on failure
+    # and records the cost on it. SET_NULL, so deleting an event never
+    # deletes a job.
+    usage_event = models.ForeignKey(
+        "limits.UsageEvent", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    idempotency_key = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            # A retried POST finds the job it already made instead of making
+            # (and counting) a second one. Per owner: keys are client-chosen.
+            models.UniqueConstraint(
+                fields=["owner", "idempotency_key"], name="formatjob_owner_idempotency_key"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["owner", "-id"], name="formatjob_owner_id"),
+            # The sweeper's range scan over unfinished jobs.
+            models.Index(fields=["status", "created_at"], name="formatjob_status_created"),
+        ]
+
+    def __str__(self):
+        return f"Format job {self.pk} ({self.status})"
+
+
+REMINDER_LEAD_DAYS_DEFAULT = 7
+REMINDER_LEAD_DAYS_MAX = 30
+
+
+def default_reminder_channels():
+    return ["email", "push"]
+
+
+class Reminder(models.Model):
+    """A due date-time on a note, with daily heads-ups before it (DECISIONS D95).
+
+    The schedule is not stored: ``notes.schedule.occurrences()`` derives it
+    from ``due_at``, ``lead_days`` and the owner's timezone, so there is one
+    source and nothing to keep in step. What *is* stored, per notification
+    actually sent, is a ``ReminderDelivery``.
+
+    **Write through notes/services.py only**, like a note: a reminder write
+    takes the owner's lock and stamps the note with the next revision, which
+    is how ``notes/changes/`` carries reminders (D5).
+
+    ``owner`` repeats ``note.owner`` so every reminder query is filtered by
+    owner in SQL without a join, as notes are. ``status`` is the series:
+    ``done`` is the user saying "stop", ``cancelled`` is the note being
+    deleted. ``deleted_at`` is the user deleting the reminder itself.
+    """
+
+    class Channel(models.TextChoices):
+        EMAIL = "email", "Email"
+        PUSH = "push", "Push"
+
+    class Status(models.TextChoices):
+        SCHEDULED = "scheduled", "Scheduled"
+        DONE = "done", "Done"
+        CANCELLED = "cancelled", "Cancelled"
+
+    note = models.ForeignKey(Note, on_delete=models.CASCADE, related_name="reminders")
+    # No index of its own: (owner, due_at) leads with owner.
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="reminders",
+        db_index=False,
+    )
+    due_at = models.DateTimeField()
+    lead_days = models.PositiveSmallIntegerField(default=REMINDER_LEAD_DAYS_DEFAULT)
+    channels = models.JSONField(default=default_reminder_channels)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.SCHEDULED)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            # The delivery sweep: scheduled reminders whose series has begun.
+            models.Index(fields=["status", "due_at"], name="reminder_status_due"),
+            # GET reminders/?from=&to=: this user's reminders by due date.
+            models.Index(fields=["owner", "due_at"], name="reminder_owner_due"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(lead_days__lte=REMINDER_LEAD_DAYS_MAX),
+                name="reminder_lead_days_max",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Reminder {self.pk} on note {self.note_id}"
+
+
+class ReminderDelivery(models.Model):
+    """One notification of a reminder's series, claimed by the delivery sweep.
+
+    The unique ``(reminder, occurrence_at)`` is the at-most-once guarantee: a
+    second worker's insert for the same occurrence fails. ``sent_at`` is set
+    when sending *starts*, by a conditional update, so a task run twice sends
+    once; ``channel_results`` records each channel's outcome after (D137).
+    notes/delivery.py does all of this.
+    """
+
+    reminder = models.ForeignKey(Reminder, on_delete=models.CASCADE, related_name="deliveries")
+    occurrence_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    channel_results = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reminder", "occurrence_at"], name="reminder_delivery_once"
+            ),
+        ]
+
+    def __str__(self):
+        return f"Delivery of reminder {self.reminder_id} at {self.occurrence_at:%Y-%m-%d %H:%M}"
+
+
+class Attachment(models.Model):
+    """A file on a note: a JPEG, PNG, WebP image or a PDF (DECISIONS D85, D320-D330).
+
+    **Write through notes/services.py only**, like a note: adding or deleting
+    one takes the owner's lock, records or releases its ``storage_bytes``
+    (limits/, D84) and stamps the note with the next revision, which is how
+    ``notes/changes/`` carries a note's attachments (D326).
+
+    The bytes live in the ``attachments`` storage (notes/attachments.py)
+    under a random name; ``original_name`` is only for showing and for the
+    download's file name. ``mime_type`` is sniffed from the bytes, never
+    taken from the client.
+
+    ``status`` is for text extraction, which runs after the upload:
+    ``pending`` until a worker takes it, then ``extracting`` and ``ready``
+    or ``failed`` (with ``error``). ``extracted_text`` and ``summary`` are
+    what it produces.
+
+    Deleting is soft, as for notes: ``deleted_at`` is set, the storage is
+    released (``usage_event`` refunded) and the file is deleted once the
+    transaction commits. ``owner`` repeats ``note.owner`` so every query is
+    filtered by owner in SQL without a join.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        EXTRACTING = "extracting", "Extracting"
+        READY = "ready", "Ready"
+        FAILED = "failed", "Failed"
+
+    note = models.ForeignKey(Note, on_delete=models.CASCADE, related_name="attachments")
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="attachments"
+    )
+    file = models.FileField(storage=attachment_storage, upload_to=attachment_path, max_length=255)
+    original_name = models.CharField(max_length=ORIGINAL_NAME_MAX)
+    mime_type = models.CharField(max_length=50)
+    size = models.PositiveBigIntegerField()
+    sha256 = models.CharField(max_length=64)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    extracted_text = models.TextField(blank=True)
+    summary = models.TextField(blank=True)
+    # User-safe; the underlying error goes to the log.
+    error = models.CharField(max_length=255, blank=True)
+    # The ``storage_bytes`` use this file consumed, refunded when it is
+    # deleted. SET_NULL, so deleting an event never deletes a file's row.
+    usage_event = models.ForeignKey(
+        "limits.UsageEvent", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            # The same bytes twice on one note is a re-upload: the service
+            # returns the existing row. Live rows only, so a file deleted and
+            # uploaded again is a new row. Also serves "a note's live
+            # attachments", which every list and ``changes`` read.
+            models.UniqueConstraint(
+                fields=["note", "sha256"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="attachment_note_sha256_live",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Attachment {self.pk} on note {self.note_id}"

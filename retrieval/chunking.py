@@ -123,6 +123,45 @@ def chunk_note(title, content, *, target_chars=None, max_chars=None, overlap_cha
     return chunks
 
 
+# A blank line, or a form feed (a PDF's page break once extracted), ends a
+# paragraph of plain text.
+_PARAGRAPHS = re.compile(r"\n[ \t]*\n|\f")
+
+
+def chunk_text(label, text, *, target_chars=None, max_chars=None, overlap_chars=None):
+    """Chunk plain text: an attachment's extracted text (DECISIONS D342).
+
+    Paragraphs (split at blank lines and form feeds) are the blocks, packed,
+    split and overlapped exactly as a note's paragraphs are. A paragraph's
+    own line breaks are joined with spaces: extracted text is hard-wrapped
+    at the page's width, and a sentence cut in two by a line end should
+    still read as one. There are no headings, so ``heading_path`` is empty
+    and ``label`` -- the file's name -- leads ``embed_text`` where a
+    note's title would. Never raises on content.
+    """
+    target, maximum, overlap = _sizes(target_chars, max_chars, overlap_chars)
+    label = _one_line(label) if isinstance(label, str) else ""
+    text = text if isinstance(text, str) else ""
+    blocks = [
+        _Block(paragraph, "", prose=True)
+        for paragraph in (_one_line(part) for part in _PARAGRAPHS.split(text))
+        if paragraph
+    ]
+    chunks = []
+    for piece in _pack(blocks, target, maximum, overlap):
+        embed_text = _embed_text(label, "", piece)
+        chunks.append(
+            Chunk(
+                ordinal=len(chunks),
+                text=piece,
+                heading_path="",
+                embed_text=embed_text,
+                content_hash=hashlib.sha256(embed_text.encode("utf-8")).hexdigest(),
+            )
+        )
+    return chunks
+
+
 def _sizes(target, maximum, overlap):
     target = settings.CHUNK_TARGET_CHARS if target is None else target
     maximum = settings.CHUNK_MAX_CHARS if maximum is None else maximum

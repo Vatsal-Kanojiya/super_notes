@@ -11,6 +11,7 @@ can close its tag early. A note is the user's own, but it may hold text
 pasted from anywhere, so excerpt text and titles are neutralised first.
 """
 
+import dataclasses
 import html
 import re
 from dataclasses import dataclass
@@ -19,11 +20,22 @@ from pathlib import Path
 
 from django.conf import settings
 
-PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "ask.md"
+PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+PROMPT_PATH = PROMPTS_DIR / "ask.md"
 
 # Any opening or closing tag using one of this prompt's delimiter names, in
-# any case and spacing: "</excerpt>", "< /EXCERPTS", "<question ...".
-_DELIMITER_TAG = re.compile(r"<(\s*/?\s*(?:excerpts?|question)\b)", re.IGNORECASE)
+# any case and spacing: "</excerpt>", "< /EXCERPTS", "<question ...". The
+# memory prompt's ``<facts>`` too (prompts/memory.md), so a note can never
+# make a call look like an extraction (DECISIONS D400).
+_DELIMITER_TAG = re.compile(r"<(\s*/?\s*(?:excerpts?|question|facts?)\b)", re.IGNORECASE)
+# The same for a conversation's prompts (chat.md, condense.md), which also
+# delimit the history: earlier questions and answers, the summary, and the
+# turns being folded into it (summarize.md), and the facts, question and
+# answer of a memory extraction (memory.md).
+_CONVERSATION_TAG = re.compile(
+    r"<(\s*/?\s*(?:excerpts?|question|history|turn|answer|summary|follow_up|fold|facts?)\b)",
+    re.IGNORECASE,
+)
 
 # A truncated excerpt keeps at least this much, or is left out: a few words
 # cut from their context are more likely to mislead than to help.
@@ -36,6 +48,8 @@ class Excerpt:
 
     ``n`` is the number the model cites it by. The ask task numbers the
     excerpts 1..k in retrieval order before building the prompt.
+    ``attachment_name`` is set when the text is from one of the note's
+    files, and the prompt labels the excerpt with it (D348).
     """
 
     n: int
@@ -44,19 +58,32 @@ class Excerpt:
     title: str
     heading_path: str
     text: str
+    attachment_id: int | None = None
+    attachment_name: str | None = None
 
 
 @cache
-def _load() -> tuple[str, str]:
-    """(version, body) of prompts/ask.md, read once per process."""
-    raw = PROMPT_PATH.read_text(encoding="utf-8")
+def _read(path: Path) -> tuple[str, str]:
+    """(version, body) of a prompt file, read once per process."""
+    raw = path.read_text(encoding="utf-8")
     first_line, _, body = raw.partition("\n")
     key, _, version = first_line.partition(":")
     if key.strip() != "version" or not version.strip():
         # A prompt without a version would make stored answers
         # unattributable; fail at first use rather than store that.
-        raise ValueError(f"{PROMPT_PATH} must start with a 'version: <name>' line")
+        raise ValueError(f"{path} must start with a 'version: <name>' line")
     return version.strip(), body.strip()
+
+
+@cache
+def _load() -> tuple[str, str]:
+    """(version, body) of prompts/ask.md."""
+    return _read(PROMPT_PATH)
+
+
+def load_prompt(name: str) -> tuple[str, str]:
+    """(version, body) of prompts/<name>.md: ``chat``, ``condense``, ``summarize``, ``memory``."""
+    return _read(PROMPTS_DIR / f"{name}.md")
 
 
 def prompt_version() -> str:
@@ -68,13 +95,15 @@ def system_prompt() -> str:
     return _load()[1]
 
 
-def neutralise(text: str) -> str:
+def neutralise(text: str, *, conversation: bool = False) -> str:
     """Make a delimiter tag inside `text` inert, leaving everything else as written.
 
     Only this prompt's own tag names are touched, and only their ``<``, so
-    "a < b", code and HTML in a note reach the model unchanged.
+    "a < b", code and HTML in a note reach the model unchanged. With
+    ``conversation``, the history's tags too (chat.md, condense.md).
     """
-    return _DELIMITER_TAG.sub(r"&lt;\1", text)
+    pattern = _CONVERSATION_TAG if conversation else _DELIMITER_TAG
+    return pattern.sub(r"&lt;\1", text)
 
 
 def _attribute(value: str) -> str:
@@ -111,14 +140,7 @@ def _truncated(excerpt: Excerpt, chars: int) -> Excerpt:
     # Back off to the last word boundary, so no half-word reaches the model.
     if " " in cut:
         cut = cut.rsplit(" ", 1)[0]
-    return Excerpt(
-        n=excerpt.n,
-        note_id=excerpt.note_id,
-        chunk_id=excerpt.chunk_id,
-        title=excerpt.title,
-        heading_path=excerpt.heading_path,
-        text=cut + " …",
-    )
+    return dataclasses.replace(excerpt, text=cut + " …")
 
 
 def build_messages(question: str, excerpts: list[Excerpt]) -> tuple[str, str]:
@@ -127,17 +149,24 @@ def build_messages(question: str, excerpts: list[Excerpt]) -> tuple[str, str]:
     Excerpts first, the question last: the model reads the material before
     the thing to do with it, and the question is nearest the answer.
     """
+    user = (
+        excerpts_block(excerpts)
+        + "\n\n"
+        + f"<question>\n{neutralise(question.strip())}\n</question>"
+    )
+    return system_prompt(), user
+
+
+def excerpts_block(excerpts: list[Excerpt], *, conversation: bool = False) -> str:
+    """``<excerpts>…</excerpts>``: the excerpts that fit, numbered, neutralised."""
     blocks = []
     for excerpt in fit_excerpts(excerpts):
         attributes = f'n="{excerpt.n}" title="{_attribute(excerpt.title)}"'
         if excerpt.heading_path:
             attributes += f' section="{_attribute(excerpt.heading_path)}"'
-        blocks.append(f"<excerpt {attributes}>\n{neutralise(excerpt.text)}\n</excerpt>")
-
-    user = (
-        "<excerpts>\n"
-        + "\n\n".join(blocks)
-        + "\n</excerpts>\n\n"
-        + f"<question>\n{neutralise(question.strip())}\n</question>"
-    )
-    return system_prompt(), user
+        if excerpt.attachment_name:
+            # The text is the file's, not the note's own: say which file.
+            attributes += f' file="{_attribute(excerpt.attachment_name)}"'
+        text = neutralise(excerpt.text, conversation=conversation)
+        blocks.append(f"<excerpt {attributes}>\n{text}\n</excerpt>")
+    return "<excerpts>\n" + "\n\n".join(blocks) + "\n</excerpts>"

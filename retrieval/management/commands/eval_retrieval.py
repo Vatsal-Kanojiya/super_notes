@@ -10,6 +10,16 @@ runs the same chunker and indexer as real notes.
 Each search asks for SEARCH_MAX_K chunks and is scored on notes (D42):
 recall@k is over the top k *notes*, which with the per-note cap may take
 up to 2k chunks.
+
+``--conversations`` measures the follow-ups of the multi-turn fixtures
+instead (docs/RAG.md "Conversations"): the last turn of each conversation
+searched three ways -- as asked (raw), condensed by the chat provider the
+way a turn is (the cheap "stands alone" check first, then the condenser,
+falling back to raw if it fails), and as the human-written ``standalone``,
+the upper bound. Hybrid search, the mode asks use. Condensing here records
+no usage events: it calls the pure part of the condenser, so the eval needs
+no AskQuery and consumes no ``condense`` limit -- but a real chat provider
+is called, and costs.
 """
 
 import statistics
@@ -21,6 +31,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.test.utils import override_settings
 
+from assistant import chat, conversation
 from notes import services
 from retrieval.embeddings import EmbeddingError, EmbeddingTransientError, embedding_model_id
 from retrieval.embeddings.registry import PROVIDERS
@@ -34,11 +45,18 @@ from retrieval.search import MODES, search
 EVAL_MODES = ("vector", "keyword", "hybrid")
 assert set(EVAL_MODES) == set(MODES)
 
+# The three ways a follow-up is searched (--conversations), and how a last turn
+# can be handled: sent to the condenser, left as asked because it stands alone,
+# or left as asked because the condenser failed or returned nothing.
+VARIANTS = ("raw", "condensed", "standalone")
+OUTCOMES = ("condensed", "stood alone", "fell back")
+
 
 class Command(BaseCommand):
     help = (
         "Report recall@k and MRR for vector, keyword and hybrid retrieval over the eval "
-        "fixtures. Runs in a transaction that is rolled back; leaves no data."
+        "fixtures (with --conversations: for multi-turn follow-ups, raw vs condensed vs "
+        "standalone). Runs in a transaction that is rolled back; leaves no data."
     )
 
     def add_arguments(self, parser):
@@ -47,10 +65,17 @@ class Command(BaseCommand):
             "--provider", choices=sorted(PROVIDERS), help="Override EMBEDDING_PROVIDER."
         )
         parser.add_argument("--by-kind", action="store_true", help="Break down by question kind.")
+        parser.add_argument(
+            "--conversations",
+            action="store_true",
+            help="Evaluate multi-turn follow-ups: raw vs condensed vs the human standalone.",
+        )
 
-    def handle(self, *args, k=5, provider=None, by_kind=False, **options):
+    def handle(self, *args, k=5, provider=None, by_kind=False, conversations=False, **options):
         if not 1 <= k <= settings.SEARCH_MAX_K:
             raise CommandError(f"--k must be between 1 and {settings.SEARCH_MAX_K}.")
+        if conversations:
+            return self.handle_conversations(k, provider, by_kind)
         eval_set = loader.load()
         with override_settings(EMBEDDING_PROVIDER=provider or settings.EMBEDDING_PROVIDER):
             try:
@@ -61,16 +86,21 @@ class Command(BaseCommand):
                 raise CommandError(f"Embedding failed: {exc}") from exc
             self.report(eval_set, results, k, by_kind)
 
-    def run(self, eval_set):
-        """{mode: {question id: ranked note keys}} and each question's top similarity."""
+    def load_notes(self, notes):
+        """(user, {note id: fixture key}): a throwaway user with the fixture notes, indexed."""
         user = get_user_model().objects.create_user(email=f"eval-{uuid.uuid4().hex}@invalid")
         key_of = {}
-        for fixture in eval_set.notes:
+        for fixture in notes:
             note = services.create_note(
                 user, type=fixture.type, title=fixture.title, content=fixture.content
             )
             index_note(note.pk, note.version)
             key_of[note.pk] = fixture.key
+        return user, key_of
+
+    def run(self, eval_set):
+        """{mode: {question id: ranked note keys}} and each question's top similarity."""
+        user, key_of = self.load_notes(eval_set.notes)
 
         rankings, top_similarity = {mode: {} for mode in EVAL_MODES}, {}
         for question in eval_set.questions:
@@ -143,6 +173,102 @@ class Command(BaseCommand):
                 result = summary(mode, qs)
                 row += f"{fmt(result.recall_at_k) + ' / ' + fmt(result.mrr):>22}"
             self.stdout.write(f"{name:<16}{len(qs):>3}{row}")
+
+    # --- Conversations ---------------------------------------------------
+
+    def handle_conversations(self, k, provider, by_kind):
+        eval_set = loader.load()
+        conversations = loader.load_conversations()
+        with override_settings(EMBEDDING_PROVIDER=provider or settings.EMBEDDING_PROVIDER):
+            try:
+                with transaction.atomic():
+                    results = self.run_conversations(eval_set, conversations)
+                    transaction.set_rollback(True)
+            except (EmbeddingError, EmbeddingTransientError) as exc:
+                raise CommandError(f"Embedding failed: {exc}") from exc
+            self.report_conversations(eval_set, conversations, results, k, by_kind)
+
+    def run_conversations(self, eval_set, conversations):
+        """(rankings per variant, how each last turn was handled), keyed by conversation id."""
+        user, key_of = self.load_notes(eval_set.notes)
+        rankings = {variant: {} for variant in VARIANTS}
+        outcome = {}
+
+        def rank(question):
+            hits = search(user, question, settings.SEARCH_MAX_K, mode="hybrid")
+            return [key_of[hit.note_id] for hit in hits]
+
+        for case in conversations:
+            asked = case.last.question
+            query, outcome[case.id] = self.condensed(case)
+            rankings["raw"][case.id] = rank(asked)
+            rankings["condensed"][case.id] = rank(query)
+            rankings["standalone"][case.id] = rank(case.standalone)
+        return rankings, outcome
+
+    def condensed(self, case):
+        """(the question a turn would search, how): as conversation.prepare decides it.
+
+        The earlier turns are the fixture's questions, with no answers (there
+        is no answer to repeat without running the whole ask on them).
+        """
+        asked = case.last.question
+        if not conversation.needs_condensing(asked):
+            return asked, "stood alone"
+        history = [
+            conversation.HistoryTurn(position, turn.question, "")
+            for position, turn in enumerate(case.turns[:-1], start=1)
+        ]
+        try:
+            rewritten, _ = conversation.run_condenser(asked, history)
+        except (chat.ChatError, chat.TransientChatError) as exc:
+            self.stderr.write(f"{case.id}: condensing failed, searched as asked ({exc})")
+            return asked, "fell back"
+        if not rewritten:
+            return asked, "fell back"
+        return rewritten, "condensed"
+
+    def report_conversations(self, eval_set, conversations, results, k, by_kind):
+        rankings, outcome = results
+        answerable = sum(case.has_answer for case in conversations)
+        counts = {name: list(outcome.values()).count(name) for name in OUTCOMES}
+        self.stdout.write(
+            f"Provider: {embedding_model_id()}. Chat: {settings.CHAT_PROVIDER}. "
+            f"{len(eval_set.notes)} notes, {len(conversations)} conversations ({answerable} "
+            f"answerable, {len(conversations) - answerable} no-answer). Hybrid search, k={k}."
+        )
+        if settings.EMBEDDING_PROVIDER == "fake" or settings.CHAT_PROVIDER == "fake":
+            self.stdout.write(
+                "Fake provider: a smoke test of the pipeline, not a measure of retrieval quality."
+            )
+        self.stdout.write(
+            "Last turns: " + ", ".join(f"{counts[name]} {name}" for name in OUTCOMES) + "."
+        )
+        self.stdout.write("")
+
+        relevant = {case.id: case.relevant for case in conversations}
+
+        def summary(variant, cases):
+            return evaluate(((rankings[variant][c.id], relevant[c.id]) for c in cases), k)
+
+        self.stdout.write(f"{'follow-up':<12}{f'recall@{k}':>10}{'MRR':>8}")
+        for variant in VARIANTS:
+            result = summary(variant, conversations)
+            self.stdout.write(f"{variant:<12}{fmt(result.recall_at_k):>10}{fmt(result.mrr):>8}")
+        if not by_kind:
+            return
+        cells = "".join(f"{variant + f' r@{k} / MRR':>22}" for variant in VARIANTS)
+        self.stdout.write("")
+        self.stdout.write(f"{'kind':<16}{'n':>3}{cells}")
+        for kind in sorted({case.kind for case in conversations if case.has_answer}):
+            cases = [case for case in conversations if case.kind == kind]
+            row = ""
+            for variant in VARIANTS:
+                result = summary(variant, cases)
+                row += f"{fmt(result.recall_at_k) + ' / ' + fmt(result.mrr):>22}"
+            # n is what the scores average over: the answerable cases only.
+            answerable = sum(1 for case in cases if case.has_answer)
+            self.stdout.write(f"{kind:<16}{answerable:>3}{row}")
 
 
 def fmt(value):

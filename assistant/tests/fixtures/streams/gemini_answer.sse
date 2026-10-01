@@ -1,0 +1,7 @@
+data: {"candidates": [{"content": {"parts": [{"text": "Looking at excerpt 1.", "thought": true}], "role": "model"}, "index": 0}], "usageMetadata": {"promptTokenCount": 110, "totalTokenCount": 110}, "modelVersion": "gemini-2.5-flash-lite", "responseId": "abc"}
+
+data: {"candidates": [{"content": {"parts": [{"text": "Your passport"}], "role": "model"}, "index": 0}], "usageMetadata": {"promptTokenCount": 110, "candidatesTokenCount": 3, "totalTokenCount": 113}, "modelVersion": "gemini-2.5-flash-lite", "responseId": "abc"}
+
+data: {"candidates": [{"content": {"parts": [{"text": " expires in March 2027 [1] — renew it early."}], "role": "model"}, "finishReason": "STOP", "index": 0}], "usageMetadata": {"promptTokenCount": 110, "candidatesTokenCount": 14, "thoughtsTokenCount": 6, "totalTokenCount": 130}, "modelVersion": "gemini-2.5-flash-lite", "responseId": "abc"}
+
+: handwritten from the vendor docs; this comment line keeps the blank line above

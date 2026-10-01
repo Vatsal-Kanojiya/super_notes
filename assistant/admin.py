@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AskQuery
+from .models import AskQuery, Conversation
 
 
 @admin.register(AskQuery)
@@ -13,9 +13,38 @@ class AskQueryAdmin(admin.ModelAdmin):
     their plan or the chat_turns limit.
     """
 
-    list_display = ["id", "user", "status", "provider", "model", "created_at", "completed_at"]
+    list_display = [
+        "id",
+        "user",
+        "conversation",
+        "position",
+        "status",
+        "provider",
+        "model",
+        "created_at",
+        "completed_at",
+    ]
     list_filter = ["status", "provider"]
     search_fields = ["user__email", "question"]
+    list_select_related = ["user"]
+    ordering = ["-id"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Conversation)
+class ConversationAdmin(admin.ModelAdmin):
+    """Read-only, for support. Its turns are AskQuery rows (filter by conversation)."""
+
+    list_display = ["id", "user", "title", "created_at", "updated_at", "deleted_at"]
+    search_fields = ["user__email", "title"]
     list_select_related = ["user"]
     ordering = ["-id"]
 

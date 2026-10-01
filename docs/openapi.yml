@@ -26,7 +26,8 @@ paths:
   /api/v1/ask/:
     get:
       operationId: ask_list
-      description: Follow `next` for more.
+      description: Conversation turns included, except those of deleted conversations.
+        Follow `next` for more.
       summary: Your asks, newest first
       parameters:
       - name: cursor
@@ -56,7 +57,7 @@ paths:
       description: |-
         Starts answering and returns at once with the ask `pending` (202): poll `GET ask/<id>/` until `status` is `done` or `failed`. The answer comes from your notes only, with `[n]` markers matching `citations`.
 
-        Send a fresh `Idempotency-Key` per question. Resending one (a retry after a dropped connection) returns the ask it already made, with 200, and does not count again. Reusing it for a different question is a 422.
+        Send a fresh `Idempotency-Key` per question. Resending one (a retry after a dropped connection) returns the ask it already made, with 200, and does not count again. Reusing it for a different question, or one first sent as a conversation turn, is a 422.
 
         Each ask that does not fail counts against the month's quota (see `me/`). When the service-wide monthly budget is used up, asking pauses for everyone: 503 `system_limit_reached`.
       summary: Ask your notes a question
@@ -113,7 +114,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
-          description: '`idempotency_key_reused`: the key was used for another question.'
+          description: '`idempotency_key_reused`: the key was used for another question,
+            or for an ask somewhere else (a plain ask, another conversation).'
         '429':
           content:
             application/json:
@@ -131,7 +133,8 @@ paths:
     get:
       operationId: ask_retrieve
       description: Poll this until `status` is `done` or `failed`; a failed ask has
-        a user-facing `error` and does not count against the quota.
+        a user-facing `error` and does not count against the quota. Conversation turns
+        are polled here too.
       summary: Get an ask
       parameters:
       - in: path
@@ -162,6 +165,165 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: No such ask of yours.
+  /api/v1/ask/{id}/stream/:
+    get:
+      operationId: ask_stream_retrieve
+      description: |-
+        The answer as it is written, as server-sent events (`text/event-stream`). Read it with
+        `fetch` and a streaming body reader (an `EventSource` cannot send the `Authorization` header).
+        Polling `GET ask/<id>/` keeps working and stays the source of truth: on any error, or a stream
+        that ends without `done` or `failed`, poll (or open the stream again: it catches up).
+
+        Each event is `event: <type>` and one `data:` line of JSON that repeats `type`:
+
+        - `snapshot` `{text, offset}`: the answer so far; replaces what you have. `offset` is its
+          length. First, for an unfinished ask.
+        - `delta` `{offset, text}`: append `text`. Deltas are contiguous: `offset` is always the length
+          of the text so far (in code points).
+        - `reset`: the answer is starting over (a retry); clear the text.
+        - `done` / `failed` `{ask}`: the ask exactly as `GET ask/<id>/` returns it, citations
+          included. Last.
+        - `timeout`: the stream reached its time limit (5 minutes by default). Last: poll.
+        - `unavailable`: live events are off or unreachable, or the server is not running under ASGI.
+          Last: poll.
+
+        A finished ask gets its `done` or `failed` at once. A `: keep-alive` comment line comes after
+        15 seconds without an event. Opening a stream counts against the general request rate, not the
+        `ask` scope. At most 3 streams per user are open at once (`STREAM_MAX_PER_USER`); one more is a
+        429 `too_many_streams`: close one, or poll.
+      summary: Stream an ask's answer
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Ask
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            text/event-stream:
+              schema:
+                type: string
+          description: Server-sent events until the ask ends.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such ask of yours.
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`throttled`, or `too_many_streams`: the user already has `STREAM_MAX_PER_USER`
+            (3) streams open.'
+  /api/v1/attachments/{id}/:
+    get:
+      operationId: attachments_retrieve
+      summary: Get an attachment's metadata
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Attachments
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such attachment of yours.
+    delete:
+      operationId: attachments_destroy
+      description: Frees its storage and deletes the file. Its note is sent again
+        by `notes/changes/` without it.
+      summary: Delete an attachment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Attachments
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such attachment of yours.
+  /api/v1/attachments/{id}/file/:
+    get:
+      operationId: attachments_file_retrieve
+      description: 'The file''s bytes, as a download (`Content-Disposition: attachment`)
+        with its sniffed type.'
+      summary: Download an attachment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Attachments
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+          description: The file.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such attachment of yours.
   /api/v1/auth/devices/:
     get:
       operationId: auth_devices_list
@@ -355,6 +517,350 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Too many, too recently.
+  /api/v1/conversations/:
+    get:
+      operationId: conversations_list
+      description: Follow `next` for more.
+      summary: Your conversations, most recently active first
+      parameters:
+      - name: cursor
+        required: false
+        in: query
+        description: The pagination cursor value.
+        schema:
+          type: string
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: 1-100, default 25.
+      tags:
+      - Conversations
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedConversationList'
+          description: ''
+    post:
+      operationId: conversations_create
+      description: 'Without a `question`, makes an empty conversation (201). With
+        one, also asks it as turn 1, exactly as `POST conversations/<id>/turns/` would,
+        and then needs an `Idempotency-Key`: a retry with the same key returns the
+        same conversation (200) and does not count again. Poll the turn with `GET
+        ask/<id>/`.'
+      summary: Start a conversation
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: Required with a `question`. 1-100 of `A-Z a-z 0-9 - _`.
+      tags:
+      - Conversations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ConversationCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ConversationCreateRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationDetail'
+          description: Started.
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationDetail'
+          description: 'A replayed key: that conversation.'
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid question, or `idempotency_key_required` / `idempotency_key_invalid`.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`idempotency_key_reused`: the key was used for another question,
+            or for an ask somewhere else (a plain ask, another conversation).'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaExceeded'
+          description: '`quota_exceeded` (with usage), or `throttled`.'
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`system_limit_reached`: this feature is paused for everyone
+            (a system-wide limit). Not the caller''s own quota; try again later.'
+  /api/v1/conversations/{id}/:
+    get:
+      operationId: conversations_retrieve
+      summary: Get a conversation and its turns
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Conversations
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationDetail'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such conversation of yours (or it was deleted).
+    patch:
+      operationId: conversations_partial_update
+      description: Does not move it in the list, which follows new turns.
+      summary: Rename a conversation
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Conversations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedConversationRenameRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedConversationRenameRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedConversationRenameRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid title.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such conversation of yours (or it was deleted).
+    delete:
+      operationId: conversations_destroy
+      description: Its turns go from `ask/` too. The asks it used still count this
+        month.
+      summary: Delete a conversation
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Conversations
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such conversation of yours (or it was deleted).
+  /api/v1/conversations/{id}/turns/:
+    post:
+      operationId: conversations_turns_create
+      description: |-
+        `POST ask/`, in a conversation: returns the turn `pending` (202); poll `GET ask/<id>/` until it is `done` or `failed`. Turns are sequential: while the previous turn is pending or running this is a 409 `turn_in_progress`, naming that turn. A replayed `Idempotency-Key` returns its turn (200), even then.
+
+        Each turn counts against the month's asks, as an ask does.
+      summary: Ask the next question in a conversation
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: 1-100 of `A-Z a-z 0-9 - _`; a UUID is ideal.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Conversations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AskCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AskCreateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AskQuery'
+          description: Asked; poll for the answer.
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AskQuery'
+          description: 'A replayed key: that turn.'
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid question, or `idempotency_key_required` / `idempotency_key_invalid`.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such conversation of yours (or it was deleted).
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnInProgress'
+          description: '`turn_in_progress`: the previous turn has not finished.'
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`idempotency_key_reused`: the key was used for another question,
+            or for an ask somewhere else (a plain ask, another conversation).'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaExceeded'
+          description: '`quota_exceeded` (with usage), or `throttled`.'
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`system_limit_reached`: this feature is paused for everyone
+            (a system-wide limit). Not the caller''s own quota; try again later.'
+  /api/v1/format-jobs/{id}/:
+    get:
+      operationId: format_jobs_retrieve
+      description: Poll this until `status` is `done` or `failed`; a failed job has
+        an `error_code` and a user-facing `error`, and does not count against the
+        limit.
+      summary: Get a format job
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Format
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormatJob'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such job of yours.
   /api/v1/health/:
     get:
       operationId: health_retrieve
@@ -407,7 +913,8 @@ paths:
     patch:
       operationId: me_partial_update
       description: '`timezone` (an IANA name) and `memory_enabled`. Setting `memory_enabled`
-        also records that the user chose it themselves.'
+        also records that the user chose it themselves. Switching memory off stops
+        it being learned and used; the facts stay until deleted (`DELETE memory/facts/`).'
       summary: Update your settings
       tags:
       - Account
@@ -457,6 +964,161 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: Not signed in.
+  /api/v1/me/push-subscriptions/:
+    post:
+      operationId: me_push_subscriptions_create
+      description: Upsert by endpoint. An endpoint registered to another account moves
+        to the caller only when the posted `p256dh` and `auth` are the ones registered
+        (the same browser, another account signed in); otherwise 409 `endpoint_in_use`
+        and nothing changes. 404 when web push is off.
+      summary: Register a push subscription
+      tags:
+      - Account
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushSubscriptionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PushSubscriptionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PushSubscriptionRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid subscription.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Web push is off.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`endpoint_in_use`: registered to another account with other
+            keys.'
+    delete:
+      operationId: me_push_subscriptions_destroy
+      description: 'By endpoint, among the caller''s own. Removing one that is not
+        there (or is another account''s) is still 204: nothing to remove.'
+      summary: Remove a push subscription
+      tags:
+      - Account
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Invalid request.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+  /api/v1/memory/facts/:
+    get:
+      operationId: memory_facts_list
+      description: Facts learned from what you said about yourself in conversations,
+        and used to shape later answers (never cited as a source). Only facts in use
+        are listed. Follow `next` for more.
+      summary: What the assistant remembers about you, newest first
+      parameters:
+      - name: cursor
+        required: false
+        in: query
+        description: The pagination cursor value.
+        schema:
+          type: string
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: 1-100, default 25.
+      tags:
+      - Memory
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserFactList'
+          description: ''
+    delete:
+      operationId: memory_facts_forget_all
+      description: Deletes every fact the assistant remembers about you. A conversation
+        turn asked before this teaches nothing afterwards, even if it is still being
+        answered. Memory stays on (`PATCH me/` turns it off).
+      summary: Forget everything
+      tags:
+      - Memory
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+  /api/v1/memory/facts/{id}/:
+    delete:
+      operationId: memory_facts_forget
+      description: Also forgets the older facts it replaced.
+      summary: Forget one fact
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Memory
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such fact of yours.
   /api/v1/notes/:
     get:
       operationId: notes_list
@@ -605,14 +1267,251 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/notes/{id}/attachments/:
+    get:
+      operationId: notes_attachments_list
+      description: Newest first. Metadata only; download a file with `GET attachments/<id>/file/`.
+      summary: List a note's attachments
+      parameters:
+      - name: cursor
+        required: false
+        in: query
+        description: The pagination cursor value.
+        schema:
+          type: string
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - Attachments
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAttachmentList'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such note of yours.
+    post:
+      operationId: notes_attachments_create
+      description: |-
+        One file in the `file` field of a multipart form: a JPEG, PNG or WebP image, or a PDF, of at most 10 MB. The type is read from the file's bytes; the name and Content-Type sent are not trusted, and a file of any other type is refused with 415 whatever it is called. The name is kept for display and downloads, cleaned, and always ends in the type's extension.
+
+        The same file again on the same note is not stored twice: you get the existing attachment with 200. A new one is 201, `status: pending`. Its text is then read in the background (`extracting`), and once it is `ready` search and Ask find it, naming the file; a file whose text cannot be read is `failed`, with the reason in `error`, and stays attached. It counts against your `storage_bytes` (see `me/`) until it is deleted. The note is sent again by `notes/changes/` with its attachments, on every status change too.
+      summary: Attach a file to a note
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Attachments
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AttachmentUploadRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+          description: Stored.
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+          description: This file is already on the note.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No file, or an empty one.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such note of yours.
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`too_large`: over the cap.'
+        '415':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`unsupported_file_type`: not a JPEG, PNG, WebP or PDF; or
+            `unsupported_media_type`: the request is not multipart.'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageQuotaExceeded'
+          description: '`quota_exceeded`: your storage is full (with usage, in bytes),
+            or `throttled`.'
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`system_limit_reached`: this feature is paused for everyone
+            (a system-wide limit). Not the caller''s own quota; try again later.'
+  /api/v1/notes/{id}/format/:
+    post:
+      operationId: notes_format_create
+      description: |-
+        Starts restructuring the note (headings, lists, checklists, obvious typos) and returns at once with the job `pending` (202): poll `GET format-jobs/<id>/` until `status` is `done` or `failed`. The note is not changed. A `done` job carries `proposed_content` and the `base_version` it was made from: show it, and on Apply send `PATCH notes/<id>/` with that content and `version = base_version` (a note edited meanwhile is the usual 409).
+
+        A proposal that adds or drops words, numbers or dates is refused: the job fails with `format_changed_content`. A failed job does not count against the month's `format` limit (see `me/`).
+
+        Send a fresh `Idempotency-Key` per request. Resending one (a retry after a dropped connection) returns the job it already made, with 200, and does not count again. Reusing it for another note is a 422.
+      summary: Format a note
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: 1-100 of `A-Z a-z 0-9 - _`; a UUID is ideal.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Format
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormatJob'
+          description: Started; poll for the result.
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormatJob'
+          description: 'A replayed key: that job.'
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`note_empty`, `note_too_long`, `idempotency_key_required`
+            or `idempotency_key_invalid`.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: No such note of yours.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`idempotency_key_reused`: the key was used for another note.'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormatQuotaExceeded'
+          description: '`quota_exceeded` (with usage), or `throttled`.'
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: '`system_limit_reached`: this feature is paused for everyone
+            (a system-wide limit). Not the caller''s own quota; try again later.'
+  /api/v1/notes/{id}/reminders/:
+    post:
+      operationId: notes_reminders_create
+      description: 'Due at `due_at`, with a heads-up every day for `lead_days` days
+        before it, at the same time of day in your timezone: `lead_days + 1` notifications
+        in all. At most 20 reminders per note.'
+      summary: Add a reminder to a note
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reminders
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReminderWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReminderWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReminderWriteRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reminder'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: ''
   /api/v1/notes/changes/:
     get:
       operationId: notes_changes_retrieve
       description: 'Every note written after revision `after`, deleted ones included
         as tombstones (no title or content, `deleted_at` set), oldest write first.
-        Store `latest_revision` and send it as `after` next time. If `has_more` is
-        true, call again straight away with it: the batch was cut at `limit`. A first
-        sync sends `after=0`.'
+        A live note carries all its `reminders` and `attachments` (metadata only);
+        adding, changing, finishing or deleting either sends its note again, so replace
+        the note''s reminders and attachments with the ones sent. Store `latest_revision`
+        and send it as `after` next time. If `has_more` is true, call again straight
+        away with it: the batch was cut at `limit`. A first sync sends `after=0`.'
       summary: What changed since a revision
       parameters:
       - in: query
@@ -642,13 +1541,165 @@ paths:
               schema:
                 $ref: '#/components/schemas/Message'
           description: ''
+  /api/v1/push/vapid-key/:
+    get:
+      operationId: push_vapid_key_retrieve
+      description: 404 when web push is not configured on this server.
+      summary: Web push public key
+      tags:
+      - Account
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VapidKey'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Not signed in.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: Web push is off.
+  /api/v1/reminders/:
+    get:
+      operationId: reminders_list
+      description: Every reminder with at least one notification in `[from, to)`,
+        with those notifications in `occurrences` and its note's title, earliest due
+        first. Done reminders are included (`reminder.status` says so). Both bounds
+        need an offset (`Z` works; a `+` must be URL-encoded as `%2B`); the range
+        is at most 62 days.
+      summary: Reminders in a date range (the calendar)
+      parameters:
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date-time
+        required: true
+      - in: query
+        name: to
+        schema:
+          type: string
+          format: date-time
+        required: true
+      tags:
+      - Reminders
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReminderRange'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: ''
+  /api/v1/reminders/{id}/:
+    patch:
+      operationId: reminders_partial_update
+      description: 'Any of `due_at`, `lead_days`, `channels`. Its status stays as
+        it is: a done reminder stays done.'
+      summary: Change a reminder
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reminders
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedReminderWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedReminderWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedReminderWriteRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reminder'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: ''
+    delete:
+      operationId: reminders_destroy
+      summary: Delete a reminder
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reminders
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/reminders/{id}/done/:
+    post:
+      operationId: reminders_done_create
+      description: Stops the rest of its notifications. Doing it twice is harmless.
+      summary: Mark a reminder done
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reminders
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reminder'
+          description: ''
   /api/v1/search/:
     get:
       operationId: search_list
       description: 'The best-matching chunks of your notes, best first: by meaning
         (embeddings) and by keyword, merged by reciprocal rank fusion, at most 2 per
-        note. Deleted notes never appear. A note edited in the last few seconds may
-        still match its previous text until it is re-indexed.'
+        note. A note''s attachments are searched with it once their text is read (`status:
+        ready`); such a hit names the file. Deleted notes and attachments never appear.
+        A note edited in the last few seconds may still match its previous text until
+        it is re-indexed.'
       summary: Search your notes
       parameters:
       - in: query
@@ -759,7 +1810,7 @@ components:
     AskQuery:
       type: object
       description: |-
-        An ask as the client shows it.
+        An ask (or a conversation turn) as the client shows it.
 
         Not ``retrieved`` or the token counts: they are for debugging and cost,
         and the scores in ``retrieved`` would invite a client to rank with them.
@@ -767,6 +1818,17 @@ components:
         id:
           type: integer
           readOnly: true
+        conversation:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: The conversation this is a turn of; null for a plain ask.
+        position:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: The turn's number in its conversation, from 1; null for a plain
+            ask.
         question:
           type: string
           readOnly: true
@@ -800,9 +1862,11 @@ components:
       - answer
       - citations
       - completed_at
+      - conversation
       - created_at
       - error
       - id
+      - position
       - question
       - status
     AskUsage:
@@ -826,6 +1890,103 @@ components:
       - limit
       - resets_at
       - used
+    Attachment:
+      type: object
+      description: |-
+        An attachment's metadata, as every endpoint (and ``changes``) returns it.
+
+        Never its bytes (``GET attachments/<id>/file/``) and never its extracted
+        text: that is for search, and can be long.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        note:
+          type: integer
+          readOnly: true
+        original_name:
+          type: string
+          readOnly: true
+          description: The uploaded file's name, cleaned; always ends in the type's
+            extension.
+        mime_type:
+          type: string
+          readOnly: true
+          description: Sniffed from the file's bytes, not taken from the upload.
+        size:
+          type: integer
+          readOnly: true
+          description: Bytes.
+        sha256:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/AttachmentStatusEnum'
+          readOnly: true
+        error:
+          type: string
+          readOnly: true
+        summary:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - error
+      - id
+      - mime_type
+      - note
+      - original_name
+      - sha256
+      - size
+      - status
+      - summary
+    AttachmentStatusEnum:
+      enum:
+      - pending
+      - extracting
+      - ready
+      - failed
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `extracting` - Extracting
+        * `ready` - Ready
+        * `failed` - Failed
+    AttachmentUploadRequest:
+      type: object
+      description: '``POST notes/<id>/attachments/``: one file, as multipart form
+        data.'
+      properties:
+        file:
+          type: string
+          format: binary
+          description: A JPEG, PNG, WebP image or a PDF. The type is read from the
+            bytes; the name and Content-Type you send are not trusted.
+      required:
+      - file
+    ChannelsEnum:
+      enum:
+      - email
+      - push
+      type: string
+      description: |-
+        * `email` - Email
+        * `push` - Push
+    ChunkSourceEnum:
+      enum:
+      - note
+      - attachment
+      - summary
+      type: string
+      description: |-
+        * `note` - Note
+        * `attachment` - Attachment
+        * `summary` - Summary
     Citation:
       type: object
       properties:
@@ -838,15 +1999,94 @@ components:
           type: integer
         title:
           type: string
+          description: The note's title.
+        attachment_id:
+          type: integer
+          nullable: true
+          description: The attachment whose text is cited; null when it is the note's
+            own text.
+        attachment_name:
+          type: string
+          nullable: true
+          description: That attachment's file name; null when it is the note's own
+            text.
         snippet:
           type: string
           description: The cited passage, on one line, cut at a word.
       required:
+      - attachment_id
+      - attachment_name
       - chunk_id
       - n
       - note_id
       - snippet
       - title
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+          description: The first question, shortened, until renamed. Blank until the
+            first turn.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the last turn was asked. The list is ordered by it.
+      required:
+      - created_at
+      - id
+      - title
+      - updated_at
+    ConversationCreateRequest:
+      type: object
+      properties:
+        question:
+          type: string
+          minLength: 1
+          description: 'Optional: asks it as turn 1 at once (then `Idempotency-Key`
+            is required).'
+          maxLength: 1000
+    ConversationDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+          description: The first question, shortened, until renamed. Blank until the
+            first turn.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the last turn was asked. The list is ordered by it.
+        turns:
+          type: array
+          items:
+            $ref: '#/components/schemas/AskQuery'
+          readOnly: true
+          description: Oldest first.
+      required:
+      - created_at
+      - id
+      - title
+      - turns
+      - updated_at
     Device:
       type: object
       description: A signed-in device, as the list shows it. Never its token id.
@@ -876,6 +2116,88 @@ components:
       - id
       - label
       - last_seen_at
+    FactKindEnum:
+      enum:
+      - static
+      - dynamic
+      type: string
+      description: |-
+        * `static` - Static
+        * `dynamic` - Dynamic
+    FormatJob:
+      type: object
+      description: A job as the client shows it. Not the provider, model, prompt or
+        tokens.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        note_id:
+          type: integer
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        base_version:
+          type: integer
+          readOnly: true
+        proposed_content:
+          readOnly: true
+          nullable: true
+          description: The restructured document, when `status` is `done`; otherwise
+            null. Show it beside the note and, on Apply, `PATCH` the note with it
+            and `version = base_version`.
+        error_code:
+          type: string
+          readOnly: true
+        error:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - base_version
+      - completed_at
+      - created_at
+      - error
+      - error_code
+      - id
+      - note_id
+      - proposed_content
+      - status
+    FormatQuotaExceeded:
+      type: object
+      description: 'A plain answer: what happened, and a stable code a client can
+        branch on.'
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+        used:
+          type: integer
+        limit:
+          type: integer
+          nullable: true
+          description: 'Null: unlimited.'
+        resets_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - code
+      - detail
+      - limit
+      - resets_at
+      - used
     GoogleLoginRequest:
       type: object
       properties:
@@ -1042,7 +2364,7 @@ components:
       - version
     NoteChange:
       oneOf:
-      - $ref: '#/components/schemas/Note'
+      - $ref: '#/components/schemas/NoteSync'
       - $ref: '#/components/schemas/NoteTombstone'
     NoteChanges:
       type: object
@@ -1082,6 +2404,62 @@ components:
           type: string
           maxLength: 500
         content: {}
+    NoteSync:
+      type: object
+      description: A live note in ``changes``, with its reminders and attachments
+        (deleted ones left out).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        title:
+          type: string
+          maxLength: 500
+        content: {}
+        content_text:
+          type: string
+          readOnly: true
+        version:
+          type: integer
+          readOnly: true
+        revision:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        reminders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reminder'
+          readOnly: true
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attachment'
+          readOnly: true
+      required:
+      - attachments
+      - content_text
+      - created_at
+      - deleted_at
+      - id
+      - reminders
+      - revision
+      - updated_at
+      - version
     NoteTombstone:
       type: object
       description: 'A deleted note in ``changes``: enough to drop it, none of its
@@ -1160,6 +2538,44 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AskQuery'
+    PaginatedAttachmentList:
+      type: object
+      required:
+      - results
+      properties:
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cD00ODY%3D"
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cj0xJnA9NDg3
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attachment'
+    PaginatedConversationList:
+      type: object
+      required:
+      - results
+      properties:
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cD00ODY%3D"
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cj0xJnA9NDg3
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conversation'
     PaginatedNoteList:
       type: object
       required:
@@ -1179,6 +2595,32 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Note'
+    PaginatedUserFactList:
+      type: object
+      required:
+      - results
+      properties:
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cD00ODY%3D"
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cj0xJnA9NDg3
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserFact'
+    PatchedConversationRenameRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
     PatchedMeUpdateRequest:
       type: object
       description: What ``PATCH me/`` accepts. Anything else is ignored.
@@ -1205,6 +2647,26 @@ components:
           type: string
           maxLength: 500
         content: {}
+    PatchedReminderWriteRequest:
+      type: object
+      description: POST notes/<id>/reminders/ and PATCH reminders/<id>/ (partial).
+      properties:
+        due_at:
+          type: string
+          format: date-time
+          description: When it is due, with an offset. Must be in the future.
+        lead_days:
+          type: integer
+          maximum: 30
+          minimum: 0
+          description: Daily heads-ups for this many days before, at the same local
+            time. 0-30, default 7.
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelsEnum'
+          description: Default both.
+          minItems: 1
     PlanEnum:
       enum:
       - free
@@ -1221,6 +2683,29 @@ components:
       description: |-
         * `web` - web
         * `android` - android
+    PushSubscriptionRequest:
+      type: object
+      description: The browser's `PushSubscription.toJSON()`, flattened.
+      properties:
+        endpoint:
+          type: string
+          minLength: 1
+          description: An https URL on a known push service (`PUSH_ENDPOINT_HOSTS`),
+            at most 1000 characters, else 400 `invalid_endpoint`.
+        p256dh:
+          type: string
+          minLength: 1
+          description: base64url, 65 bytes decoded.
+          maxLength: 200
+        auth:
+          type: string
+          minLength: 1
+          description: base64url, 16 to 32 bytes decoded.
+          maxLength: 200
+      required:
+      - auth
+      - endpoint
+      - p256dh
     QuotaExceeded:
       type: object
       description: 'A plain answer: what happened, and a stable code a client can
@@ -1275,6 +2760,118 @@ components:
       required:
       - access
       - refresh
+    Reminder:
+      type: object
+      description: |-
+        A reminder, as every endpoint returns it.
+
+        Keep this the only schema component with a reminder ``status``: the
+        schema's enums are named by field, and a second component carrying it
+        would collide with the asks' ``status`` (see ReminderInRangeSerializer).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        note:
+          type: integer
+          readOnly: true
+        due_at:
+          type: string
+          format: date-time
+          readOnly: true
+        lead_days:
+          type: integer
+          readOnly: true
+        channels:
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ReminderStatusEnum'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - channels
+      - created_at
+      - due_at
+      - id
+      - lead_days
+      - note
+      - status
+      - updated_at
+    ReminderInRange:
+      type: object
+      description: |-
+        A reminder in the calendar, with its notifications that fall in the range.
+
+        The reminder is nested, not flattened, so its fields (``status`` among
+        them) live in the one ``Reminder`` component (D129).
+      properties:
+        reminder:
+          allOf:
+          - $ref: '#/components/schemas/Reminder'
+          readOnly: true
+        note_title:
+          type: string
+          readOnly: true
+        occurrences:
+          type: array
+          items:
+            type: string
+            format: date-time
+          readOnly: true
+          description: Notification times inside the range, oldest first.
+      required:
+      - note_title
+      - occurrences
+      - reminder
+    ReminderRange:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReminderInRange'
+      required:
+      - results
+    ReminderStatusEnum:
+      enum:
+      - scheduled
+      - done
+      - cancelled
+      type: string
+      description: |-
+        * `scheduled` - Scheduled
+        * `done` - Done
+        * `cancelled` - Cancelled
+    ReminderWriteRequest:
+      type: object
+      description: POST notes/<id>/reminders/ and PATCH reminders/<id>/ (partial).
+      properties:
+        due_at:
+          type: string
+          format: date-time
+          description: When it is due, with an offset. Must be in the future.
+        lead_days:
+          type: integer
+          maximum: 30
+          minimum: 0
+          description: Daily heads-ups for this many days before, at the same local
+            time. 0-30, default 7.
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelsEnum'
+          description: Default both.
+          minItems: 1
+      required:
+      - due_at
     SearchHit:
       type: object
       description: One matching chunk of a note (retrieval.search.SearchHit), plus
@@ -1286,6 +2883,24 @@ components:
           type: integer
         title:
           type: string
+          description: The note's title.
+        source:
+          allOf:
+          - $ref: '#/components/schemas/ChunkSourceEnum'
+          description: |-
+            Where the text is from: the note itself, the text of one of its attachments, or its summary.
+
+            * `note` - Note
+            * `attachment` - Attachment
+            * `summary` - Summary
+        attachment_id:
+          type: integer
+          nullable: true
+          description: The attachment the text is from; null unless `source` is `attachment`.
+        attachment_name:
+          type: string
+          nullable: true
+          description: That attachment's file name; null unless `source` is `attachment`.
         heading_path:
           type: string
           description: The headings above the chunk, "A > B".
@@ -1312,6 +2927,8 @@ components:
           nullable: true
           description: Full-text rank; null if found by meaning only.
       required:
+      - attachment_id
+      - attachment_name
       - chunk_id
       - heading_path
       - keyword_rank
@@ -1319,6 +2936,7 @@ components:
       - score
       - similarity
       - snippet
+      - source
       - text
       - title
     SessionOpenRequest:
@@ -1369,6 +2987,33 @@ components:
         * `running` - Running
         * `done` - Done
         * `failed` - Failed
+    StorageQuotaExceeded:
+      type: object
+      description: 'A plain answer: what happened, and a stable code a client can
+        branch on.'
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+        used:
+          type: integer
+          description: Used this period (bytes for `storage_bytes`).
+        limit:
+          type: integer
+          nullable: true
+          description: 'Null: unlimited.'
+        resets_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When `used` goes back to 0. Null if it never resets.
+      required:
+      - code
+      - detail
+      - limit
+      - resets_at
+      - used
     StyleEnum:
       enum:
       - prominent
@@ -1392,6 +3037,22 @@ components:
       - access
       - refresh
       - user
+    TurnInProgress:
+      type: object
+      description: 'A plain answer: what happened, and a stable code a client can
+        branch on.'
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+        turn:
+          type: integer
+          description: 'The unfinished turn: poll `GET ask/<turn>/`.'
+      required:
+      - code
+      - detail
+      - turn
     TypeEnum:
       enum:
       - text
@@ -1400,6 +3061,44 @@ components:
       description: |-
         * `text` - Text
         * `checklist` - Checklist
+    UserFact:
+      type: object
+      description: 'A fact the assistant remembers about the user. Read-only: facts
+        are only learned.'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        text:
+          type: string
+          readOnly: true
+          description: One short sentence, e.g. "User is vegetarian."
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/FactKindEnum'
+          readOnly: true
+          description: |-
+            `static`: true until you say otherwise. `dynamic`: true for now; forgotten at `valid_until`.
+
+            * `static` - Static
+            * `dynamic` - Dynamic
+        valid_until:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: When a dynamic fact is forgotten; null for static.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When it was learned.
+      required:
+      - created_at
+      - id
+      - kind
+      - text
+      - valid_until
     UserLimits:
       type: object
       description: One entry per user-facing limit key (DECISIONS D84, D91).
@@ -1425,6 +3124,14 @@ components:
       - format
       - storage_bytes
       - summary
+    VapidKey:
+      type: object
+      properties:
+        public_key:
+          type: string
+          description: The VAPID public key, for `pushManager.subscribe`.
+      required:
+      - public_key
   securitySchemes:
     jwtAuth:
       type: http

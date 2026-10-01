@@ -16,7 +16,7 @@ import { computed, ref } from 'vue'
 import { cursorFrom, errorMessage } from '../api/client'
 import { notesApi } from '../api/endpoints'
 import { isTombstone } from '../api/types'
-import type { DocNode, Id, Note, NoteType, NoteUpdateRequest } from '../api/types'
+import type { DocNode, Id, Note, NoteType, NoteUpdateRequest, Reminder } from '../api/types'
 
 const SYNC_INTERVAL_MS = 30_000
 /** A guard against a server that keeps saying has_more without progress. */
@@ -69,10 +69,36 @@ export const useNotesStore = defineStore('notes', () => {
       : allNotes.value,
   )
 
-  /** Store a server copy unless we already hold a newer one. */
+  /**
+   * Store a server copy unless we already hold a newer one. Only `changes`
+   * carries a note's reminders: a copy from anywhere else (a save, the list,
+   * one note) keeps the reminders already held.
+   */
   function upsert(note: Note) {
     const existing = byId.value[note.id]
-    if (!existing || note.revision >= existing.revision) byId.value[note.id] = note
+    if (existing && note.revision < existing.revision) return
+    byId.value[note.id] =
+      note.reminders === undefined && existing?.reminders !== undefined
+        ? { ...note, reminders: existing.reminders }
+        : note
+  }
+
+  /**
+   * Apply a reminder the API just returned (or, with `null`, drop one) to its
+   * note at once, without waiting for the next sync (which then confirms it:
+   * the write bumped the note's revision, so `changes` sends the note again).
+   */
+  // A reminder write is newer than any sync request sent before it: such a response must not undo it.
+  let writeSeq = 0
+  const reminderWrites: Record<Id, number> = {}
+
+  function applyReminder(noteId: Id, reminderId: Id, reminder: Reminder | null) {
+    const note = byId.value[noteId]
+    if (!note) return
+    const others = (note.reminders ?? []).filter((r) => r.id !== reminderId)
+    const reminders = reminder ? [...others, reminder].sort((a, b) => a.due_at.localeCompare(b.due_at) || a.id - b.id) : others
+    byId.value[noteId] = { ...note, reminders }
+    reminderWrites[noteId] = ++writeSeq
   }
 
   function forget(id: Id) {
@@ -102,6 +128,7 @@ export const useNotesStore = defineStore('notes', () => {
     try {
       for (let page = 0; page < MAX_SYNC_PAGES; page++) {
         const after = lastRevision.value
+        const sentAt = writeSeq
         const response = await notesApi.changes(after)
         if (started !== epoch) return
         if (response.latest_revision < after) {
@@ -114,6 +141,7 @@ export const useNotesStore = defineStore('notes', () => {
         }
         for (const item of response.results) {
           if (isTombstone(item)) forget(item.id)
+          else if ((reminderWrites[item.id] ?? 0) > sentAt) upsert({ ...item, reminders: undefined })
           else upsert(item)
         }
         lastRevision.value = Math.max(lastRevision.value, response.latest_revision)
@@ -191,7 +219,8 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   async function create(type: NoteType): Promise<Note> {
-    const note = await notesApi.create({ type, title: '', content: emptyDoc(type) })
+    // A brand new note has no reminders (the create response does not say so).
+    const note = { ...(await notesApi.create({ type, title: '', content: emptyDoc(type) })), reminders: [] }
     upsert(note)
     return note
   }
@@ -215,6 +244,7 @@ export const useNotesStore = defineStore('notes', () => {
   function clear() {
     epoch++
     filterSeq++
+    for (const k of Object.keys(reminderWrites)) delete reminderWrites[Number(k)]
     stopAutoSync?.()
     byId.value = {}
     lastRevision.value = 0
@@ -242,6 +272,7 @@ export const useNotesStore = defineStore('notes', () => {
     isFiltered,
     visibleNotes,
     upsert,
+    applyReminder,
     sync,
     startAutoSync,
     runFilter,
