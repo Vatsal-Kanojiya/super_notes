@@ -95,7 +95,10 @@ This replaces V1's D1 (linear `master`, no feature branches) for V2 only.
 ### Open questions for the owner (answer before the phase that needs it)
 
 **Settled 2026-10-02:** 1 → two-layer limits, user and system, through one limits layer (D84);
-3 → S3 in production, local disk in development (D85). The rest are still open.
+2 → email + web push (D87); 3 → S3 in production, local disk in development (D85); 4 → memory on
+by default, with recurring notices (D88). Also added by the owner: no stale cached JavaScript
+ever (D89) and lifecycle hooks for sign-in and app open/resume (D90), both in phase 0.
+Still open: 5 (Android timing).
 
 1. **Quota model (before phase 1).** One monthly budget of *AI actions* shared by asks, chat
    turns, formatting and summaries (recommended: simpler to explain, one ledger), or a separate
@@ -116,9 +119,9 @@ This replaces V1's D1 (linear `master`, no feature branches) for V2 only.
 | Package | Phase | For | Alternative if refused |
 |---|---|---|---|
 | `uvicorn` | 2 | An ASGI server so an async view can hold a streaming response open without a worker thread each | `StreamingHttpResponse` under WSGI (one thread per open stream — acceptable for dev, not for users) |
-| `vue-router` (web) | 0 | URLs for notes and conversations, the back button, deep links (Android needs them) | Keep D46's view store and hash-parse by hand |
-| `vitest` (web, dev) | 0 | Unit tests for the client's sync loop, token refresh and citation rendering | None — the client stays untested |
-| `pywebpush` | 5 | Web push delivery (VAPID signing, payload encryption) | Email-only reminders |
+| `vue-router` (web) | 0 — **approved** (D86) | URLs for notes and conversations, the back button, deep links (Android needs them) | Keep D46's view store and hash-parse by hand |
+| `vitest` (web, dev) | 0 — **approved** (D86) | Unit tests for the client's sync loop, token refresh and citation rendering | None — the client stays untested |
+| `pywebpush` | 5 — **approved** (D87) | Web push delivery (VAPID signing, payload encryption) | Email-only reminders |
 | `pypdf` | 6 | Text from PDFs | Send PDFs to a vision model (costly, slower) |
 | `django-storages` + `boto3` | 6 — **approved** (D85) | S3-compatible storage | Local disk |
 
@@ -212,6 +215,17 @@ Web:
 - **vitest** (after approval) with tests for citation splitting, the refresh single-flight and
   the sync loop.
 - `fetch(..., {keepalive: true})` for the save on tab close (BACKLOG).
+
+Added 2026-10-02:
+- **Limits layer** (D84) instead of a bare ledger: `Limit` keys with per-user (by plan) and
+  system values, `UsageEvent` as the one counter, `429 quota_exceeded` / `503
+  system_limit_reached`, admin mail on a system limit, `signups_per_day`.
+- **No stale JavaScript** (D89): hashed assets + `no-cache` index, build id and `app/version/`,
+  reload prompt, `vite:preloadError` reload.
+- **Lifecycle hooks** (D90): `user_signed_in`, `app_opened` signals, `POST session/open/`
+  returning notices.
+- `User.memory_enabled` / `memory_choice_explicit` / `memory_notice_seen_at` fields now, so the
+  notice plumbing is ready for phase 3 (D88).
 
 Acceptance: quota behaviour identical to V1 (the V1 quota tests pass unchanged against the
 ledger); the sweeper fails a stuck ask and it stops counting; a 5,000-deep JSON body is a 400; a

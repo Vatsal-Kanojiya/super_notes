@@ -1339,3 +1339,68 @@ chosen by env; tests and development use local disk. Per-user and system storage
 
 **Reverse it if:** there is no deployment by phase 6; ship on local disk and switch by env later.
 
+### D86. `vue-router` and `vitest` are approved
+
+**Decided (by the owner, 2026-10-02):** routes for every screen (`/notes/:id`, `/chat/:id`, …)
+replace D46's view store; `vitest` tests the web client. Both land in V2 phase 0.
+
+### D87. Reminders are delivered by email and browser push
+
+**Decided (by the owner, 2026-10-02):** email plus web push — the browser's own "Allow
+notifications" prompt, then notifications that arrive even with the tab closed. `pywebpush` is
+approved. Android gets native notifications in its phase.
+
+### D88. Memory is on by default, and the app keeps telling the user so
+
+**Decided (by the owner, 2026-10-02):** `User.memory_enabled` defaults to on. Two more fields:
+`memory_choice_explicit` (the user set it themselves) and `memory_notice_seen_at`. At intervals
+(`MEMORY_NOTICE_DAYS`, and on a user's first chat) the client shows a notice:
+
+| State | Notice |
+|---|---|
+| On, never chosen by the user | **Prominent** banner: "We build a lasting memory from your chats to make answers more relevant. Review or turn it off" |
+| On, chosen by the user | Subtle inline note with the same link |
+| Off (always chosen) | Subtle note: "Memory is off. Turn it on for more relevant answers" |
+
+The notice is served by the app-open hook (D90), so every client gets it the same way.
+
+**Why:** default-on gives better answers; telling users clearly and repeatedly keeps it honest,
+and a user's explicit choice earns a quieter reminder.
+
+### D89. The web client can never get stuck on stale cached JavaScript
+
+**Decided (2026-10-02, owner's requirement):**
+1. **Hashed asset names** (Vite's default `assets/*.[hash].js`) served `Cache-Control: public,
+   max-age=31536000, immutable`; **`index.html` always `no-cache`** (revalidated every load). A
+   new deploy is new file names, so a browser cannot mix old and new code.
+2. **Build id.** Each build embeds `VITE_APP_VERSION` (the git commit). The API returns the
+   deployed client build and a minimum supported build (`GET app/version/`, and an
+   `X-Client-Min-Version` header). The client checks on load, on focus and every few minutes: a
+   newer build shows "New version — reload" (reloading itself when no edit is unsaved); a build
+   below the minimum must reload.
+3. **Lazy-loaded route chunks** that 404 after a deploy (`vite:preloadError`) trigger one
+   reload instead of a blank screen.
+4. **The service worker** (needed for push, D87) never caches `index.html` or app code, is
+   itself served `no-cache`, and activates updates immediately (`skipWaiting` + `clients.claim`).
+   It handles push only.
+5. The Android app (Capacitor) uses the same version check for its bundled code.
+
+**Why:** the owner has been burned by browsers running stale JavaScript after deploys; every
+cache layer (HTTP, chunks, service worker) is covered, with a server-side "minimum version" lever.
+
+### D90. Lifecycle hooks: sign-in, and app open / resume
+
+**Decided (2026-10-02, owner's requirement):** three server-side hooks, as Django signals so any
+feature can subscribe without touching the sender:
+- `user_signed_in(user, request, device, created)` — every Google sign-in; `created` is true for a
+  new account, so registration needs no separate hook.
+- `app_opened(user, device, platform, app_version, reason)` — sent by the client to
+  `POST session/open/` when the app **launches** with a valid session, or **resumes** after being
+  hidden longer than `APP_RESUME_AFTER_MINUTES` (web: page load and `visibilitychange`; Android:
+  Capacitor's app-state events). Throttled per device; updates `SignedInDevice.last_seen_at`.
+- Its response carries **notices** for the client: the memory notice (D88), "new version" (D89),
+  and room for announcements or a forced sign-out.
+
+**Why:** a single, reliable place to trigger notifications, validations and usage tracking on
+the events the owner relies on in mobile apps, with the same behaviour on web and Android.
+
