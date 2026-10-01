@@ -2566,6 +2566,10 @@ images cost the service, as `condense` and `memory_extract` do. PDFs cost nothin
 **Alternative:** a per-user key (a user can only add as many images as their storage allows
 anyway); counting under `summary` (that is the user's own summarize budget).
 
+**Amended by D520 and D524 (fix-notes, 2026-10-01):** `image_text` is now a per-user limit too
+(free 50, premium 250 a month, proposed), consumed for the owner under the owner's lock; and
+the same bytes the owner already had read are not read again.
+
 ### D345. A broker error at upload is logged, and a sweeper fails what never finished (6, 2026-10-01)
 
 **Decided:** the on-commit enqueue catches and logs a broker error instead of raising: the upload
@@ -2961,3 +2965,118 @@ its channel anyway. Open streams per user are limited only by the request rate (
 request); a per-user cap on concurrent streams is left until there is load to size it.
 **Alternative:** one shared subscription per process fanning out to streams (a router to write and
 test, for a saving that matters only at many concurrent streams).
+
+### D520. `image_text` is a per-user limit as well as a system one (fix-notes, 2026-10-01)
+
+**Decided:** `LIMIT_DEFAULTS["image_text"] = {"user_free": 50, "user_premium": 250, "system":
+5000, "period": "month"}` -- **the per-user values are proposed, owner to confirm**. The use is
+the owner's (`UsageEvent.user` is the attachment's owner), consumed by
+`services.consume_for_owner`, which locks the owner's row and consumes in that transaction, as
+every other per-user key is. Over the user's limit the attachment fails, without a call, with
+"You've reached this month's limit for reading text from images. Please try again next month."
+(over the system's, still "paused for now"). Refund on a failed call is unchanged. Reason:
+storage alone did not bound it -- upload, delete (storage refunded), upload again spent a vision
+call each time, so one account could use the whole system month. **Alternative:** system-only
+(D344, the defect); a per-user daily cap (a month matches every other model-call key).
+
+### D521. Negations, number words and relative dates are compared like numbers (fix-notes, 2026-10-01)
+
+**Decided:** a new rule in the format guardrail, after the date rule: the multiset of
+fact-bearing words (`FACT_WORDS`: not, no, never, don't, doesn't, didn't, won't, can't, cannot,
+isn't, aren't, wasn't, without; zero to twenty, thirty to ninety by tens, hundred, thousand, lakh,
+crore, million, half, once, twice; today, tomorrow, yesterday, tonight, next, last, ago) must be
+exactly the original's, else `fact_word_changed`. A curly apostrophe counts as a straight one.
+"Pay rent" -> "Do not pay rent", "five" -> "six", an added "tomorrow" all fail.
+**Amended (fix-notes review, 2026-10-01):** two common harmless rewrites pass. (1) "next" and
+"last" count only when the next word in the same text node is a time word (day, week, month,
+year, weekend, Monday-Sunday, morning, evening, night, time): an added "Next steps" or "last item"
+passes; an added "next week", or "next week" -> "last week", fails. (2) Negation contractions are
+spelt out before comparing, in the fact rule and in the word-overlap rules alike (don't -> do
+not, doesn't -> does not, didn't -> did not, won't -> will not, can't -> cannot, isn't -> is
+not, aren't -> are not, wasn't -> was not; curly forms too), so "do not" <-> "don't" passes and
+an added negation in either form still fails. A mark splitting "next" from "week" into two text
+nodes makes "next" not count (rare; a model rarely bolds half a phrase). **Alternative:** a
+negation/number-word list for warnings only (logs nobody reads); an NLI model (a dependency and
+a model call for a check that must be cheap and certain).
+
+### D522. An absolute cap on new words besides the ratio (fix-notes, 2026-10-01)
+
+**Decided:** besides precision (`FORMAT_MIN_WORDS_ORIGINAL`), the result's new distinct words
+(typo fixes not counted) may number at most `max(FORMAT_NEW_WORDS_FLOOR, FORMAT_NEW_WORDS_SHARE x
+the original's distinct words)`: 8 and 0.05 by default, settings, passed to the pure
+`check_format` as `new_words_floor`/`new_words_share`. In a 150-word note the ratio alone allowed
+some 35 new words, a whole invented paragraph; the cap allows 8. A few headings still pass.
+**Alternative:** tightening the ratio (still scales with length; and fails short notes with one
+heading).
+
+### D523. The guardrail's numbers come from the document, not derived text (fix-notes, 2026-10-01)
+
+**Decided:** numbers are read from the text nodes (joined per textblock, so a mark splitting
+"4500" is still one number; split on hard breaks), plus the item numbers of an ordered list whose
+`start` is not 1. List-marker numbers are no longer stripped by regex, so "250) deposit" ->
+"500) deposit" fails, and so does re-basing `start: 12` -> `start: 1`. One allowance keeps the
+guard's "typed numbering becomes a real list": a number typed as a line's marker ("2) ") may
+disappear where a real list starting at 1 gains that position, and the reverse. A list starting
+at 1 adds no numbers (paragraphs -> numbered list still passes). Words still come from
+`content_to_text`. **Alternative:** counting every list's item numbers (then paragraphs ->
+numbered list "adds" 1, 2, 3 and fails); comparing only `start` (typed "12. a / 13. b" -> a list
+from 12 would fail on the 13).
+
+### D524. Text already read from the same bytes is reused (fix-notes, 2026-10-01)
+
+**Decided:** before reading a file, `run` looks for an earlier attachment of the **same owner**
+with the same `sha256` that is `ready` -- on any note, deleted or not (a soft-deleted row keeps
+its text) -- and takes its `extracted_text`: no file read, no model call, no `image_text` use.
+An empty text is a real answer (no words in the image) and is reused too. A `failed` one is not.
+Never another owner's: identical bytes are not permission to read someone else's row.
+**Alternative:** live attachments only (then delete-and-upload pays again, the loop D520 closes);
+a cache keyed by hash alone across users (leaks whether another user has the file).
+
+### D525. A fact word may stand for a typo it fixed (fix-notes, 2026-10-01)
+
+**Decided:** D521 would refuse the existing "tomorow" -> "tomorrow" typo fix. So a fact word the
+result adds may pair with an original word that is gone from the result, is a near spelling (the
+guard's typo rule: ratio 0.8, four letters or more) and is **not itself a fact word** -- so
+"seventy" -> "seven" still fails. More than 5 added fact words are never typo fixes (and pairing
+them would be slow). **Alternative:** no allowance (a typo fix in a date word fails, and the
+existing test with it).
+
+### D526. A push endpoint moves to another account only with its keys (fix-notes, 2026-10-01)
+
+**Decided:** registering an endpoint that belongs to another account moves the row only when the
+posted `p256dh` and `auth` equal the stored ones (compared in constant time); otherwise 409
+`endpoint_in_use` and nothing changes. The same account may re-key its own endpoint as before.
+The row is locked (`select_for_update`); a concurrent first registration that wins the unique
+constraint is decided again. Reason: an endpoint is not secret (it travels to the push service
+and into logs); the keys exist only in the browser that subscribed, so they prove the caller is
+that browser with another account signed in -- the case D87 meant. **Alternative:** never move
+(a shared browser's second account would get 409 for ever until the first unsubscribes); move
+always (the defect: anyone who learns an endpoint takes another person's reminders).
+
+### D527. Network timeouts on web push and mail: 10 seconds (fix-notes, 2026-10-01)
+
+**Decided:** `webpush(..., timeout=10)` (`accounts.push.WEBPUSH_TIMEOUT_SECONDS`) and
+`EMAIL_TIMEOUT` (env, default 10). Both had none: a push service or SMTP server that accepts the
+connection and never answers held a reminder-delivery worker until the task's hard limit, or for
+ever. A timeout is an ordinary failure, recorded and retried as before. **Alternative:** rely on
+the Celery time limits (they kill the worker process, not the one call).
+
+### D528. The upload counts its own bytes; the proxy limit is documented (fix-notes, 2026-10-01)
+
+**Decided:** `UploadCapHandler` (notes/api/attachments.py) is put first in the attachment
+upload's handler chain (`initialize_request`, POST only). It counts the files' bytes as the
+multipart parser hands them over and raises 413 `too_large` once they pass `ATTACHMENT_MAX_BYTES
++ ATTACHMENT_UPLOAD_HEADROOM_BYTES` (64 KB), whatever Content-Length said. It raises rather than
+`StopUpload`, which would give the view a truncated file that passes the size check. Under
+uvicorn the server reads the whole body before Django runs, so the README now tells the deployer
+to set the reverse proxy's body limit to about 10.1 MB. **Alternative:** a global
+`FILE_UPLOAD_HANDLERS` entry (every view would count against the attachment cap); a raw ASGI
+middleware counting body messages (a second, lower-level code path for what the proxy does
+better).
+
+### D529. `image_text` is not shown in `me/` yet (fix-notes, 2026-10-01)
+
+**Decided:** `USER_KEYS` (what `me/` reports) is unchanged: adding `image_text` changes the API
+schema and needs the web client to show it, which is a product call. A user at the limit sees it
+on the attachment's `error`. **Needs the owner:** whether to list it (and where in the UI).
+**Alternative:** add it to `me/` now (a schema change no client renders).
