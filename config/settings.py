@@ -215,6 +215,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "assistant.tasks.sweep_stuck_asks",
         "schedule": 5 * 60,
     },
+    # The same net for "format my note" jobs (notes/tasks.py).
+    "sweep-stuck-format-jobs": {
+        "task": "notes.tasks.sweep_stuck_format_jobs",
+        "schedule": 5 * 60,
+    },
 }
 
 
@@ -362,6 +367,7 @@ REST_FRAMEWORK = {
         "auth": env("API_AUTH_THROTTLE", default="30/hour"),
         "search": env("API_SEARCH_THROTTLE", default="120/hour"),
         "ask": env("API_ASK_THROTTLE", default="60/hour"),
+        "format": env("API_FORMAT_THROTTLE", default="30/hour"),
     },
     # Unset, DRF identifies an anonymous caller by the whole X-Forwarded-For
     # header -- which the caller writes.
@@ -476,6 +482,23 @@ CHAT_TIMEOUT_SECONDS = env.int("CHAT_TIMEOUT_SECONDS", default=60)
 # backoff between them -- 3,015 s. One hour leaves about 10 minutes for
 # queueing behind a backlog, so a slow ask is never failed under a worker.
 ASK_STUCK_AFTER_SECONDS = env.int("ASK_STUCK_AFTER_SECONDS", default=60 * 60)
+
+# Format my note (notes/format_*.py, tasks.py; DECISIONS D240-D249). Uses per month
+# are the `format` limit in LIMIT_DEFAULTS.
+#
+# The guardrail on a formatted note: the share of the original's words the
+# result keeps (recall), and the share of the result's words that were in
+# the original (precision, looser so a new heading or two is allowed).
+FORMAT_MIN_WORDS_KEPT = env.float("FORMAT_MIN_WORDS_KEPT", default=0.9)
+FORMAT_MIN_WORDS_ORIGINAL = env.float("FORMAT_MIN_WORDS_ORIGINAL", default=0.8)
+# The note's TipTap JSON, compact, must fit in this many characters (about
+# 6,000 tokens); a longer note is refused up front rather than cut off.
+FORMAT_MAX_INPUT_CHARS = env.int("FORMAT_MAX_INPUT_CHARS", default=24000)
+# The result is the whole document again, in JSON, so the ceiling is far
+# above CHAT_MAX_OUTPUT_TOKENS (a few cited sentences).
+FORMAT_MAX_OUTPUT_TOKENS = env.int("FORMAT_MAX_OUTPUT_TOKENS", default=16384)
+# As ASK_STUCK_AFTER_SECONDS, for format jobs (same retry budget).
+FORMAT_STUCK_AFTER_SECONDS = env.int("FORMAT_STUCK_AFTER_SECONDS", default=60 * 60)
 
 # Asks per month are the chat_turns limit in LIMIT_DEFAULTS (DECISIONS D101).
 # How many chunks retrieval hands the prompt.
