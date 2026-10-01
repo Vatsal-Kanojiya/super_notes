@@ -51,9 +51,22 @@ export interface AskUsage {
   resets_at: DateTime | null
 }
 
+/** Same shape for every key of `me/`'s `limits`. */
+export type LimitUsage = AskUsage
+
+/** `me/`'s `limits`: use and limit per user-facing key (D84, D91). */
+export interface UserLimits {
+  chat_turns: LimitUsage
+  format: LimitUsage
+  summary: LimitUsage
+  storage_bytes: LimitUsage
+}
+
 /** `GET me/`; the sign-in response's `user` has the same shape. */
 export interface Me extends User {
   ask_usage: AskUsage
+  /** Optional only so an older server does not break the client. */
+  limits?: UserLimits
   /** An IANA name; the server's default is Asia/Kolkata. */
   timezone: string
   memory_enabled: boolean
@@ -258,6 +271,37 @@ export interface AskRequest {
 
 /** 429 body when the month's asks are used up (`code: "throttled"` is a plain rate limit, no usage). */
 export interface QuotaExceededBody extends AskUsage {
+  detail: string
+  code: 'quota_exceeded'
+}
+
+// ---------------------------------------------------------------- format --
+
+export type FormatStatus = AskStatus
+
+/**
+ * `POST notes/<id>/format/` (with an `Idempotency-Key` header) → 202, or 200 for a replayed key;
+ * `GET format-jobs/<id>/`. There is no apply endpoint: Apply is `PATCH notes/<id>/` with
+ * `content = proposed_content` and `version = base_version`.
+ */
+export interface FormatJob {
+  id: Id
+  note_id: Id
+  status: FormatStatus
+  /** The note's version the proposal was made from. */
+  base_version: number
+  /** The restructured document once `status` is `done`, else null. */
+  proposed_content: DocNode | null
+  /** Set on a failed job; branch on it, show `error`. */
+  error_code: string
+  /** User-facing message of a failed job. */
+  error: string
+  created_at: DateTime
+  completed_at: DateTime | null
+}
+
+/** 429 `quota_exceeded` of the format POST: the `format` limit's numbers. */
+export interface FormatQuotaBody extends LimitUsage {
   detail: string
   code: 'quota_exceeded'
 }

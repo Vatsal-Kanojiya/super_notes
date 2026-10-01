@@ -693,3 +693,57 @@ a.note-card {
   flex-direction: column;
   gap: 2px;
 }
+
+/* --------------------------------------------------------------- format -- */
+
+.format-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.format-panel:empty {
+  display: none;
+}
+.format-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.format-row button,
+.format-panel .actions button {
+  flex: 0 0 auto;
+}
+.format-working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.format-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.preview-pane {
+  min-width: 0;
+}
+.preview-doc .tiptap {
+  min-height: 0;
+  cursor: default;
+}
+.format-panel .error,
+.format-panel .notice,
+.format-panel .conflict p {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .preview-grid {
+    grid-template-columns: 1fr;
+  }
+}

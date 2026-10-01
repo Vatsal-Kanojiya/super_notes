@@ -9,6 +9,7 @@ import type {
   ChangesResponse,
   CursorPage,
   Device,
+  FormatJob,
   Id,
   Me,
   MeUpdateRequest,
@@ -68,4 +69,11 @@ export const askApi = {
     request<AskQuery>('ask/', { method: 'POST', body, headers: { 'Idempotency-Key': idempotencyKey } }),
   get: (id: Id) => request<AskQuery>(`ask/${id}/`),
   list: (cursor?: string) => request<CursorPage<AskQuery>>('ask/', { query: { cursor } }),
+}
+
+export const formatApi = {
+  /** Starts a format job; the note is not changed. A fresh `Idempotency-Key` per request. */
+  create: (noteId: Id, idempotencyKey: string) =>
+    request<FormatJob>(`notes/${noteId}/format/`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey } }),
+  get: (id: Id) => request<FormatJob>(`format-jobs/${id}/`),
 }
