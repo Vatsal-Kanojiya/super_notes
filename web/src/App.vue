@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { watch } from 'vue'
+import { onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from './components/AppHeader.vue'
+import UpdateBar from './components/UpdateBar.vue'
+import { useAppVersionStore } from './stores/appVersion'
 import { useAskStore } from './stores/ask'
 import { useAuthStore } from './stores/auth'
 import { useNotesStore } from './stores/notes'
@@ -12,6 +14,9 @@ const notes = useNotesStore()
 const ask = useAskStore()
 const route = useRoute()
 const router = useRouter()
+const appVersion = useAppVersionStore()
+
+onMounted(() => appVersion.start())
 
 // Signing in starts sync; signing out (by hand, from another tab, or because
 // the session ended elsewhere) drops every trace of the account.
@@ -33,6 +38,7 @@ watch(
 </script>
 
 <template>
+  <UpdateBar />
   <div v-if="!auth.ready" class="splash" aria-busy="true">Super Notes</div>
   <router-view v-else-if="!auth.signedIn || route.meta.public" />
   <div v-else class="shell">

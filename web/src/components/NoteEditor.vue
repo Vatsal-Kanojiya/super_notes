@@ -175,8 +175,16 @@ function onHide() {
 onMounted(() => document.addEventListener('visibilitychange', onHide))
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onHide)
-  if (dirty) void save()
+  if (dirty) void save().finally(() => notes.setUnsaved(id, false))
+  else notes.setUnsaved(id, false)
 })
+
+// Tell the store when this note has edits the server lacks, so an app update
+// never reloads the page over them. A note deleted elsewhere cannot be saved,
+// so it must not block the update for ever.
+watch([status, deletedElsewhere], () =>
+  notes.setUnsaved(id, status.value !== 'saved' && !deletedElsewhere.value),
+)
 
 const statusText = computed(() => {
   if (deletedElsewhere.value) return 'Deleted'

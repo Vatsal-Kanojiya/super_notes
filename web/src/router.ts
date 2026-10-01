@@ -6,10 +6,6 @@
  * where they were headed once in.
  */
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
-import AskPanel from './components/AskPanel.vue'
-import NotePage from './components/NotePage.vue'
-import NotesList from './components/NotesList.vue'
-import SettingsPage from './components/SettingsPage.vue'
 import SignIn from './components/SignIn.vue'
 import { safeNext } from './lib/safeNext'
 import { useAuthStore } from './stores/auth'
@@ -19,10 +15,10 @@ export const router = createRouter({
   routes: [
     { path: '/', redirect: '/notes' },
     { path: '/signin', name: 'signin', component: SignIn, meta: { public: true } },
-    { path: '/notes', name: 'notes', component: NotesList },
-    { path: '/notes/:id', name: 'note', component: NotePage, props: (r) => ({ noteId: r.params.id as string }) },
-    { path: '/ask', name: 'ask', component: AskPanel },
-    { path: '/settings', name: 'settings', component: SettingsPage },
+    { path: '/notes', name: 'notes', component: () => import('./components/NotesList.vue') },
+    { path: '/notes/:id', name: 'note', component: () => import('./components/NotePage.vue'), props: (r) => ({ noteId: r.params.id as string }) },
+    { path: '/ask', name: 'ask', component: () => import('./components/AskPanel.vue') },
+    { path: '/settings', name: 'settings', component: () => import('./components/SettingsPage.vue') },
     { path: '/:rest(.*)*', redirect: '/notes' },
   ],
 })

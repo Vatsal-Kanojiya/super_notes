@@ -31,6 +31,11 @@ export const authApi = {
   signOutDevice: (id: Id) => request<void>(`auth/devices/${id}/`, { method: 'DELETE' }),
 }
 
+export const appApi = {
+  /** Public: the newest build and the oldest one still accepted. */
+  version: () => request<{ latest: string; min_supported: string }>('app/version/', { auth: false }),
+}
+
 export const notesApi = {
   list: (params: NoteListParams = {}) => request<CursorPage<Note>>('notes/', { query: { ...params } }),
   get: (id: Id) => request<Note>(`notes/${id}/`),

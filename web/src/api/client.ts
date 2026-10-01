@@ -57,6 +57,12 @@ export interface RequestOptions {
 export const KEEPALIVE_MAX_BYTES = 60 * 1024
 
 let onAuthLost: (() => void) | null = null
+let onMinVersion: ((minVersion: string) => void) | null = null
+
+/** The app-version store hooks in here to hear the `X-Client-Min-Version` header. */
+export function setMinVersionHandler(handler: (minVersion: string) => void): void {
+  onMinVersion = handler
+}
 
 /** The auth store registers its local sign-out here (avoids an import cycle). */
 export function setAuthLostHandler(handler: () => void): void {
@@ -93,13 +99,16 @@ async function send(path: string, options: RequestOptions, token: string | null)
   const keepalive =
     options.keepalive === true && body !== undefined && new Blob([body]).size <= KEEPALIVE_MAX_BYTES
   try {
-    return await fetch(buildUrl(path, options.query), {
+    const response = await fetch(buildUrl(path, options.query), {
       method: options.method ?? 'GET',
       headers,
       body,
       signal: options.signal,
       keepalive,
     })
+    const minVersion = response.headers?.get('X-Client-Min-Version')
+    if (minVersion) onMinVersion?.(minVersion)
+    return response
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error
     throw new ApiError(0, 'network_error', 'Could not reach the server. Check your connection.', null)

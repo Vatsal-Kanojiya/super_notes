@@ -635,3 +635,18 @@ a.note-card {
   color: var(--accent);
   font-weight: 500;
 }
+
+.update-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--accent-soft);
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.update-bar button {
+  min-height: 32px;
+  padding: 2px 12px;
+}
