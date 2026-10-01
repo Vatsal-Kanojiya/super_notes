@@ -524,7 +524,8 @@ class FoldTriggerTests(TestCase):
             with self.captureOnCommitCallbacks(execute=False) as callbacks:
                 answer_ask.delay(sixth.pk)
             delay.assert_not_called()
-            self.assertEqual(len(callbacks), 1)
+            # The fold, and the memory extraction (assistant/memory.py).
+            self.assertEqual(len(callbacks), 2)
 
     def test_a_failed_turn_queues_nothing(self):
         for position in range(1, 6):

@@ -220,6 +220,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "notes.tasks.sweep_stuck_format_jobs",
         "schedule": 5 * 60,
     },
+    # Expired dynamic facts and old superseded ones (assistant/memory.py, D406).
+    "purge-expired-facts": {
+        "task": "assistant.tasks.purge_expired_facts",
+        "schedule": 24 * 60 * 60,
+    },
     # Reminders notify on the minute (D95). A sweep claims each occurrence
     # once (notes/delivery.py), so an overlapping or repeated run is
     # harmless; one that waited past the next run is dropped.
@@ -584,6 +589,27 @@ CHAT_SUMMARY_MAX_CHARS = env.int("CHAT_SUMMARY_MAX_CHARS", default=1500)
 # The ceiling on a folding call's reply; like the condenser's, generous
 # because reasoning tokens count against it.
 CHAT_SUMMARY_MAX_OUTPUT_TOKENS = env.int("CHAT_SUMMARY_MAX_OUTPUT_TOKENS", default=1024)
+
+# User memory (assistant/memory.py, DECISIONS D400-D409). Extraction after a
+# finished conversation turn is capped by the system-only memory_extract
+# limit in LIMIT_DEFAULTS; memory_enabled off means no extraction at all.
+#
+# A dynamic fact ("is moving house this month") expires this many days after
+# it was learned; the daily purge deletes it.
+MEMORY_DYNAMIC_FACT_DAYS = env.int("MEMORY_DYNAMIC_FACT_DAYS", default=30)
+# A superseded fact is kept this many days after the fact that replaced it,
+# then purged with the expired ones (D406).
+MEMORY_SUPERSEDED_RETENTION_DAYS = env.int("MEMORY_SUPERSEDED_RETENTION_DAYS", default=30)
+# The user's existing facts an extraction call is shown (the most similar
+# to the question), so it can update or supersede instead of repeating.
+MEMORY_SIMILAR_FACTS = env.int("MEMORY_SIMILAR_FACTS", default=10)
+# Operations one extraction reply may hold; a reply with more is dropped whole.
+MEMORY_MAX_OPERATIONS = env.int("MEMORY_MAX_OPERATIONS", default=5)
+# The answer the extraction call sees is cut to this (it is context only).
+MEMORY_ANSWER_MAX_CHARS = env.int("MEMORY_ANSWER_MAX_CHARS", default=2000)
+# The ceiling on an extraction reply: a few short JSON operations, with room
+# for reasoning tokens, as for the condenser.
+MEMORY_EXTRACT_MAX_OUTPUT_TOKENS = env.int("MEMORY_EXTRACT_MAX_OUTPUT_TOKENS", default=1024)
 
 # Chunking (retrieval/chunking.py, DECISIONS D33)
 #

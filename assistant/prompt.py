@@ -23,13 +23,16 @@ PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 PROMPT_PATH = PROMPTS_DIR / "ask.md"
 
 # Any opening or closing tag using one of this prompt's delimiter names, in
-# any case and spacing: "</excerpt>", "< /EXCERPTS", "<question ...".
-_DELIMITER_TAG = re.compile(r"<(\s*/?\s*(?:excerpts?|question)\b)", re.IGNORECASE)
+# any case and spacing: "</excerpt>", "< /EXCERPTS", "<question ...". The
+# memory prompt's ``<facts>`` too (prompts/memory.md), so a note can never
+# make a call look like an extraction (DECISIONS D400).
+_DELIMITER_TAG = re.compile(r"<(\s*/?\s*(?:excerpts?|question|facts?)\b)", re.IGNORECASE)
 # The same for a conversation's prompts (chat.md, condense.md), which also
 # delimit the history: earlier questions and answers, the summary, and the
-# turns being folded into it (summarize.md).
+# turns being folded into it (summarize.md), and the facts, question and
+# answer of a memory extraction (memory.md).
 _CONVERSATION_TAG = re.compile(
-    r"<(\s*/?\s*(?:excerpts?|question|history|turn|answer|summary|follow_up|fold)\b)",
+    r"<(\s*/?\s*(?:excerpts?|question|history|turn|answer|summary|follow_up|fold|facts?)\b)",
     re.IGNORECASE,
 )
 
@@ -74,7 +77,7 @@ def _load() -> tuple[str, str]:
 
 
 def load_prompt(name: str) -> tuple[str, str]:
-    """(version, body) of prompts/<name>.md: ``chat``, ``condense``, ``summarize``."""
+    """(version, body) of prompts/<name>.md: ``chat``, ``condense``, ``summarize``, ``memory``."""
     return _read(PROMPTS_DIR / f"{name}.md")
 
 

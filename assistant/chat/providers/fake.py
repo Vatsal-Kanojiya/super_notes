@@ -20,6 +20,17 @@ another fixed rule (DECISIONS D286): the summary so far, one line
 ``- <question> -> <first sentence of the answer>`` per folded turn, and
 only the newest FOLD_LINES lines kept -- a bounded summary that forgets the
 oldest, as a real one is told to.
+
+A memory extraction (prompts/memory.md: the user message holds ``<facts>``)
+gets a rule of its own (DECISIONS D409), read from the ``<question>`` only --
+never the answer, as the prompt demands. Each sentence of the question that
+is not itself a question and says "I'm X" / "I am X" (or "I'm not X", "I'm
+no longer X") or "my X is Y" is a statement about a subject (X; the X of
+"my X"). A statement about a subject no known fact covers is an ``add``
+("User is X.", "User's X is Y."); one that differs from the known fact
+about the same subject is a ``supersede`` of it; one already known is
+nothing. A sentence with "today", "this week", "currently"... is dynamic.
+No statement: ``{"op": "none"}``.
 """
 
 import json
@@ -48,6 +59,22 @@ _FOLD_TURN = re.compile(
 )
 # The fake summary keeps this many lines.
 FOLD_LINES = 6
+
+_FACTS = re.compile(r"<facts>\n(.*?)</facts>", re.DOTALL)
+_KNOWN_FACT = re.compile(r'<fact id="(\d+)" kind="\w+">(.*?)</fact>')
+_MEMORY_QUESTION = re.compile(r"<question>\n(.*?)\n</question>", re.DOTALL)
+_STATEMENT_SPLIT = re.compile(r"(?<=[.!?;])\s+|\n+")
+_I_AM = re.compile(r"\bI(?:['’]m| am)\s+(not\s+|no longer\s+)?(.+)", re.IGNORECASE)
+_MY = re.compile(r"\bmy\s+((?:[\w'’-]+\s+){0,3}?[\w'’-]+)\s+is\s+(.+)", re.IGNORECASE)
+_KNOWN_IS = re.compile(r"^User is (?:not )?(.+?)\.?$")
+_KNOWN_MY = re.compile(r"^User's (.+?) is (.+?)\.?$")
+_DYNAMIC = re.compile(
+    r"\b(?:today|tomorrow|tonight|this (?:week|month)|next (?:week|month)|currently"
+    r"|right now|at the moment|for now)\b",
+    re.IGNORECASE,
+)
+# A statement longer than this ("I'm looking for the note about...") is not a fact.
+STATEMENT_MAX_WORDS = 6
 
 # What the fake condenser resolves: the commonest words that point back.
 POINTING = frozenset("it its them they their this that these those one ones".split())
@@ -109,6 +136,7 @@ class FakeProvider:
         follow_up = _FOLLOW_UP.search(user)
         excerpts = _EXCERPT.findall(user)[:CITED]
         fold = _FOLD.search(user)
+        facts = _FACTS.match(user)
         if note:
             # A "format my note" request (notes/format_prompt.py): answer with the
             # document, restructured, as the prompt demands.
@@ -116,6 +144,11 @@ class FakeProvider:
                 text = json.dumps(format_document(json.loads(note.group(1))), ensure_ascii=False)
             except ValueError:
                 text = "not json"
+        elif facts:
+            question = _MEMORY_QUESTION.search(user, facts.end())
+            text = extract_facts(
+                question.group(1) if question else "", _KNOWN_FACT.findall(facts.group(1))
+            )
         elif fold:
             previous = _SUMMARY.search(user[: fold.start()])
             text = summarise(
@@ -162,3 +195,54 @@ def summarise(previous: str, turns: list[tuple[str, str]]) -> str:
         f"- {' '.join(question.split())} -> {first_sentence(answer)}" for question, answer in turns
     ]
     return "\n".join(lines[-FOLD_LINES:])
+
+
+def _subject_of_known(text: str) -> str | None:
+    """The subject a known fact is about, as ``statements`` names it; None if neither shape."""
+    my = _KNOWN_MY.match(text)
+    if my:
+        return "my " + my.group(1).lower()
+    is_ = _KNOWN_IS.match(text)
+    return "is " + is_.group(1).lower() if is_ else None
+
+
+def statements(question: str) -> list[tuple[str, str, str]]:
+    """(subject, fact text, kind) for each statement the user makes about themselves."""
+    found = []
+    for sentence in _STATEMENT_SPLIT.split(question.strip()):
+        sentence = sentence.strip()
+        if not sentence or sentence.endswith("?"):
+            continue
+        body = sentence.rstrip(".!;").strip()
+        kind = "dynamic" if _DYNAMIC.search(body) else "static"
+        my = _MY.search(body)
+        if my and len(my.group(2).split()) <= STATEMENT_MAX_WORDS:
+            subject, value = my.group(1), my.group(2)
+            found.append((f"my {subject.lower()}", f"User's {subject} is {value}.", kind))
+            continue
+        i_am = _I_AM.search(body)
+        if i_am and len(i_am.group(2).split()) <= STATEMENT_MAX_WORDS:
+            negation = "not " if i_am.group(1) else ""
+            value = i_am.group(2)
+            found.append((f"is {value.lower()}", f"User is {negation}{value}.", kind))
+    return found
+
+
+def extract_facts(question: str, known: list[tuple[str, str]]) -> str:
+    """The fake extraction's reply: JSON operations, from the question alone."""
+    by_subject = {}
+    for fact_id, text in known:
+        subject = _subject_of_known(text)
+        if subject is not None:
+            by_subject[subject] = (int(fact_id), text)
+    operations, seen = [], set()
+    for subject, text, kind in statements(question):
+        if subject in seen:
+            continue  # The first thing said about a subject in one question wins.
+        seen.add(subject)
+        current = by_subject.get(subject)
+        if current is None:
+            operations.append({"op": "add", "text": text, "kind": kind})
+        elif current[1].lower() != text.lower():
+            operations.append({"op": "supersede", "id": current[0], "text": text, "kind": kind})
+    return json.dumps({"operations": operations or [{"op": "none"}]})
