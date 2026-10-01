@@ -1459,6 +1459,62 @@ time. Replaces V2_PLAN's none/daily/weekly/monthly repeats. Delivered by email +
 
 V1 Phase 7 and V2 Phase 7 (mobile) move after `v2.0.0`; planned in a dedicated session.
 
+
+### D105. Lifecycle signals are sent with `send_robust`; `user_signed_in` is sent from `issue_tokens`
+
+`user_signed_in` needs the `SignedInDevice`, which exists only once `issue_tokens` has registered
+it, so it is sent there (`issue_tokens(user, request, created=False)`), not from `accounts/google.py`.
+Both signals go through `accounts.signals.send`, which uses `send_robust` and logs a failing
+receiver by exception type: a broken listener (notifications, usage tracking) must never turn a
+successful sign-in or app open into an error. **Alternative:** plain `send` (fails loudly, but a
+bug in an unrelated receiver would lock everyone out). `memory_notice_seen_at_open` is nullable
+(null = never seen) so "first open" needs no sentinel; `User.timezone` is validated against
+`zoneinfo.available_timezones()` in `PATCH me/`, not on the model.
+
+### D106. `X-Client-Min-Version` is added to `/api/` responses by middleware
+
+`ClientMinVersionMiddleware` sets it on every response under `/api/` when `CLIENT_MIN_VERSION` is
+non-empty, and `CORS_EXPOSE_HEADERS` lists it. The early 413 from `MaxUploadSizeMiddleware` does
+not carry it (it runs before everything else and a too-big request is not a version question).
+**Alternative:** set it in a DRF renderer/response mixin, which would miss errors raised outside DRF.
+
+### D107. The app-open throttle is a column, `SignedInDevice.last_app_open_at`
+
+A counted open claims the slot with one conditional `UPDATE ... WHERE last_app_open_at IS NULL OR
+<= now - APP_OPEN_MIN_INTERVAL_SECONDS` and counts only if a row changed, so two simultaneous
+opens from one device count once. **Alternative:** the cache (per-process with locmem, lost on
+restart, and not testable without clock tricks); `last_seen_at` was not usable because refresh
+and the open itself move it. A throttled open still returns notices and still moves `last_seen_at`.
+
+### D108. The device comes from the token's `device` claim, and only the caller's own is honoured
+
+`session/open/` looks the claim up with `user=request.user`; another account's id (forged or
+stale) resolves to no device, which is then neither updated nor throttled, and the signal carries
+`device=None`. A token with no device row cannot be throttled, so each of its opens counts.
+**Alternative:** a 403 on a foreign device; rejected because the open itself is harmless and the
+client would have nothing to do about it.
+
+### D109. Build ids that are not `YYYYMMDDHHMM[-sha]` never produce an update notice
+
+`is_older` is false when either side is empty or unparseable (a dev server, a typo, an unset
+limit). An `update` notice is sent when the build is older than `latest` **or** older than
+`min_supported` (so a minimum set without a latest still forces an update); `required` is
+"older than min". Ids with an equal timestamp compare equal whatever their sha.
+
+### D110. The memory notice stays due until `memory-notice/seen/` is posted
+
+Due when `memory_notice_seen_at_open` is null and the user has at least one open (D94: the
+first), or `app_open_count - memory_notice_seen_at_open >= MEMORY_NOTICE_EVERY_OPENS` (minimum 1).
+The server cannot know the client displayed it, so it keeps returning it until confirmed.
+**Alternative:** mark it seen when served; a notice lost to a crashed page would then be skipped.
+
+### D111. Notices are computed after the open is counted, and `session/open/` rejects unknown values
+
+`platform` must be `web` or `android`, `reason` `launch` or `resume`, and `app_version` at most 64
+characters (blank allowed); anything else is a 400 and counts nothing. The first open is
+therefore open number 1 when its notices are worked out, and a throttled repeat sees the same
+count as the open it repeats, so it gets the same notices.
+
 ### D112. `/signin` is a route; the guard redirects there with `next` (0d, 2026-10-02)
 
 **Decided:** sign-in is a normal route (`/signin`, public). The guard sends signed-out users to
