@@ -279,3 +279,14 @@ runner, so item 6 is verified by the build only.
 ### V2 — multi-turn eval fixtures
 
 `retrieval/eval/fixtures/conversations.json`: 17 follow-up cases (pronoun, ellipsis, topic shift, refinement, near-duplicate, no-answer) over the existing 30 notes, each with a hand-written standalone rewrite; loader validation and tests added, the raw-vs-condensed comparison waits for phase 1's command.
+
+### Native Postgres verified (2026-10-02)
+
+The owner installed `postgresql-16` and `postgresql-16-pgvector` from Ubuntu's archive and created a
+superuser role for their login. `createdb super_notes`, `migrate` (which created pgvector 0.6.0)
+and the full suite (620 tests) then ran with `DATABASE_URL=postgres:///super_notes` over the local
+socket; `runserver` answers `health/`. The README's native setup is now verified on a real install,
+and the session-only stand-in on port 5433 is gone. One snag: copying the install command from
+chat picked up a trailing full stop (`postgresql-16-pgvector.`), which apt reads as part of the
+package name.
+
