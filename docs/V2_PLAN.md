@@ -467,3 +467,25 @@ only, never names or content).
 
 Parallel branches touch different apps (`assistant` vs `notes`), so merges stay small; shared
 files (`config/settings.py`, `config/api/urls.py`) take additive blocks only, as in V1.
+
+---
+
+## 12. Ready queue (pick from the top; keep this current)
+
+Fully decided work, in order. A session — local or remote — takes the first unclaimed item,
+builds it on its branch, merges, and ticks it here. Items marked **blocked** wait on the owner.
+
+| # | Branch | What | Model | Status |
+|---|---|---|---|---|
+| 1 | `v2-feat/0c-limits` | Limits layer (D84): `limits` app — `Limit`, `UsageEvent`, check-and-record under the user lock plus the system count, Ask quota moved onto it, `signups_per_day`, 429/503, admin mail | Opus | in progress |
+| 2 | `v2-feat/0e-lifecycle` | D89/D90 backend: `GET app/version/`, `X-Client-Min-Version`, `user_signed_in` and `app_opened` signals, `POST session/open/` with notices, memory-notice fields and rule (D88), `PATCH me/` (timezone, memory) | Sonnet | in progress |
+| 3 | `v2-feat/0d-web-platform` | vue-router + vitest (D86), stale-JS defences (D89), session/open + notices UI, timezone on sign-in | Sonnet | in progress |
+| 4 | `v2-feat/1-conversations` | Phase 1 | Opus | ready after 1–3 |
+| 5 | `v2-feat/4-format` | Phase 4 | Sonnet | ready after 1 |
+| 6 | `v2-feat/2-streaming` | Phase 2 (needs `uvicorn` approval) | Opus | **blocked**: approve `uvicorn` |
+| 7 | `v2-feat/3-memory` | Phase 3 | Opus | ready after 4 (#4) |
+| 8 | `v2-feat/5-reminders` | Phase 5 | Opus + Sonnet | ready after 1–3 |
+| 9 | `v2-feat/6-attachments` | Phase 6 (needs `pypdf` approval) | Opus | **blocked**: approve `pypdf` |
+| 10 | `v2-feat/7-mobile` | Phase 7 | Sonnet | **blocked**: V1 Android, open question 5 |
+
+Parallel-safe pairs: 4 ∥ 5, 6 ∥ 8, 7 ∥ 9 (different apps; shared files take additive blocks).
