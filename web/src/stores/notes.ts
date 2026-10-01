@@ -95,6 +95,14 @@ export const useNotesStore = defineStore('notes', () => {
         const after = lastRevision.value
         const response = await notesApi.changes(after)
         if (started !== epoch) return
+        if (response.latest_revision < after) {
+          // The server is behind what we hold (a restored database, D25): our
+          // copy is not trustworthy. Drop it and fetch everything again.
+          byId.value = {}
+          filteredIds.value = []
+          lastRevision.value = 0
+          continue
+        }
         for (const item of response.results) {
           if (isTombstone(item)) forget(item.id)
           else upsert(item)
