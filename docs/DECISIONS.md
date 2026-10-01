@@ -1698,3 +1698,45 @@ maintain, for three lines); including an excerpt (note text leaving the app by e
 sets it with the hosting discussion. Until sub-task 3 adds push, a reminder with the `push`
 channel records `"push": "unavailable"` and sends its email as usual. **Alternative:** build links
 from the API host (the web client is served elsewhere in dev).
+*Note: D172 supersedes the push line above; push now sends when VAPID keys are set.*
+
+### D170. Web push: pywebpush, VAPID keys from env, on only when both keys are set (5, 2026-10-02)
+
+**Decided:** `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (URL-safe base64 raw keys, as
+`manage.py generate_vapid_keys` prints them) and `VAPID_SUBJECT` (default `mailto:<SERVER_EMAIL>`).
+Push is "on" when both keys are non-empty (`accounts/push.py: push_enabled`). Off: `GET
+push/vapid-key/` and `POST me/push-subscriptions/` are 404 and a reminder's `push` channel records
+`"push": "unavailable"`; `DELETE` still works so a client can clean up. **Alternative:** a separate
+`PUSH_ENABLED` flag (a second switch that can disagree with the keys).
+
+### D171. `PushSubscription`: endpoint unique across users, a re-register moves it (5, 2026-10-02)
+
+**Decided:** `accounts.PushSubscription` (`user`, unique `endpoint`, `p256dh`, `auth`, `user_agent`
+truncated to 200, `created_at`, `last_success_at`). `POST me/push-subscriptions/` is an
+`update_or_create` by endpoint, so a different account signing in on the same browser profile takes
+the row over; the old account stops getting pushes on that browser. `DELETE` (body `{endpoint}`)
+removes only the caller's row and is 204 either way, so it does not reveal whether an endpoint
+belongs to someone else. Keys are never returned. **Alternative:** a 409 for another user's
+endpoint (the new sign-in could never subscribe, and the old owner is no longer using it).
+
+### D172. The push payload is ids and the title; outcomes are strings in `channel_results` (5, 2026-10-02)
+
+**Decided:** payload `{type: "reminder", reminder_id, note_id, title}` (title cleaned and cut as in
+the email, D138), never note content: push services see the payload only encrypted, but the
+service worker shows it on a lock screen. Sent to every subscription of the owner with a 12-hour
+TTL. A 404 or 410 deletes the subscription (not a failure). Other errors are logged and leave the
+subscription. `channel_results["push"]` is `sent`, `partial`, `failed`, `no_subscriptions` or
+`unavailable`. No retries (D137). **Alternative:** deleting a subscription after repeated 5xx
+(a push-service outage would drop everyone's subscriptions).
+
+### D173. A push endpoint must be a known push service: https, allowlisted host, no userinfo or odd port (5, 2026-10-02)
+
+**Decided:** the endpoint is a client-supplied URL the server later POSTs to, so
+`POST me/push-subscriptions/` refuses (400, code `invalid_endpoint`) anything but: `https`, a host in
+`PUSH_ENDPOINT_HOSTS` (exact, or `*.suffix` for subdomains only; defaults FCM, Mozilla, Windows
+(WNS) and Apple), no userinfo, no port but 443, no whitespace or backslash, at most 1000
+characters. An IP literal never matches. `accounts.push.send_to_user` re-checks each row before
+sending and deletes one that fails (rows older than the check, or a shrunk allowlist). `p256dh`
+must be base64url decoding to 65 bytes and `auth` 16 to 32. **Alternative:** resolving the host and
+refusing private addresses (racy against DNS rebinding, and still lets a user aim us at any public
+host); the allowlist needs a setting change for a new browser's service.

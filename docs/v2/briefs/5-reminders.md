@@ -33,7 +33,7 @@ A pure function `occurrences(due_at, lead_days, tz) -> list[datetime]` is the si
   reminder is sent. Email channel via Django's mail (no note body unless D-decided otherwise —
   title + due date + link). Tests: exactly-once with two concurrent sweeps
   (`TransactionTestCase` + threads), outage catch-up, done/cancelled/deleted never sent.
-- [ ] 3. **Web push backend** (Sonnet) — `pywebpush` (approved D87; the conductor adds it to
+- [x] 3. **Web push backend** (Sonnet) — `pywebpush` (approved D87; the conductor adds it to
   `requirements.txt`), `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` settings (env),
   a `generate_vapid_keys` management command, `PushSubscription` model, `GET push/vapid-key/`,
   `POST/DELETE me/push-subscriptions/`, the push channel in delivery (payload: reminder id, note
