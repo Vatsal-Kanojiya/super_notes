@@ -48,4 +48,4 @@ free number. BUILD_LOG entry "V2 0e — lifecycle".
 
 ## Sub-tasks (conductor's checklist)
 - [x] 1. `User` fields + migration, `accounts/signals.py`, `user_signed_in` wired, `PATCH me/`, tests (Part 1)
-- [ ] 2. `app/version/`, `X-Client-Min-Version` middleware, `session/open/` with notices and throttle, `memory-notice/seen/`, tests, docs
+- [x] 2. `app/version/`, `X-Client-Min-Version` middleware, `session/open/` with notices and throttle, `memory-notice/seen/`, tests, docs
