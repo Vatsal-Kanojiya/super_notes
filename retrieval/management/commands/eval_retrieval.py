@@ -266,7 +266,9 @@ class Command(BaseCommand):
             for variant in VARIANTS:
                 result = summary(variant, cases)
                 row += f"{fmt(result.recall_at_k) + ' / ' + fmt(result.mrr):>22}"
-            self.stdout.write(f"{kind:<16}{len(cases):>3}{row}")
+            # n is what the scores average over: the answerable cases only.
+            answerable = sum(1 for case in cases if case.has_answer)
+            self.stdout.write(f"{kind:<16}{answerable:>3}{row}")
 
 
 def fmt(value):

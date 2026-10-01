@@ -18,7 +18,7 @@ import requests
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
-from assistant.chat import ChatError, ChatResult, TransientChatError
+from assistant.chat import BilledChatError, ChatError, ChatResult, TransientChatError
 from assistant.chat.providers._http import MAX_SSE_LINE_BYTES, ServerSentEvent, parse_sse
 from assistant.chat.providers.claude import ClaudeProvider
 from assistant.chat.providers.gemini import GeminiProvider
@@ -279,8 +279,35 @@ class ClaudeStreamTests(StreamingMixin, SimpleTestCase):
                     ),
                     ("message_stop", {"type": "message_stop"}),
                 )
-                with self.assertRaises(ChatError):
+                # Generated, so billed (D500).
+                with self.assertRaises(BilledChatError):
                     self.stream(StreamResponse(body))
+
+    def test_a_cut_off_stream_carries_its_tokens(self):
+        body = sse(
+            (
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {"model": "claude-x", "usage": {"input_tokens": 50}},
+                },
+            ),
+            (
+                "message_delta",
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": "max_tokens"},
+                    "usage": {"output_tokens": 100},
+                },
+            ),
+            ("message_stop", {"type": "message_stop"}),
+        )
+        with self.assertRaises(BilledChatError) as caught:
+            self.stream(StreamResponse(body))
+        self.assertEqual(
+            caught.exception.cost(),
+            {"provider": "claude", "model": "claude-x", "input_tokens": 50, "output_tokens": 100},
+        )
 
     def test_no_text_is_a_chat_error(self):
         body = sse(

@@ -263,6 +263,26 @@ class EvalConversationsTests(TestCase):
         self.assertEqual(get_user_model().objects.count(), users_before)
         self.assertFalse(NoteChunk.objects.exists())
 
+    def test_by_kind_n_counts_only_the_answerable_cases(self):
+        from dataclasses import replace
+
+        from retrieval.eval import loader
+
+        real = loader.load_conversations
+
+        def mixed():
+            # One no-answer conversation filed under "pronoun": the row's n
+            # is still the 3 answerable ones its scores average over.
+            cases = list(real())
+            first = next(i for i, case in enumerate(cases) if not case.has_answer)
+            cases[first] = replace(cases[first], kind="pronoun")
+            return tuple(cases)
+
+        with mock.patch.object(loader, "load_conversations", side_effect=mixed):
+            out, _ = run("eval_retrieval", conversations=True, k=5, by_kind=True)
+
+        self.assertRegex(out, r"\npronoun +3 ")
+
     def test_condensing_in_the_eval_needs_no_ask_and_consumes_no_limit(self):
         run("eval_retrieval", conversations=True)
 

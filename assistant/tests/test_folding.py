@@ -20,7 +20,7 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_
 from django.utils import timezone
 
 from assistant import chat, conversation, tasks
-from assistant.chat import ChatError, ChatResult, TransientChatError
+from assistant.chat import BilledChatError, ChatError, ChatResult, TransientChatError
 from assistant.chat.providers.fake import FOLD_LINES, summarise
 from assistant.conversation import (
     HistoryTurn,
@@ -336,6 +336,24 @@ class FoldUsageTests(FoldTestCase):
         self.assertEqual(len(events), 2)
         self.assertTrue(all(event.refunded for event in events))
 
+    def test_a_billed_failure_changes_nothing_but_stays_counted_with_its_cost(self):
+        # A cut-off or refused summary was generated, and is billed (D500).
+        error = BilledChatError(
+            "cut off", provider="claude", model="c-1", input_tokens=300, output_tokens=256
+        )
+        with (
+            mock.patch(COMPLETE, side_effect=error),
+            self.assertLogs("assistant.conversation", "WARNING"),
+        ):
+            self.assertFalse(conversation.fold(self.conv.pk))
+        self.assertEqual(self.state(), ("", 0))
+        event = summarize_events().get()
+        self.assertFalse(event.refunded)
+        self.assertEqual(
+            (event.provider, event.model, event.input_tokens, event.output_tokens),
+            ("claude", "c-1", 300, 256),
+        )
+
     def test_an_unusable_reply_changes_nothing_but_the_call_stays_counted(self):
         reply = ChatResult(text=' "" ', provider="fake", model="fake")
         with (
@@ -568,3 +586,24 @@ class FoldTriggerTests(TestCase):
 
         self.assertEqual(AskQuery.objects.get(pk=sixth.pk).status, "done")
         self.assertEqual(Conversation.objects.get(pk=self.conv.pk).summary_through, 0)
+
+
+class ShouldFoldSizingTests(FoldTestCase):
+    def test_the_size_is_one_aggregate_query_not_every_turns_text(self):
+        # D503: no turn's text is loaded; one query for summary_through, one SUM.
+        with (
+            mock.patch.object(conversation, "_answered_turns", side_effect=AssertionError),
+            self.assertNumQueries(2) as queries,
+        ):
+            self.assertTrue(should_fold(self.conv.pk))
+        self.assertIn("SUM", queries.captured_queries[-1]["sql"].upper())
+
+    def test_the_size_counts_only_done_turns_after_the_summary(self):
+        Conversation.objects.filter(pk=self.conv.pk).update(summary_through=2)
+        # Four turns of about 110 left: 444 fit the budget of 500...
+        self.assertFalse(should_fold(self.conv.pk))
+        # ...and an unfinished turn adds nothing.
+        add_turn(self.conv, 7, status=AskQuery.Status.PENDING)
+        self.assertFalse(should_fold(self.conv.pk))
+        add_turn(self.conv, 8)
+        self.assertTrue(should_fold(self.conv.pk))

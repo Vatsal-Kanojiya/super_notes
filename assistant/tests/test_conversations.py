@@ -8,10 +8,12 @@ each other are in test_concurrency.py.
 """
 
 import uuid
+from datetime import timedelta
 from unittest import mock
 
 from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from assistant.api import ConversationListView, TurnCreateView
@@ -103,6 +105,54 @@ class CreateTurnTests(NoTaskMixin, TestCase):
 
         self.assertEqual(AskQuery.objects.count(), 1)
         self.assertEqual(UsageEvent.objects.count(), 1)
+
+    def age(self, turn, seconds):
+        AskQuery.objects.filter(pk=turn.pk).update(
+            created_at=timezone.now() - timedelta(seconds=seconds)
+        )
+
+    @override_settings(TURN_PENDING_STALE_SECONDS=120)
+    def test_a_lost_pending_turn_is_failed_refunded_and_the_next_proceeds(self):
+        # D505: its message never reached a worker; the user is not blocked for an hour.
+        first, _ = create_turn(self.alice, self.conversation, "Where is Goa?", "k1")
+        self.age(first, 121)
+
+        second, created = create_turn(self.alice, self.conversation, "And Kochi?", "k2")
+
+        self.assertTrue(created)
+        self.assertEqual(second.position, 2)
+        first.refresh_from_db()
+        self.assertEqual(first.status, AskQuery.Status.FAILED)
+        self.assertTrue(first.error)
+        self.assertIsNotNone(first.completed_at)
+        self.assertTrue(UsageEvent.objects.get(ask=first).refunded)
+        self.assertFalse(UsageEvent.objects.get(ask=second).refunded)
+
+    @override_settings(TURN_PENDING_STALE_SECONDS=120)
+    def test_a_recent_pending_turn_and_any_running_turn_still_block(self):
+        first, _ = create_turn(self.alice, self.conversation, "Where is Goa?", "k1")
+        for status, seconds in ((AskQuery.Status.PENDING, 60), (AskQuery.Status.RUNNING, 3000)):
+            with self.subTest(status=status, seconds=seconds):
+                finish(first, status)
+                self.age(first, seconds)
+                with self.assertRaises(TurnInProgress):
+                    create_turn(self.alice, self.conversation, "And Kochi?", "k2")
+                first.refresh_from_db()
+                self.assertEqual(first.status, status)
+        self.assertFalse(UsageEvent.objects.get(ask=first).refunded)
+
+    @override_settings(TURN_PENDING_STALE_SECONDS=120)
+    def test_a_worker_that_comes_late_leaves_the_failed_turn_alone(self):
+        first, _ = create_turn(self.alice, self.conversation, "Where is Goa?", "k1")
+        self.age(first, 300)
+        create_turn(self.alice, self.conversation, "And Kochi?", "k2")
+
+        with mock.patch("assistant.tasks.search") as search:
+            answer_ask.run(first.pk)
+
+        search.assert_not_called()
+        first.refresh_from_db()
+        self.assertEqual(first.status, AskQuery.Status.FAILED)
 
     def test_a_failed_turn_lets_the_next_one_through(self):
         first, _ = create_turn(self.alice, self.conversation, "Where is Goa?", "k1")

@@ -138,6 +138,11 @@ class ChatPromptFactsTests(TestCase):
         self.assertNotIn("[1]", block)
         self.assertNotIn('id="', block)
 
+    def test_a_facts_bracketed_number_is_kept_but_not_citable(self):
+        # D504: a fact cites nothing, so its numbers are its own text.
+        block = user_facts_block(["User's car was bought in [2024]."])
+        self.assertIn("<fact>User's car was bought in (2024).</fact>", block)
+
 
 class FactsInTurnsTests(TurnMixin, TestCase):
     def setUp(self):

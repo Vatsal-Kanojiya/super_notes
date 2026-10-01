@@ -264,7 +264,7 @@ class MemoryPromptTests(TestCase):
         alice = make_user("alice")
         fact = make_fact(alice, "User is vegetarian.")
         system, user = build_memory_messages(
-            "I'm vegan now. Any recipes?", "Try the lentil soup [1][2].", [fact]
+            "I'm vegan now. Any recipes?", "Try the lentil soup [1][2].", [fact], {1, 2}
         )
         self.assertIn("never learn a fact that appears only in the answer", system.lower())
         self.assertEqual(

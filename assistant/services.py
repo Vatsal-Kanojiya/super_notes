@@ -22,11 +22,15 @@ same idempotency lookup and the same limit, and adds one rule under that
 lock: turns are sequential, so a new one is refused while the previous
 one is still pending or running. Every ask and turn of a user takes the
 same row lock, so two turns racing on one conversation run one after the
-other, and the second sees the first.
+other, and the second sees the first. A previous turn still *pending*
+after TURN_PENDING_STALE_SECONDS -- its message lost, no worker ever
+claimed it -- does not block: it is failed and refunded under the same
+lock, and the new turn proceeds (DECISIONS D505).
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Max
@@ -128,7 +132,7 @@ def create_turn(
         return existing, False
 
     previous = _unfinished_turn(conversation)
-    if previous is not None:
+    if previous is not None and not _fail_if_lost(previous):
         raise TurnInProgress(previous)
 
     return _create(locked, question, idempotency_key, conversation=conversation), True
@@ -242,6 +246,39 @@ def _unfinished_turn(conversation) -> AskQuery | None:
     insert that follows it.
     """
     return conversation.turns.filter(status__in=UNFINISHED).order_by("-position").first()
+
+
+# What the user reads on a turn failed as lost (D505): the sweeper's words.
+LOST = "This took too long. Please ask again."
+
+
+def _fail_if_lost(turn: AskQuery) -> bool:
+    """Fail and refund ``turn`` if it is a lost message; True if it did (DECISIONS D505).
+
+    Lost: still pending -- no worker ever claimed it -- more than
+    TURN_PENDING_STALE_SECONDS after it was made. The UPDATE checks both
+    again, so a worker that claims the turn first wins (it is then
+    running, and blocks as usual), and a worker that comes later finds it
+    failed and leaves it alone (answer_ask claims only unfinished asks).
+    The refund and the ``failed`` event go with this transaction, as the
+    sweeper's do.
+    """
+    cutoff = timezone.now() - timedelta(seconds=settings.TURN_PENDING_STALE_SECONDS)
+    if turn.status != AskQuery.Status.PENDING or turn.created_at >= cutoff:
+        return False
+    failed = AskQuery.objects.filter(
+        pk=turn.pk, status=AskQuery.Status.PENDING, created_at__lt=cutoff
+    ).update(
+        status=AskQuery.Status.FAILED, completed_at=timezone.now(), error=LOST, partial_answer=""
+    )
+    if not failed:
+        return False
+    limits.refund_where(ask_id=turn.pk, key=quota.KEY)
+
+    from .tasks import _announce
+
+    _announce(turn.pk, None)
+    return True
 
 
 def _create(locked_user, question, idempotency_key, conversation=None) -> AskQuery:
