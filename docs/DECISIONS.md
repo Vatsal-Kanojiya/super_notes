@@ -1308,3 +1308,34 @@ when the page is going away, so it is not used elsewhere.
 window is small) or the gap needs a real fix (a service worker or a sync queue). Limits: a 401
 during that save triggers the normal refresh, which is not keepalive; and there is no web test
 runner (BACKLOG), so this is verified by the build and by hand, not by a test.
+
+### D84. Limits are two-layered — per user and system-wide — through one modular limits layer
+
+**Decided (by the owner, 2026-10-02):** every capped resource is a *limit key*
+(`ai_actions_per_month`, `ai_tokens_per_month`, `storage_bytes`, `attachments`, `signups_per_day`,
+…). Each key has a **per-user** value (by plan) and a **system-wide** value, defined in one place:
+an admin-editable `Limit` table with defaults in settings. Usage is counted from one ledger
+(`UsageEvent`). A user over a limit gets `429 quota_exceeded` for that feature only — notes,
+search and sync keep working. The system over a limit pauses that feature for everyone with
+`503 system_limit_reached` and mails the admins. `signups_per_day` caps mass account creation.
+
+**Alternatives:** a separate quota per feature in settings (V1's `ASK_QUOTAS`); per-user limits
+only.
+
+**Why:** the owner wants any resource cappable per user and globally from one place, and a
+system-level backstop against abuse (thousands of scripted accounts each using their own quota).
+
+**Reverse it if:** never in V2; new resources become new limit keys.
+
+### D85. Attachments are stored in S3 in production, local disk in development
+
+**Decided (by the owner, 2026-10-02):** `django-storages` + `boto3` (approved), storage backend
+chosen by env; tests and development use local disk. Per-user and system storage are limit keys
+(D84).
+
+**Alternatives:** local disk only for V2.
+
+**Why:** the owner wants production-grade storage from the start.
+
+**Reverse it if:** there is no deployment by phase 6; ship on local disk and switch by env later.
+

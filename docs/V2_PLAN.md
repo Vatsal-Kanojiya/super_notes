@@ -94,6 +94,9 @@ This replaces V1's D1 (linear `master`, no feature branches) for V2 only.
 
 ### Open questions for the owner (answer before the phase that needs it)
 
+**Settled 2026-10-02:** 1 → two-layer limits, user and system, through one limits layer (D84);
+3 → S3 in production, local disk in development (D85). The rest are still open.
+
 1. **Quota model (before phase 1).** One monthly budget of *AI actions* shared by asks, chat
    turns, formatting and summaries (recommended: simpler to explain, one ledger), or a separate
    quota per feature as V1 has for asks?
@@ -117,7 +120,7 @@ This replaces V1's D1 (linear `master`, no feature branches) for V2 only.
 | `vitest` (web, dev) | 0 | Unit tests for the client's sync loop, token refresh and citation rendering | None — the client stays untested |
 | `pywebpush` | 5 | Web push delivery (VAPID signing, payload encryption) | Email-only reminders |
 | `pypdf` | 6 | Text from PDFs | Send PDFs to a vision model (costly, slower) |
-| `django-storages` + `boto3` | 6 (only if S3 is chosen) | S3-compatible storage | Local disk |
+| `django-storages` + `boto3` | 6 — **approved** (D85) | S3-compatible storage | Local disk |
 
 No other new dependency without asking. Providers stay on plain `requests` (D37, D53).
 
