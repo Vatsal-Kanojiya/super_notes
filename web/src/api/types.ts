@@ -146,6 +146,12 @@ export interface Note {
   updated_at: DateTime
   /** Always null on a live note (every endpoint except `changes` leaves deleted ones out). */
   deleted_at: DateTime | null
+  /**
+   * Only `notes/changes/` carries these (all of the note's live reminders, so
+   * replace, never merge). A note fetched any other way leaves them out; the
+   * notes store keeps the ones it already holds.
+   */
+  reminders?: Reminder[]
 }
 
 /** A deleted note, as `changes` reports it: no title, content or content_text. */
@@ -259,4 +265,52 @@ export interface AskRequest {
 export interface QuotaExceededBody extends AskUsage {
   detail: string
   code: 'quota_exceeded'
+}
+
+// ------------------------------------------------------------- reminders --
+
+export type ReminderChannel = 'email' | 'push'
+export type ReminderStatus = 'scheduled' | 'done' | 'cancelled'
+
+/** A reminder, as every reminder endpoint (and `changes`) returns it. */
+export interface Reminder {
+  id: Id
+  /** The note's id. */
+  note: Id
+  /** The due instant (UTC, with offset). */
+  due_at: DateTime
+  /** 0-30: daily heads-ups for this many days before, then the due day itself. */
+  lead_days: number
+  channels: ReminderChannel[]
+  status: ReminderStatus
+  created_at: DateTime
+  updated_at: DateTime
+}
+
+/** `POST notes/<id>/reminders/` (due_at required) and `PATCH reminders/<id>/` (any of them). */
+export interface ReminderWriteRequest {
+  due_at?: DateTime
+  lead_days?: number
+  channels?: ReminderChannel[]
+}
+
+/** One item of `GET reminders/?from=&to=`: the reminder with its notification times in the range. */
+export interface ReminderInRange {
+  reminder: Reminder
+  note_title: string
+  occurrences: DateTime[]
+}
+
+// ------------------------------------------------------------------ push --
+
+/** `GET push/vapid-key/` (404 when web push is off on this server). */
+export interface VapidKey {
+  public_key: string
+}
+
+/** `POST me/push-subscriptions/`: the browser's `PushSubscription.toJSON()`, flattened. */
+export interface PushSubscriptionRequest {
+  endpoint: string
+  p256dh: string
+  auth: string
 }

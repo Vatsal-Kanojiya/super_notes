@@ -693,3 +693,285 @@ a.note-card {
   flex-direction: column;
   gap: 2px;
 }
+
+/* ------------------------------------------------------------ reminders -- */
+
+.reminders {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.reminders-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.reminders-head h3 {
+  margin: 0;
+}
+.reminder-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.reminder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.reminder.done .reminder-due strong,
+.reminder.cancelled .reminder-due strong {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.reminder-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.reminder-due {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.reminder-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.reminder-actions button.secondary {
+  min-height: 32px;
+  padding: 2px 12px;
+}
+.reminder-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+.field input[type='datetime-local'],
+.field input[type='number'] {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  min-height: 40px;
+  width: 100%;
+  max-width: 280px;
+}
+.field legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.push-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.push-toggle p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.push-toggle button {
+  min-height: 32px;
+  padding: 2px 12px;
+}
+
+/* ------------------------------------------------------------- calendar -- */
+
+.calendar-page {
+  max-width: 1100px;
+}
+.calendar-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.calendar-title {
+  margin: 0;
+  font-size: 1.2rem;
+  flex: 1;
+  min-width: 10ch;
+}
+.calendar-nav,
+.calendar-views {
+  display: flex;
+  gap: 4px;
+}
+.calendar-nav button,
+.calendar-views button {
+  min-height: 36px;
+  padding: 4px 12px;
+}
+.calendar-head {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+.day {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 92px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 0;
+  overflow: hidden;
+}
+.calendar.week .day {
+  min-height: 220px;
+}
+.day.outside {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.day.today {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.day-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.day-num {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+button.day-num {
+  background: none;
+  color: inherit;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0 4px;
+  text-align: left;
+}
+button.day-num:hover {
+  color: var(--accent);
+}
+.day-name {
+  display: none;
+}
+.entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.entry {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+  min-height: 0;
+  padding: 1px 4px;
+  text-align: left;
+  font-size: 0.78rem;
+  font-weight: 500;
+  background: var(--accent-soft);
+  color: var(--text);
+  border-radius: 6px;
+}
+.entry.due {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.entry.done {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.entry-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.entry-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.more {
+  min-height: 0;
+  font-size: 0.78rem;
+}
+
+/* On a phone the grid would be too narrow to read: a week becomes a list of
+   days, and a month shows only the entries' times. */
+@media (max-width: 640px) {
+  .calendar-head {
+    font-size: 0.7rem;
+  }
+  .calendar.month .entry-title,
+  .calendar.month .entry-time,
+  .calendar.month .more {
+    display: none;
+  }
+  .calendar.month .entry {
+    height: 6px;
+    padding: 0;
+  }
+  .calendar.month .day {
+    min-height: 64px;
+  }
+  .calendar.week .calendar-head {
+    display: none;
+  }
+  .calendar.week .calendar-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .calendar.week .day {
+    min-height: 0;
+  }
+  .calendar.week .day.empty {
+    display: none;
+  }
+  .calendar.week .day-name {
+    display: inline;
+  }
+  .calendar.week .entry {
+    font-size: 0.9rem;
+    padding: 4px 8px;
+  }
+}

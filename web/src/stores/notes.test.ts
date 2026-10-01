@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChangesResponse, Note, Tombstone } from '../api/types'
+import type { ChangesResponse, Note, Reminder, Tombstone } from '../api/types'
 
 const changes = vi.fn<(after: number) => Promise<ChangesResponse>>()
 vi.mock('../api/endpoints', () => ({ notesApi: { changes: (after: number) => changes(after) } }))
@@ -88,5 +88,52 @@ describe('notes sync', () => {
     await expect(store.sync()).rejects.toThrow('boom')
     expect(store.syncError).toMatch(/Could not sync/)
     expect(store.loaded).toBe(false)
+  })
+})
+
+describe('reminders carried by sync', () => {
+  const rem = (id: number, noteId: number, due: string, status = 'scheduled') =>
+    ({ id, note: noteId, due_at: due, lead_days: 7, channels: ['email'], status }) as unknown as Reminder
+  const withReminders = (id: number, revision: number, reminders: Reminder[]) => ({ ...note(id, revision), reminders }) as Note
+
+  it('sync stores the note with its reminders, and replaces them on the next change', async () => {
+    changes.mockResolvedValueOnce({
+      results: [withReminders(1, 1, [rem(5, 1, '2026-11-01T09:00:00Z')])],
+      latest_revision: 1,
+      has_more: false,
+    })
+    const store = useNotesStore()
+    await store.sync()
+    expect(store.byId[1]!.reminders!.map((r) => r.id)).toEqual([5])
+
+    // The reminder was deleted elsewhere: the note comes again with none.
+    changes.mockResolvedValueOnce({ results: [withReminders(1, 2, [])], latest_revision: 2, has_more: false })
+    await store.sync()
+    expect(store.byId[1]!.reminders).toEqual([])
+  })
+
+  it('a copy without reminders (a save, one note) keeps the ones held', () => {
+    const store = useNotesStore()
+    store.upsert(withReminders(1, 1, [rem(5, 1, '2026-11-01T09:00:00Z')]))
+    store.upsert(note(1, 2)) // e.g. the PATCH response
+    expect(store.byId[1]!.revision).toBe(2)
+    expect(store.byId[1]!.reminders!.map((r) => r.id)).toEqual([5])
+  })
+
+  it('applyReminder adds, changes and drops a reminder on its note, in due order', () => {
+    const store = useNotesStore()
+    store.upsert(withReminders(1, 1, [rem(5, 1, '2026-11-01T09:00:00Z')]))
+    store.applyReminder(1, 6, rem(6, 1, '2026-10-20T09:00:00Z'))
+    expect(store.byId[1]!.reminders!.map((r) => r.id)).toEqual([6, 5])
+    store.applyReminder(1, 6, rem(6, 1, '2026-10-20T09:00:00Z', 'done'))
+    expect(store.byId[1]!.reminders!.find((r) => r.id === 6)!.status).toBe('done')
+    store.applyReminder(1, 5, null)
+    expect(store.byId[1]!.reminders!.map((r) => r.id)).toEqual([6])
+  })
+
+  it('applyReminder on an unknown note does nothing', () => {
+    const store = useNotesStore()
+    store.applyReminder(99, 1, rem(1, 99, '2026-11-01T09:00:00Z'))
+    expect(store.byId[99]).toBeUndefined()
   })
 })

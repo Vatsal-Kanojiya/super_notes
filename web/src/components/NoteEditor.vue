@@ -22,6 +22,7 @@ import type { DocNode, Note, VersionConflictBody } from '../api/types'
 import { formatRelative } from '../lib/format'
 import { emptyDoc, useNotesStore } from '../stores/notes'
 import { useGoBack } from '../lib/nav'
+import ReminderPanel from './ReminderPanel.vue'
 
 const props = defineProps<{ initial: Note }>()
 
@@ -231,6 +232,8 @@ function isActive(name: string, attrs?: Record<string, unknown>) {
     </div>
 
     <input v-model="title" class="title-input" type="text" placeholder="Title" aria-label="Title" maxlength="300" />
+
+    <ReminderPanel :note-id="id" />
 
     <div v-if="editor" class="format-bar" role="toolbar" aria-label="Formatting">
       <button

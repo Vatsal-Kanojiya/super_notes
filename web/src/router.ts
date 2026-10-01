@@ -17,6 +17,7 @@ export const router = createRouter({
     { path: '/signin', name: 'signin', component: SignIn, meta: { public: true } },
     { path: '/notes', name: 'notes', component: () => import('./components/NotesList.vue') },
     { path: '/notes/:id', name: 'note', component: () => import('./components/NotePage.vue'), props: (r) => ({ noteId: r.params.id as string }) },
+    { path: '/calendar', name: 'calendar', component: () => import('./components/CalendarPage.vue') },
     { path: '/ask', name: 'ask', component: () => import('./components/AskPanel.vue') },
     { path: '/settings', name: 'settings', component: () => import('./components/SettingsPage.vue') },
     { path: '/:rest(.*)*', redirect: '/notes' },

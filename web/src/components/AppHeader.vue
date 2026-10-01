@@ -32,6 +32,7 @@ onBeforeUnmount(() => {
     <span class="brand">Super Notes</span>
     <nav class="tabs" aria-label="Sections">
       <router-link to="/notes" :class="{ active: route.path.startsWith('/notes') }">Notes</router-link>
+      <router-link to="/calendar" :class="{ active: route.path === '/calendar' }">Calendar</router-link>
       <router-link to="/ask" :class="{ active: route.path === '/ask' }">Ask</router-link>
     </nav>
     <div ref="menuEl" class="account">
