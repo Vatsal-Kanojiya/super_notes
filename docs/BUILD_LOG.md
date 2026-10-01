@@ -413,3 +413,34 @@ Paused by the owner at clean sub-task boundaries; everything below is merged her
 Owner to confirm: Monday-first calendar week (D201), memory only from chat turns (D401),
 superseded facts kept 30 days (D406), real image reading and the `image_text` limit (D343,
 D344), the extraction caps (D340).
+
+### Review of the remote session's work — 2026-10-02
+
+The remote session (branch `claude/friendly-clarke-blov3x`, 54 commits) merged its own work
+without review. Four review agents read it by area (conversations; streaming and memory;
+attachments, format and reminders; web): **no blockers, 4 majors, 22 minors**, security
+boundaries confirmed (upload sniffing, ownership in SQL, at-most-once delivery, push allowlist,
+no XSS, a service worker that caches nothing). Fixed on four branches and merged with it:
+- **Majors:** a stream pinned a Postgres connection for up to five minutes (closed per read, plus a
+  per-user stream cap, D510-D511); image reading had no per-user cap (D520); the format guard
+  missed changes of meaning — negations, number words, relative dates (D521-D523, D525); the web
+  chat could stop polling a pending turn after a quick re-entry.
+- **Minors:** billed provider failures refunded (D500), repeat condense charges (D501), the
+  condenser without the summary (D502), history sized in Python (D503), over-broad marker
+  stripping (D504), lost messages blocking a conversation for an hour (D505), OpenAI transient
+  failures not retried (D512), a cancelled subscribe leaking Redis (D513), the memory extractor
+  seeing the answer (D514), dynamic facts erasing static ones (D515-D516), nearest facts empty
+  under HNSW post-filtering (D517), number checks on derived text (D523), no send timeouts
+  (D527), uploads without Content-Length (D528), push endpoint takeover (D526), and web retry,
+  reminder, push and accessibility issues (D530).
+
+Also: the venv lacked the packages the remote session pinned (`pypdf`, `django-storages`,
+`boto3`, `uvicorn`); `pip install -r requirements.txt` fixed every import error. After merging:
+1459 backend tests, 216 web tests, lint, migrations and schema all clean.
+
+**Left:** the same billed-failure rule for memory extraction and image reading (they still refund
+on any `ChatError`); chunk search keeps D68's HNSW post-filter trade-off (D517 fixed it for facts
+only); streaming web (2.3), memory web (3.3), attachment summaries (6.3) and attachment web (6.4).
+**Owner to confirm:** the per-user `image_text` values (D520), showing `image_text` in `me/`
+(D529), facts keeping their numbers as `(n)` (D504).
+
