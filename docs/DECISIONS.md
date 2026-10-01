@@ -2505,3 +2505,112 @@ and an error still renders as JSON. A live row without its file is a logged 404.
 **Decided:** `GET notes/<id>/attachments/` pages like every list (newest first). The only cap is
 `storage_bytes`; whether a note needs a count cap (reminders have 20) is left to the owner.
 **Alternative:** an unpaged list with a cap.
+
+### D400. Memory is learned only from the user's own words; the answer is shown but untrusted (3-memory 1, 2026-10-01)
+
+**Decided:** the extraction call (`prompts/memory.md`, `memory-v1`) gets the user's known facts,
+the question and the answer -- never the excerpts. The answer quotes the notes, so the prompt
+calls it context only: a fact may come only from what the user states about themselves in the
+question, never from the answer or because any text says "remember". Every part is neutralised
+like the other prompts (D56), and `<fact>`/`<facts>` join the neutralised tags of every prompt,
+so a note can never make an ask look like an extraction. The fake extractor reads only the
+question, and the injection test fails if it ever reads the answer (the note's quoted sentence
+would be a fact). **Alternative:** the question only (the answer helps resolve what a short
+question refers to, which the plan wants); a lexical check that each fact's words appear in the
+question (drops paraphrases a real model rightly makes: "I don't eat meat" -> "User is
+vegetarian").
+
+### D401. Extraction follows a done conversation turn, queued on commit; memory off is checked three times (3-memory 1, 2026-10-01)
+
+**Decided:** `_finish` queues `extract_memory` with `transaction.on_commit` the way the fold is
+queued (D284): the `.delay` is wrapped, so a broker that is down costs the extraction only. Only
+a conversation turn that ends `done` (a floor answer too: the question can still state a fact);
+a plain `POST ask/` and a failed turn queue nothing. `memory_enabled` is checked when queueing,
+when the task starts (off: no provider call, no embedding call, no usage event), and again
+under the user's row lock just before writing (switched off during the call: nothing written).
+**Alternative:** plain asks too (the V1 endpoint, no longer a screen, D304); one check only (a
+switch flipped mid-call would still write a fact).
+
+### D402. The call is shown all of the user's live facts while there are at most 10, else the 10 nearest (3-memory 1, 2026-10-01)
+
+**Decided:** `MEMORY_SIMILAR_FACTS` (10). Up to 10 live facts are all sent with no embedding
+call; beyond that the question is embedded and the 10 nearest live facts of the current
+embedding model are sent, owner-scoped in SQL with `hnsw.ef_search` raised as the chunk search
+does (D68). The ids sent are the only ids an operation may name. **Alternative:** always
+vector-search (an embedding call per turn, and HNSW's post-filter can miss a user's few facts
+among many users'); send every fact (a prompt that grows without bound).
+
+### D403. A fact that looks like a secret is dropped in code, whoever stated it (3-memory 1, 2026-10-01)
+
+**Decided:** besides the prompt's rule, `parse_operations` drops a fact text that mentions a
+password, passcode, PIN (not "PIN code", the postal one), OTP, CVV, API/secret/private key or
+token, or holds a run of 9+ digits (card, account, phone and ID numbers; a date or a 6-digit
+PIN code is not). Memory rides in later prompts and is listed on screen: it is the wrong place
+for a secret even when the user typed it, and the filter also catches a model that obeyed a
+planted "remember the password" despite the prompt. **Alternative:** trust the prompt alone (one
+disobedient reply stores a credential).
+
+### D404. The reply schema: one bad reply drops all, one bad operation drops itself (3-memory 1, 2026-10-01)
+
+**Decided:** the reply must be `{"operations": [...]}` with at most `MEMORY_MAX_OPERATIONS` (5)
+entries, or all of it is dropped. Each entry is then checked alone: `op` in add / update /
+supersede / none; `id` a JSON integer (not `true`, not `"12"`) among the facts shown, targeted
+once; `text` non-empty and at most 200 characters after collapsing whitespace (dropped, never
+cut: a cut fact can change meaning) and not a secret (D403); `kind` static or dynamic (absent:
+static, or unchanged on an update). Keys beyond these are ignored, and one surrounding code
+fence is stripped, since models add both unasked. Dropped entries are logged by reason, never
+with their text. Nothing is retried. **Alternative:** reject the whole reply for any bad entry
+(one stray entry loses the good ones); reject extra keys (a "reason" field would lose facts).
+
+### D405. `superseded_by` cascades: deleting a fact deletes the facts it replaced (3-memory 1, 2026-10-01)
+
+**Decided:** `on_delete=CASCADE`. When a user deletes "User is vegan" (or it expires), the
+"User is vegetarian" it superseded goes with it. **Alternative:** SET_NULL (the replaced fact
+comes back to life: deleting one fact would resurrect an older, contradicted one); PROTECT
+(a fact could not be deleted while it has history).
+
+### D406. The daily purge: expired dynamic facts, and superseded ones 30 days after they were replaced (3-memory 1, 2026-10-01)
+
+**Decided:** `purge_expired_facts` (beat, daily) deletes facts whose `valid_until` has passed
+(dynamic ones, `MEMORY_DYNAMIC_FACT_DAYS` = 30 after they were learned or last updated) and
+facts whose superseding fact is older than `MEMORY_SUPERSEDED_RETENTION_DAYS` (30). A superseded
+fact is never used or shown to the extraction; it is kept a while only to debug an extraction
+that went wrong, and then it is personal data with no purpose. **Alternative:** keep superseded
+facts for ever (a growing record of what the user used to be); delete them on supersede (no
+trace when a model supersedes wrongly). No `superseded_at` column: the replacing fact's
+`created_at` is that moment.
+
+### D407. An extraction runs at most once per turn and never retries; refunds when nothing was billed (3-memory 1, 2026-10-01)
+
+**Decided:** the `memory_extract` use (user None, linked to the turn) is consumed in a short
+transaction that locks the turn's row and first looks for any earlier `memory_extract` event of
+that turn, refunded or not: a redelivered or duplicated task does nothing. The limit reached:
+skipped, no call. A `ChatError`/`TransientChatError`, or a question that cannot be embedded
+(checked before the call, so no chat call is paid for facts that could not be stored): refunded.
+A malformed reply, or facts that cannot be embedded after the call: dropped and logged, the use
+stays counted (the call was made). The task has no Celery retry: the user saying it again is
+the retry. **Alternative:** autoretry (spends the limit on a call that keeps failing, and could
+loop on a reply that is always malformed); store facts unembedded (they would be listed but
+never found by the vector search that uses them).
+
+### D408. Write rules: update in place, supersede by a new row, exact repeats skipped, all under the user's lock (3-memory 1, 2026-10-01)
+
+**Decided:** one transaction that locks the user's row, then re-reads and locks the target
+facts live and owner-scoped in SQL. `update` rewrites text, kind, vector and `source_ask` and
+recomputes `valid_until` (restating a dynamic fact renews it). `supersede` creates the new fact
+and sets the old one's `superseded_by`. `add` is skipped when a live fact has the same text,
+ignoring case. A target superseded or expired since the call is dropped, so of two extractions
+racing on one fact only the first supersedes it. **Alternative:** no lock (two extractions could
+both supersede one fact, leaving two live successors); fuzzy duplicate detection (the model is
+shown the similar facts and is the better judge).
+
+### D409. The fake extractor: "I'm X" / "my X is Y" in the question, superseding by subject (3-memory 1, 2026-10-01)
+
+**Decided:** when the user message starts with `<facts>`, the fake provider reads only the
+`<question>`. Each sentence that is not a question and says "I'm X" / "I am X" (or "I'm not X",
+"I'm no longer X") or "my X is Y", in at most six words of value, is a statement about a
+subject ("is X", "my X"). A subject no known fact covers is an `add` ("User is X." / "User's X
+is Y."); a different statement about a known fact's subject supersedes it; the same statement
+is nothing; none at all is `{"op": "none"}`. "Today", "this week", "currently"... make it
+dynamic. Deterministic, so the flow is tested without mocks. **Alternative:** a fixed reply
+(cannot show add vs supersede); reading the answer too (would defeat the boundary test).

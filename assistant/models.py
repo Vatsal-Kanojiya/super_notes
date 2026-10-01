@@ -1,5 +1,7 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
+from pgvector.django import HnswIndex, VectorField
 
 # A question is a sentence or two, not a document; the serializer enforces
 # this through the field's max_length.
@@ -128,3 +130,76 @@ class AskQuery(models.Model):
     @property
     def finished(self) -> bool:
         return self.status in (self.Status.DONE, self.Status.FAILED)
+
+
+class UserFactQuerySet(models.QuerySet):
+    def live(self, user, now=None):
+        """``user``'s facts in use: not superseded, not expired. Owner-scoped in SQL."""
+        now = now or timezone.now()
+        return self.filter(user=user, superseded_by__isnull=True).filter(
+            models.Q(valid_until__isnull=True) | models.Q(valid_until__gt=now)
+        )
+
+
+# A fact is one short sentence ("User is vegetarian."); a longer one is
+# dropped by the extraction, never cut (assistant/memory.py).
+FACT_MAX_CHARS = 200
+
+
+class UserFact(models.Model):
+    """Something learned about the user from their own words in a conversation (plan §4, Phase 3).
+
+    Written by assistant/memory.py only, from what the user says about
+    themselves in a question -- never from a note excerpt (DECISIONS D400).
+    A fact is *live* while it is not superseded and not expired
+    (``UserFact.objects.live``). Deleting a fact deletes the facts it
+    superseded with it (``superseded_by`` CASCADE, DECISIONS D405): a
+    forgotten fact must not bring back what it replaced.
+    """
+
+    class Kind(models.TextChoices):
+        # True until the user says otherwise ("is vegetarian").
+        STATIC = "static"
+        # True for now ("is moving house this month"); gets ``valid_until``.
+        DYNAMIC = "dynamic"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="facts"
+    )
+    text = models.CharField(max_length=FACT_MAX_CHARS)
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.STATIC)
+    # The turn the fact was learned (or last updated) from; kept when that
+    # turn's conversation is deleted.
+    source_ask = models.ForeignKey(
+        AskQuery, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    # The same vector space as the chunks (retrieval/embeddings), named by
+    # ``embedding_model``: a fact embedded by another model is not compared.
+    embedding = VectorField(dimensions=settings.EMBEDDING_DIMENSIONS)
+    embedding_model = models.CharField(max_length=200)
+    # Set for dynamic facts only; the daily purge deletes them after it.
+    valid_until = models.DateTimeField(null=True, blank=True)
+    # The fact that replaced this one, when the user contradicted it.
+    superseded_by = models.ForeignKey(
+        "self", on_delete=models.CASCADE, null=True, blank=True, related_name="supersedes"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = UserFactQuerySet.as_manager()
+
+    class Meta:
+        indexes = [
+            # Similar facts: nearest by cosine distance (assistant/memory.py).
+            HnswIndex(
+                name="fact_embedding_hnsw",
+                fields=["embedding"],
+                m=16,
+                ef_construction=64,
+                opclasses=["vector_cosine_ops"],
+            ),
+            # A user's live facts: superseded_by IS NULL.
+            models.Index(fields=["user", "superseded_by"], name="fact_user_superseded"),
+        ]
+
+    def __str__(self):
+        return f"Fact {self.pk} ({self.kind})"

@@ -4,7 +4,8 @@ A conversation turn adds two steps (assistant/conversation.py): its
 follow-up is condensed to stand alone before retrieval, and its prompt
 (prompts/chat.md) carries the conversation so far. Finishing a turn may
 queue a fold of the conversation's oldest turns into its summary
-(fold_history, below).
+(fold_history, below), and queues the extraction of what the user said
+about themselves (extract_memory, assistant/memory.py).
 
 The task owns the AskQuery's life after creation: pending → running → done
 or failed. Every way out of it ends in done or failed, including retries
@@ -26,7 +27,7 @@ from limits import service as limits
 from retrieval.embeddings import EmbeddingError, EmbeddingTransientError
 from retrieval.search import SearchHit, search
 
-from . import chat, conversation, quota
+from . import chat, conversation, memory, quota
 from .citations import parse_citations
 from .models import AskQuery
 from .prompt import Excerpt, build_messages, fit_excerpts, prompt_version
@@ -205,6 +206,7 @@ def _finish(ask_id, **fields) -> None:
         limits.describe_where({"ask_id": ask_id, "key": quota.KEY}, **cost)
     if done:
         _queue_fold(ask_id)
+        _queue_memory(ask_id)
 
 
 def _queue_fold(ask_id: int) -> None:
@@ -229,6 +231,50 @@ def _queue_fold(ask_id: int) -> None:
             logger.exception("Conversation %s: could not queue the fold", conversation_id)
 
     transaction.on_commit(enqueue)
+
+
+def _queue_memory(ask_id: int) -> None:
+    """After a conversation turn is answered, learn from it -- unless memory is off.
+
+    Queued the way the fold is (D284): on commit, so the task reads the
+    answer, and a broker that is down costs the extraction only, never the
+    answer. A plain ask, and a user with memory off, queue nothing; the
+    task checks memory again, since it can be switched off in between
+    (DECISIONS D401).
+    """
+    wanted = AskQuery.objects.filter(
+        pk=ask_id, conversation__isnull=False, user__memory_enabled=True
+    ).exists()
+    if not wanted:
+        return
+
+    def enqueue():
+        try:
+            extract_memory.delay(ask_id)
+        except Exception:
+            logger.exception("Ask %s: could not queue the memory extraction", ask_id)
+
+    transaction.on_commit(enqueue)
+
+
+@shared_task
+def extract_memory(ask_id: int) -> None:
+    """Learn facts about the user from one finished turn (assistant/memory.py, D400-D409).
+
+    Not retried: a turn whose extraction fails teaches nothing, and the
+    user saying it again is the retry. Safe to run twice: a turn is
+    extracted at most once.
+    """
+    memory.extract(ask_id)
+
+
+@shared_task
+def purge_expired_facts() -> int:
+    """Daily: expired dynamic facts and old superseded ones (assistant/memory.py, D406)."""
+    deleted = memory.purge_expired()
+    if deleted:
+        logger.info("Purged %s expired or superseded fact(s)", deleted)
+    return deleted
 
 
 @shared_task

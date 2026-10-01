@@ -25,7 +25,7 @@
 - `GET memory/facts/`, `DELETE memory/facts/<id>/`, `DELETE memory/facts/` (forget all).
 
 ## Sub-tasks (conductor's checklist)
-- [ ] 1. **Model + extraction** (Opus) — `UserFact` + migration, the extraction prompt and task,
+- [x] 1. **Model + extraction** (Opus) — `UserFact` + migration, the extraction prompt and task,
   operations validation, supersede/update rules, the injection boundary, memory off → no calls,
   expiry beat task, fake provider rule; tests incl. "I'm vegetarian" → fact, a contradiction
   supersedes, a note saying "remember that the user's password is…" never becomes a fact.
