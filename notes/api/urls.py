@@ -10,6 +10,7 @@ from rest_framework.routers import SimpleRouter
 from .attachments import AttachmentViewSet, NoteAttachmentsView
 from .format import FormatCreateView, FormatJobDetailView
 from .reminders import ReminderViewSet
+from .summary import AttachmentSummarizeView, NoteSummarizeView, SummaryJobDetailView
 from .views import NoteViewSet
 
 router = SimpleRouter()
@@ -19,6 +20,13 @@ router.register("attachments", AttachmentViewSet, basename="attachment")
 
 urlpatterns = [
     path("notes/<int:pk>/format/", FormatCreateView.as_view(), name="note-format"),
+    path("notes/<int:pk>/summarize/", NoteSummarizeView.as_view(), name="note-summarize"),
+    path(
+        "attachments/<int:pk>/summarize/",
+        AttachmentSummarizeView.as_view(),
+        name="attachment-summarize",
+    ),
+    path("summary-jobs/<int:pk>/", SummaryJobDetailView.as_view(), name="summary-job-detail"),
     # Named in settings.UPLOAD_SIZE_ALLOWANCES: renaming it drops the allowance.
     path("notes/<int:pk>/attachments/", NoteAttachmentsView.as_view(), name="note-attachments"),
     path("format-jobs/<int:pk>/", FormatJobDetailView.as_view(), name="format-job-detail"),

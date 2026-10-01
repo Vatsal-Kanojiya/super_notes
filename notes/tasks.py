@@ -31,10 +31,10 @@ from assistant import chat
 from limits import service as limits
 from retrieval.embeddings import EmbeddingTransientError
 
-from . import delivery, extraction
+from . import delivery, extraction, summary
 from .format_guard import check_format
 from .format_prompt import build_messages, prompt_version
-from .models import Attachment, FormatJob, Note
+from .models import Attachment, FormatJob, Note, SummaryJob
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +232,66 @@ def sweep_stuck_format_jobs() -> int:
     limits.refund_where(pk__in=[event for _, event in stuck if event])
     if failed:
         logger.warning("Failed %s stuck format job(s) older than %s", failed, cutoff)
+    return failed
+
+
+# --- Summaries (notes/summary.py has the how and why) ------------------------
+
+
+@shared_task(
+    bind=True,
+    # As format_note: someone is watching a spinner, so about a minute of backoff.
+    autoretry_for=TRANSIENT,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    max_retries=4,
+)
+def summarize(self, job_id: int) -> None:
+    """Summarise one note or attachment, and make sure the job ends done or failed."""
+    try:
+        summary.run(job_id)
+    except TRANSIENT as exc:
+        if self.request.retries < self.max_retries:
+            raise  # autoretry_for schedules the next attempt.
+        logger.error(
+            "Summary job %s: giving up after %s retries: %r", job_id, self.max_retries, exc
+        )
+        summary.fail(job_id, summary.BUSY)
+    except Exception:
+        logger.exception("Summary job %s failed unexpectedly", job_id)
+        summary.fail(job_id, summary.UNEXPECTED)
+        raise
+
+
+@shared_task
+@transaction.atomic
+def sweep_stuck_summary_jobs() -> int:
+    """Fail summary jobs left pending or running past SUMMARY_STUCK_AFTER_SECONDS (D78).
+
+    As sweep_stuck_format_jobs: locked, failed by a status-checked UPDATE and
+    refunded in one transaction, so each is refunded exactly once. A job
+    stuck before any answer was billed is the only kind a sweeper sees: one
+    that was billed fails through ``summary.fail`` and is never unfinished.
+    """
+    cutoff = timezone.now() - timedelta(seconds=settings.SUMMARY_STUCK_AFTER_SECONDS)
+    stuck = list(
+        SummaryJob.objects.select_for_update()
+        .filter(status__in=summary.UNFINISHED, created_at__lt=cutoff)
+        .values_list("pk", "usage_event_id")
+    )
+    if not stuck:
+        return 0
+    ids = [pk for pk, _ in stuck]
+    failed = SummaryJob.objects.filter(pk__in=ids, status__in=summary.UNFINISHED).update(
+        status=SummaryJob.Status.FAILED,
+        completed_at=timezone.now(),
+        error_code=summary.STUCK[0],
+        error=summary.STUCK[1],
+    )
+    limits.refund_where(pk__in=[event for _, event in stuck if event])
+    if failed:
+        logger.warning("Failed %s stuck summary job(s) older than %s", failed, cutoff)
     return failed
 
 

@@ -571,3 +571,52 @@ def delete_attachment(owner, attachment_id) -> Attachment:
     attachment.deleted_at = when
     _stamp_note(attachment.note, _bump_revision(locked))
     return attachment
+
+
+# Summaries (notes/summary.py has the how and why; DECISIONS D550-D559). A
+# finished summary is written here, under the owner's lock, so it takes a
+# ``notes_revision`` -- sync carries it -- and never a note ``version``: it is
+# not an edit, and it must not turn a client's next PATCH into a 409.
+
+
+@transaction.atomic
+def apply_summary(
+    owner_id, note_id, attachment_id, text: str, base_version: int, *, write_chunks=None
+) -> bool:
+    """Store ``text`` as the summary of a note (``attachment_id`` None) or an attachment.
+
+    True if it was stored. False when the note (or attachment) is gone or
+    deleted, an attachment is no longer ready, or a *newer* summary of the
+    note is already there (a slower, older job never replaces it).
+
+    ``write_chunks(note)`` runs under the lock, once the write is certain, to
+    replace the note's ``summary`` chunks; an attachment's summary is not
+    indexed (its text already is, D555). The note's ``version``,
+    ``updated_at`` and ``content_text`` are not touched.
+    """
+    locked = _lock_owner(User(pk=owner_id))
+    try:
+        note = _locked_live_note(locked, note_id)
+    except Note.DoesNotExist:
+        return False
+    if attachment_id is not None:
+        stored = Attachment.objects.filter(
+            pk=attachment_id,
+            note_id=note.pk,
+            owner_id=owner_id,
+            status=Attachment.Status.READY,
+            deleted_at__isnull=True,
+        ).update(summary=text)
+        if not stored:
+            return False
+        _stamp_note(note, _bump_revision(locked))
+        return True
+
+    if note.summary_version is not None and note.summary_version > base_version:
+        return False
+    Note.objects.filter(pk=note.pk).update(
+        summary=text, summary_version=base_version, revision=_bump_revision(locked)
+    )
+    if write_chunks is not None:
+        write_chunks(note)
+    return True

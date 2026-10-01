@@ -21,6 +21,9 @@ another fixed rule (DECISIONS D286): the summary so far, one line
 only the newest FOLD_LINES lines kept -- a bounded summary that forgets the
 oldest, as a real one is told to.
 
+A summary (prompts/summary.md: the user message is a ``<document>``) is the
+document's first two sentences (D556).
+
 A memory extraction (prompts/memory.md: the user message holds ``<facts>``)
 gets a rule of its own (DECISIONS D409), read from the ``<question>``, the
 only text the call gets (D514). Each sentence of the question that
@@ -53,6 +56,8 @@ from ..types import ChatResult
 # The delimiters assistant/prompt.py writes. Excerpt text cannot contain a
 # closing tag (prompt.neutralise), so a lazy match finds each excerpt whole.
 _EXCERPT = re.compile(r'<excerpt n="(\d+)"[^>]*>\n(.*?)\n</excerpt>', re.DOTALL)
+# The document notes/summary_prompt.py wraps its text in (summaries, D556).
+_DOCUMENT = re.compile(r'<document title="[^"]*">\n(.*)\n</document>', re.DOTALL)
 # The note notes/format_prompt.py wraps its document in. Greedy: the document is
 # JSON, so the last closing tag is the real one.
 _NOTE = re.compile(r"<note>\n(.*)\n</note>", re.DOTALL)
@@ -123,6 +128,12 @@ def first_sentence(text: str) -> str:
     return sentence[:MAX_SENTENCE_CHARS]
 
 
+def summary_sentences(text: str, count: int = 2) -> list[str]:
+    """The first ``count`` sentences of the text: the fake's whole idea of a summary."""
+    text = " ".join(text.split())
+    return [m.group(1) for m in _SENTENCE.finditer(text)][:count] or [text]
+
+
 def format_document(doc: dict) -> dict:
     """What the fake "formats": a lone first line becomes the heading.
 
@@ -155,7 +166,11 @@ class FakeProvider:
         excerpts = _EXCERPT.findall(user)[:CITED]
         fold = _FOLD.search(user)
         facts = _FACTS.match(user)
-        if note:
+        document = _DOCUMENT.match(user)
+        if document:
+            # A summary (notes/summary_prompt.py): the document's first two sentences.
+            text = " ".join(first_sentence(s) for s in summary_sentences(document.group(1)))
+        elif note:
             # A "format my note" request (notes/format_prompt.py): answer with the
             # document, restructured, as the prompt demands.
             try:

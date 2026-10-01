@@ -220,6 +220,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "notes.tasks.sweep_stuck_format_jobs",
         "schedule": 5 * 60,
     },
+    # And for summary jobs (notes/tasks.py).
+    "sweep-stuck-summary-jobs": {
+        "task": "notes.tasks.sweep_stuck_summary_jobs",
+        "schedule": 5 * 60,
+    },
     # And for attachments whose text extraction never finished.
     "sweep-stuck-attachments": {
         "task": "notes.tasks.sweep_stuck_attachments",
@@ -516,6 +521,7 @@ REST_FRAMEWORK = {
         "search": env("API_SEARCH_THROTTLE", default="120/hour"),
         "ask": env("API_ASK_THROTTLE", default="60/hour"),
         "format": env("API_FORMAT_THROTTLE", default="30/hour"),
+        "summary": env("API_SUMMARY_THROTTLE", default="30/hour"),
         # Attachment uploads: each costs storage and, later, an extraction.
         "upload": env("API_UPLOAD_THROTTLE", default="120/hour"),
     },
@@ -695,6 +701,15 @@ FORMAT_MAX_INPUT_CHARS = env.int("FORMAT_MAX_INPUT_CHARS", default=24000)
 FORMAT_MAX_OUTPUT_TOKENS = env.int("FORMAT_MAX_OUTPUT_TOKENS", default=16384)
 # As ASK_STUCK_AFTER_SECONDS, for format jobs (same retry budget).
 FORMAT_STUCK_AFTER_SECONDS = env.int("FORMAT_STUCK_AFTER_SECONDS", default=60 * 60)
+
+# Summaries (notes/summary*.py, tasks.py; DECISIONS D550-D559). Uses per month are
+# the `summary` limit in LIMIT_DEFAULTS. The text sent is cut to this many characters
+# (a long note or file is summarised from its start); the reply is limited in tokens
+# and in characters (the prompt asks for far less; the code does not trust it).
+SUMMARY_MAX_INPUT_CHARS = env.int("SUMMARY_MAX_INPUT_CHARS", default=24000)
+SUMMARY_MAX_OUTPUT_TOKENS = env.int("SUMMARY_MAX_OUTPUT_TOKENS", default=800)
+SUMMARY_MAX_CHARS = env.int("SUMMARY_MAX_CHARS", default=2000)
+SUMMARY_STUCK_AFTER_SECONDS = env.int("SUMMARY_STUCK_AFTER_SECONDS", default=60 * 60)
 
 # Asks per month are the chat_turns limit in LIMIT_DEFAULTS (DECISIONS D101).
 # How many chunks retrieval hands the prompt.

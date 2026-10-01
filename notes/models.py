@@ -43,6 +43,13 @@ class Note(models.Model):
     content_text = models.TextField(blank=True, editable=False)
     version = models.PositiveIntegerField(default=1)
     revision = models.BigIntegerField(default=0)
+    # An AI summary of the note (notes/summary.py, D550). ``summary_version``
+    # is the note ``version`` it was made from: the summary is stale when it
+    # differs from ``version``. Written by ``services.apply_summary`` under
+    # the owner lock, taking a ``revision`` but never a new ``version`` --
+    # a summary is not an edit, so it conflicts with nothing.
+    summary = models.TextField(blank=True)
+    summary_version = models.PositiveIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
@@ -143,6 +150,74 @@ class FormatJob(models.Model):
 
     def __str__(self):
         return f"Format job {self.pk} ({self.status})"
+
+
+class SummaryJob(models.Model):
+    """One "summarize" request, for a note or for one of its attachments.
+
+    The job shape of FormatJob, and the same life: pending -> running ->
+    done or failed, polled at ``summary-jobs/<id>/``. It consumes one
+    ``summary`` use of the limits ledger when made (``usage_event``),
+    refunded if it fails -- except a failure that was billed (an unusable
+    reply the vendor generated), which keeps the use and records its cost
+    (D500, D551).
+
+    Unlike a format job it *does* write: a finished job stores its text on
+    ``Note.summary`` (``attachment`` null) or ``Attachment.summary``, through
+    notes/services.py, which is what keeps the note's ``version`` out of it.
+    ``base_version`` is the note's version the text was made from. ``summary``
+    here is the text the model returned, kept so a retry never pays twice.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        RUNNING = "running"
+        DONE = "done"
+        FAILED = "failed"
+
+    note = models.ForeignKey(Note, on_delete=models.CASCADE, related_name="summary_jobs")
+    attachment = models.ForeignKey(
+        "Attachment", null=True, blank=True, on_delete=models.CASCADE, related_name="summary_jobs"
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="summary_jobs",
+        db_index=False,
+    )
+    base_version = models.PositiveIntegerField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    summary = models.TextField(blank=True)
+    error_code = models.CharField(max_length=50, blank=True)
+    error = models.CharField(max_length=255, blank=True)
+
+    provider = models.CharField(max_length=20, blank=True)
+    model = models.CharField(max_length=100, blank=True)
+    prompt_version = models.CharField(max_length=50, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+
+    usage_event = models.ForeignKey(
+        "limits.UsageEvent", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    idempotency_key = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["owner", "idempotency_key"], name="summaryjob_owner_idempotency_key"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["owner", "-id"], name="summaryjob_owner_id"),
+            models.Index(fields=["status", "created_at"], name="summaryjob_status_created"),
+        ]
+
+    def __str__(self):
+        return f"Summary job {self.pk} ({self.status})"
 
 
 REMINDER_LEAD_DAYS_DEFAULT = 7
