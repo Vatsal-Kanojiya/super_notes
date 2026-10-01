@@ -1596,3 +1596,52 @@ the notice directly in the lifecycle store (would bypass those guards).
 launch only when the user is still on the server default `Asia/Kolkata` and the browser's zone
 differs; the page shows the zone but has no picker yet. **Alternative:** a Save button; a timezone
 picker (not asked for, and a long list to get right).
+
+### D124. A reminder write stamps its note's revision; `changes` sends the note with all its reminders (5, 2026-10-02)
+
+**Decided:** create, change, done and delete of a reminder take the owner lock and the next
+`notes_revision`, and set it on the note with a queryset update — the note's `version` and
+`updated_at` are untouched and nothing is re-indexed (its content did not change, so an open editor
+must not conflict). A live note in `changes` carries `reminders`: every non-deleted reminder of the
+note, any status, so the client replaces the note's set. Tombstones carry none. Deleting a note
+turns its `scheduled` reminders `cancelled` in the same transaction; `done` stays `done`.
+**Alternative:** a separate `revision` per reminder and a `reminders` list beside `results` (a
+second stream for the client to page and merge, for no gain while reminders belong to one note).
+
+### D125. Skipped and repeated local times in the schedule (5, 2026-10-02)
+
+**Decided:** `occurrences()` builds each heads-up from the due time's wall-clock time with
+`fold=0`: a time skipped by a spring change lands just after it (01:30 → 02:30 BST), a repeated
+autumn time is its first instance. The due-day occurrence is always `due_at` itself. **Alternative:**
+drop a heads-up whose local time does not exist (one fewer notification that week, silently).
+
+### D126. Reminder date-times must carry an offset, and a new `due_at` must be in the future (5, 2026-10-02)
+
+**Decided:** `due_at`, `from` and `to` without an offset are 400, not read in the server's zone.
+`due_at` in the past is 400 on create and on change (delivery would otherwise fire a stale
+notification at once). `channels` needs at least one of `email`, `push`; duplicates are dropped.
+**Alternative:** accept naive times in the user's timezone (a guess about what the client meant);
+allow past due dates as calendar records.
+
+### D127. Changing a reminder never changes its status (5, 2026-10-02)
+
+**Decided:** `PATCH reminders/<id>/` changes `due_at`, `lead_days`, `channels` only; a done reminder
+moved to a new date stays done. "Done" twice is a no-op that takes no revision. **Alternative:** a
+new `due_at` reopens the series (a product call — parked with D95's snooze/stop refinements).
+
+### D128. At most 20 live reminders per note (5, 2026-10-02)
+
+**Decided:** `REMINDERS_PER_NOTE_MAX = 20` in notes/services.py, counted under the owner lock;
+deleted reminders don't count; past it, 400 `too_many_reminders`. **Alternative:** no cap (the
+calendar query and the delivery sweep would be unbounded per note); a Limit row (the limits layer
+is for AI usage).
+
+### D129. The calendar returns `{reminder, note_title, occurrences}` items (5, 2026-10-02)
+
+**Decided:** `GET reminders/?from=&to=` (half-open, ≤ 62 days) returns `{"results": [...]}`, each
+item nesting the reminder rather than flattening it, unpaginated. Done reminders are listed;
+deleted ones and those of deleted notes are not. Nested so `status` lives in one schema component:
+a second component with a reminder `status` makes drf-spectacular's enum naming collide with the
+asks' `status` and the schema check fail. The asks' enum is now `AskQueryStatusEnum` (was
+`StatusEnum`; nothing referenced the name). **Alternative:** a flat item plus an
+`ENUM_NAME_OVERRIDES` entry in config/settings.py (outside this sub-task's files).

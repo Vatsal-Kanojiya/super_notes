@@ -17,7 +17,7 @@ occurrences are: one per day at `due_at`'s **local time of day in the user's tim
 A pure function `occurrences(due_at, lead_days, tz) -> list[datetime]` is the single source.
 
 ## Sub-tasks (conductor's checklist)
-- [ ] 1. **Model, schedule, API** (Opus) — `Reminder` (`note`, `owner`, `due_at`, `lead_days`,
+- [x] 1. **Model, schedule, API** (Opus) — `Reminder` (`note`, `owner`, `due_at`, `lead_days`,
   `channels`, `status` `scheduled|done|cancelled`, timestamps, `deleted_at`), `ReminderDelivery`
   (`reminder`, `occurrence_at`, unique together, `sent_at`, `channel_results`), migration;
   `occurrences()`; `POST notes/<id>/reminders/`, `PATCH/DELETE reminders/<id>/`,
