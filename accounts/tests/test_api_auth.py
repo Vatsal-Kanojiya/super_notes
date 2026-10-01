@@ -91,6 +91,7 @@ class GoogleSignInTests(AuthApiTestCase):
                 "memory_enabled": True,
                 "memory_choice_explicit": False,
                 "ask_usage": pair["user"]["ask_usage"],
+                "limits": pair["user"]["limits"],
             },
         )
         self.assertFalse(user.has_usable_password())
@@ -301,6 +302,7 @@ class MeTests(AuthApiTestCase):
                 "memory_enabled",
                 "memory_choice_explicit",
                 "ask_usage",
+                "limits",
             },
         )
         self.assertEqual(body["plan"], "premium")

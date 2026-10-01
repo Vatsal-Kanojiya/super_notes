@@ -37,9 +37,16 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from assistant import quota
 from assistant.api import AskUsageSerializer
 from config.api.common import RATE_LIMIT_RESPONSE, MessageSerializer
+from limits import service as limits
+from limits.serializers import USER_KEYS, UserLimitsSerializer
 
 from . import audit, devices, lifecycle, ratelimit, signals
-from .google import GoogleSignInError, google_signin_enabled, sign_in_with_google
+from .google import (
+    GoogleSignInError,
+    SignupsClosed,
+    google_signin_enabled,
+    sign_in_with_google,
+)
 from .models import SignedInDevice
 
 User = get_user_model()
@@ -54,7 +61,11 @@ class MeSerializer(serializers.ModelSerializer):
     """The signed-in account, as a client shows it."""
 
     ask_usage = serializers.SerializerMethodField(
-        help_text="This month's asks, counted from AskQuery rows (assistant/quota.py)."
+        help_text="This month's asks: the same numbers as `limits.chat_turns` "
+        "(assistant/quota.py), kept for V1 clients."
+    )
+    limits = serializers.SerializerMethodField(
+        help_text="Use and limit of each user-facing limit key (DECISIONS D84)."
     )
 
     class Meta:
@@ -70,12 +81,25 @@ class MeSerializer(serializers.ModelSerializer):
             "memory_enabled",
             "memory_choice_explicit",
             "ask_usage",
+            "limits",
         ]
         read_only_fields = fields
 
+    def _usage(self, user):
+        """Every user key's usage, counted once per user for both fields."""
+        cached = getattr(self, "_usage_cache", None)
+        if cached is None or cached[0] != user.pk:
+            cached = (user.pk, limits.usage_many(user, USER_KEYS))
+            self._usage_cache = cached
+        return cached[1]
+
     @extend_schema_field(AskUsageSerializer)
     def get_ask_usage(self, user):
-        return AskUsageSerializer(quota.usage(user)).data
+        return AskUsageSerializer(self._usage(user)[quota.KEY]).data
+
+    @extend_schema_field(UserLimitsSerializer)
+    def get_limits(self, user):
+        return UserLimitsSerializer(self._usage(user)).data
 
 
 @cache
@@ -204,6 +228,10 @@ def rate_limited(detail):
 
 
 GOOGLE_FAILED = {"detail": "Google sign-in failed.", "code": "google_failed"}
+SIGNUPS_CLOSED = {
+    "detail": "New accounts are closed for today. Try again tomorrow.",
+    "code": "signups_closed",
+}
 
 
 class PublicView(APIView):
@@ -243,11 +271,16 @@ class GoogleLoginView(PublicView):
         summary="Sign in with Google",
         description="Verifies the ID token (signature, audience = any configured client id, "
         "expiry, issuer, verified email), finds or creates the account, and returns a token "
-        "pair. Every refusal is the same `google_failed`, whatever the cause.",
+        "pair. Every refusal of the token or the account is the same `google_failed`, "
+        "whatever the cause. A first sign-in when the day's new accounts are used up is a 403 "
+        "`signups_closed`; existing accounts still sign in.",
         request=GoogleLoginSerializer,
         responses={
             200: TokenPairSerializer,
             400: OpenApiResponse(MessageSerializer, description="Google sign-in failed."),
+            403: OpenApiResponse(
+                MessageSerializer, description="`signups_closed`: no new accounts today."
+            ),
             404: OpenApiResponse(MessageSerializer, description="Sign-in is not configured."),
             429: RATE_LIMIT_RESPONSE,
         },
@@ -263,6 +296,9 @@ class GoogleLoginView(PublicView):
 
         try:
             user, created = sign_in_with_google(body.validated_data["id_token"], request=request)
+        except SignupsClosed:
+            # Not a failed attempt: the token was good, so not rate-limited.
+            return Response(SIGNUPS_CLOSED, status=status.HTTP_403_FORBIDDEN)
         except GoogleSignInError:
             ratelimit.record_google_login_failure(request)
             return Response(GOOGLE_FAILED, status=status.HTTP_400_BAD_REQUEST)

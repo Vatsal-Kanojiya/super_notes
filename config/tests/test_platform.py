@@ -15,6 +15,7 @@ from rest_framework.test import APIClient
 
 from config import checks
 from config.api.exceptions import exception_handler
+from limits.service import SystemLimitExceeded
 from notes.tests.helpers import make_user
 
 BASE_DIR = Path(settings.BASE_DIR)
@@ -59,6 +60,13 @@ class ErrorShapeTests(TestCase):
 
     def test_unknown_exception_is_left_to_django(self):
         self.assertIsNone(exception_handler(RuntimeError("boom"), {}))
+
+    def test_a_system_limit_is_a_503_system_limit_reached(self):
+        response = exception_handler(SystemLimitExceeded("chat_turns"), {})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["code"], "system_limit_reached")
+        # Says nothing about which key or how much: that is the admins' business.
+        self.assertNotIn("chat_turns", response.data["detail"])
 
 
 class RequestIDTests(TestCase):

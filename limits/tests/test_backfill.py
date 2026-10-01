@@ -49,6 +49,21 @@ class BackfillTests(TestCase):
         # V1 counted 3 this month (done, pending, running); so does the ledger.
         self.assertEqual(quota.used(self.alice, self.now), 3)
 
+    def test_an_answered_asks_cost_is_copied_and_others_have_none(self):
+        AskQuery.objects.filter(idempotency_key="done").update(
+            provider="claude", model="m-1", input_tokens=120, output_tokens=8
+        )
+
+        backfill.backfill(apps, None)
+
+        answered = UsageEvent.objects.get(ask__idempotency_key="done")
+        pending = UsageEvent.objects.get(ask__idempotency_key="pending")
+        self.assertEqual(
+            (answered.provider, answered.model, answered.input_tokens, answered.output_tokens),
+            ("claude", "m-1", 120, 8),
+        )
+        self.assertEqual((pending.provider, pending.input_tokens), ("", None))
+
     def test_running_it_twice_adds_nothing(self):
         backfill.backfill(apps, None)
         backfill.backfill(apps, None)

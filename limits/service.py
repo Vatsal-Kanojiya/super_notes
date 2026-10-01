@@ -29,7 +29,7 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection, transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from .models import Limit, Period, UsageEvent
@@ -85,18 +85,29 @@ class Rule:
 
 def get_rule(key: str) -> Rule:
     """Raises KeyError for a key not in LIMIT_DEFAULTS: a typo must fail loudly."""
-    default = settings.LIMIT_DEFAULTS[key]
-    row = Limit.objects.filter(key=key).first()
-    if row is None:
-        return Rule(key=key, **default)
-    return Rule(
-        key=key,
-        period=row.period,
-        user_free=row.user_free,
-        user_premium=row.user_premium,
-        system=row.system,
-        enabled=row.enabled,
-    )
+    return get_rules([key])[key]
+
+
+def get_rules(keys) -> dict[str, Rule]:
+    """``{key: Rule}`` for several keys, in one query. KeyError for an unknown key."""
+    defaults = {key: settings.LIMIT_DEFAULTS[key] for key in keys}
+    rows = {row.key: row for row in Limit.objects.filter(key__in=defaults)}
+    rules = {}
+    for key, default in defaults.items():
+        row = rows.get(key)
+        rules[key] = (
+            Rule(key=key, **default)
+            if row is None
+            else Rule(
+                key=key,
+                period=row.period,
+                user_free=row.user_free,
+                user_premium=row.user_premium,
+                system=row.system,
+                enabled=row.enabled,
+            )
+        )
+    return rules
 
 
 def period_bounds(period: str, now: datetime) -> tuple[datetime | None, datetime | None]:
@@ -132,6 +143,36 @@ def usage(user, key: str, now: datetime | None = None) -> dict:
         "used": _used(key, start, end, user=user),
         "limit": rule.for_user(user),
         "resets_at": end,
+    }
+
+
+def usage_many(user, keys, now: datetime | None = None) -> dict[str, dict]:
+    """``{key: {used, limit, resets_at}}`` for one user, in two queries whatever the keys.
+
+    For ``me/``, which reports several keys on every call: one query for
+    the rules, one conditional sum per key in a single aggregate.
+    """
+    rules = get_rules(keys)
+    now = now or timezone.now()
+    bounds = {key: period_bounds(rule.period, now) for key, rule in rules.items()}
+    sums = {}
+    for index, (key, (start, end)) in enumerate(bounds.items()):
+        condition = Q(key=key)
+        if start is not None:
+            condition &= Q(created_at__gte=start, created_at__lt=end)
+        sums[f"k{index}"] = Sum("amount", filter=condition)
+    totals = (
+        UsageEvent.objects.filter(user=user, key__in=list(rules), refunded=False).aggregate(**sums)
+        if sums
+        else {}
+    )
+    return {
+        key: {
+            "used": totals.get(f"k{index}") or 0,
+            "limit": rules[key].for_user(user),
+            "resets_at": bounds[key][1],
+        }
+        for index, key in enumerate(bounds)
     }
 
 
@@ -204,6 +245,18 @@ def refund_where(**filters) -> int:
     rather than by holding the event. Harmless to run twice.
     """
     return UsageEvent.objects.filter(refunded=False, **filters).update(refunded=True)
+
+
+def describe_where(filters: dict, **meta) -> int:
+    """Fill in what an event cost once it is known (provider, model, tokens).
+
+    ``filters`` picks the events, e.g. ``{"ask_id": 7}``; ``meta`` is limited
+    to the fields consume() accepts. Never touches amount or refunded.
+    """
+    unknown = set(meta) - META_FIELDS
+    if unknown:
+        raise TypeError(f"Unknown usage fields: {sorted(unknown)}.")
+    return UsageEvent.objects.filter(**filters).update(**meta)
 
 
 def _alert_admins_once(key, used, limit, start, end, now) -> None:

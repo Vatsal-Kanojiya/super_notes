@@ -30,6 +30,8 @@ from django.db import IntegrityError, transaction
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
+from limits import service as limits
+
 from . import audit
 
 logger = logging.getLogger(__name__)
@@ -68,6 +70,18 @@ class GoogleSignInError(Exception):
     def __init__(self, reason="invalid_token"):
         super().__init__(reason)
         self.reason = reason
+
+
+class SignupsClosed(GoogleSignInError):
+    """No new accounts for now: the ``signups`` system limit is reached (DECISIONS D131).
+
+    Unlike every other refusal this one is told to the client as itself
+    (403 ``signups_closed``): it says nothing about the token, and a person
+    who cannot get in deserves to know why. Existing accounts still sign in.
+    """
+
+    def __init__(self):
+        super().__init__("signups_closed")
 
 
 def google_signin_enabled():
@@ -231,7 +245,8 @@ def find_or_create_user(claims):
        *different* ``sub`` is refused (DECISIONS D13): that address now
        belongs to another Google account, and its new holder is not the
        person whose notes are in there.
-    3. **Otherwise a new account**, with no usable password.
+    3. **Otherwise a new account**, with no usable password -- if the day's
+       ``signups`` limit has room (:class:`SignupsClosed` if not).
 
     A deactivated account is refused however it was matched. Name and
     avatar are refreshed from Google on every sign-in, and so is the email
@@ -266,6 +281,10 @@ def find_or_create_user(claims):
 def _create_user(sub, email, profile):
     """A new account for a first sign-in.
 
+    Consumes one ``signups`` (a system-only limit, no user yet) in the same
+    transaction as the insert, so a sign-up that fails to insert hands it
+    back. Full: :class:`SignupsClosed`, and nothing is created.
+
     Two first sign-ins of the same Google account can race (a double tap,
     or web and Android at once). The unique constraints on ``email`` and
     ``google_sub`` let only one insert through; the other finds the winner
@@ -273,7 +292,15 @@ def _create_user(sub, email, profile):
     """
     try:
         with transaction.atomic():
+            limits.consume(None, "signups")
             return User.objects.create_user(email, google_sub=sub, **profile), True
+    except limits.SystemLimitExceeded:
+        # The race below, at the last place of the day: the winner took it,
+        # and this request, refused, is the same person -- sign them in.
+        user = User.objects.filter(google_sub=sub).first()
+        if user is not None and user.is_active:
+            return user, False
+        raise SignupsClosed() from None
     except IntegrityError:
         user = User.objects.filter(google_sub=sub).first()
         if user is None or not user.is_active:

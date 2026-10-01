@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
@@ -12,6 +13,7 @@ from django.test.utils import CaptureQueriesContext
 from assistant.models import AskQuery
 from limits import service
 from limits.models import Limit, UsageEvent
+from limits.serializers import USER_KEYS, UserLimitsSerializer
 from limits.service import SystemLimitExceeded, UserLimitExceeded
 from notes.tests.helpers import make_user
 
@@ -132,6 +134,44 @@ class PerUserTests(TestCase):
         with self.assertRaises(ValidationError):
             Limit(key="chat_turn", period="month").full_clean()
         Limit(key="chat_turns", period="month").full_clean()
+
+
+@override_settings(LIMIT_DEFAULTS=TEST_LIMITS)
+class UsageManyTests(TestCase):
+    def setUp(self):
+        self.alice = make_user("alice")
+
+    def test_matches_usage_key_by_key(self):
+        with at(2026, 3, 1, 12, 0, 0):
+            consume_as(self.alice, "chat_turns")
+            consume_as(self.alice, "daily")
+        consume_as(self.alice, "chat_turns")
+        consume_as(self.alice, "bytes", 30)
+        service.refund(consume_as(self.alice, "bytes", 5))
+        consume_as(make_user("bob"), "bytes", 40)
+        Limit.objects.create(key="open", user_free=7, user_premium=7, period="day")
+
+        keys = ["chat_turns", "daily", "bytes", "open"]
+        many = service.usage_many(self.alice, keys)
+
+        self.assertEqual(many, {key: service.usage(self.alice, key) for key in keys})
+        self.assertEqual((many["chat_turns"]["used"], many["bytes"]["used"]), (1, 30))
+        self.assertEqual(many["open"]["limit"], 7)
+
+    def test_unknown_key_fails_loudly(self):
+        with self.assertRaises(KeyError):
+            service.usage_many(self.alice, ["chat_turn"])
+
+    def test_describe_where_fills_cost_only(self):
+        event = consume_as(self.alice, "chat_turns")
+
+        service.describe_where({"pk": event.pk}, provider="claude", model="m", input_tokens=5)
+        with self.assertRaises(TypeError):
+            service.describe_where({"pk": event.pk}, refunded=True)
+
+        event.refresh_from_db()
+        self.assertEqual((event.provider, event.model, event.input_tokens), ("claude", "m", 5))
+        self.assertFalse(event.refunded)
 
 
 @override_settings(LIMIT_DEFAULTS=TEST_LIMITS)
@@ -338,3 +378,10 @@ class AdminMailTests(QuietSystemLimitLog, TestCase):
 
     def test_no_mail_under_the_limit(self):
         self.assertEqual(len(mail.outbox), 0)
+
+
+class UserKeysTests(TestCase):
+    def test_the_me_shape_lists_exactly_the_user_keys_and_they_exist(self):
+        self.assertEqual(tuple(UserLimitsSerializer().fields), USER_KEYS)
+        for key in USER_KEYS:
+            self.assertIn(key, settings.LIMIT_DEFAULTS)
