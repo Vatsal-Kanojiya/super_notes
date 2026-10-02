@@ -533,3 +533,16 @@ download click were not seen on screen); attachments in `notes/changes/` are not
 store (D563); the 10 MB cap is a client constant (D560).
 
 **Unsure:** the layout and styles of the new panels were not looked at in a browser.
+
+### V2 code complete — 2026-10-02
+
+Phases 0-6 are merged into `v2` and tagged (`v2-phase-0-foundation` … `v2-phase-6-attachments`):
+1518 backend tests, 267 web tests, lint, migrations and schema clean. Every sub-task since the
+remote session was reviewed before merging; the remote session's own 54 commits got a four-way
+review and 26 fixes (entry above).
+
+**Not yet a release.** `v2.0.0` (merging `v2` into `master`) waits on the plan's definition of
+done (§10), which needs the owner: real-provider numbers (an API key), a real-browser pass with
+Google sign-in (an OAuth client id), the hosting decision, and the choices parked in §2. Android
+(V2 phase 7) comes after V2 (D97).
+

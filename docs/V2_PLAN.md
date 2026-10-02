@@ -516,7 +516,7 @@ builds it on its branch, merges, and ticks it here. Items marked **blocked** wai
 | 6 | `v2-feat/2-streaming` | Phase 2 | Opus | **done** (merged 2026-10-02) — brief: `docs/v2/briefs/2-streaming.md` |
 | 7 | `v2-feat/3-memory` | Phase 3 | Opus | **done** (merged 2026-10-02) — brief: `docs/v2/briefs/3-memory.md` |
 | 8 | `v2-feat/5-reminders` | Phase 5 | Opus + Sonnet | **done** (merged 2026-10-01) — brief: `docs/v2/briefs/5-reminders.md` |
-| 9 | `v2-feat/6-attachments` | Phase 6 | Opus | in progress (2026-10-01) — brief: `docs/v2/briefs/6-attachments.md` |
+| 9 | `v2-feat/6-attachments` | Phase 6 | Opus | **done** (merged 2026-10-02) — brief: `docs/v2/briefs/6-attachments.md` |
 | 10 | `v2-feat/7-mobile` | Phase 7 | Sonnet | after V2 (D97) — planned in the evening session |
 
 Parallel-safe pairs: 4 ∥ 5, 6 ∥ 8, 7 ∥ 9 (different apps; shared files take additive blocks).
