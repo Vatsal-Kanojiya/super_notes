@@ -167,6 +167,12 @@ export interface Note {
    * notes store keeps the ones it already holds.
    */
   reminders?: Reminder[]
+  /** The note's summary (D553); empty if none. Left out of older fixtures and tombstones. */
+  summary?: string
+  /** The note `version` the summary was made from; null with no summary. */
+  summary_version?: number | null
+  /** True once the note was edited since the summary was made. */
+  summary_stale?: boolean
 }
 
 /** A deleted note, as `changes` reports it: no title, content or content_text. */
@@ -257,7 +263,49 @@ export interface Citation {
   note_id: Id
   chunk_id: Id
   title: string
+  /** Set when the cited passage is from a file attached to the note; null for the note's own text. */
+  attachment_id?: Id | null
+  attachment_name?: string | null
   snippet: string
+}
+
+// ----------------------------------------------------------- attachments --
+
+export type AttachmentStatus = 'pending' | 'extracting' | 'ready' | 'failed'
+
+/** An attachment's metadata (never its bytes or extracted text). */
+export interface Attachment {
+  id: Id
+  note: Id
+  original_name: string
+  mime_type: string
+  /** Bytes. */
+  size: number
+  sha256: string
+  status: AttachmentStatus
+  /** Why a `failed` attachment failed; empty otherwise. */
+  error: string
+  /** Its summary, once asked for; empty otherwise. */
+  summary: string
+  created_at: DateTime
+}
+
+export type SummaryStatus = 'pending' | 'running' | 'done' | 'failed'
+
+/** `POST notes/<id>/summarize/`, `POST attachments/<id>/summarize/`, `GET summary-jobs/<id>/`. */
+export interface SummaryJob {
+  id: Id
+  note_id: Id
+  /** Set when the job summarises a file. */
+  attachment_id: Id | null
+  status: SummaryStatus
+  base_version: number
+  /** The summary, when `status` is `done`. */
+  summary: string
+  error_code: string
+  error: string
+  created_at: DateTime
+  completed_at: DateTime | null
 }
 
 export interface AskQuery {

@@ -1102,3 +1102,90 @@ button.day-num:hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* Summary and attachments on a note (D560). */
+.summary-panel,
+.attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.summary-box {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+}
+.summary-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.summary-text {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.stale-tag {
+  font-size: 0.75rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted, inherit);
+}
+.attachments {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+.attachments.dragging {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.attach-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.attach-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.attach-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.attach-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.attach-name {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.attach-status.failed {
+  color: var(--danger, #b3261e);
+}
+.attach-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.attach-summary summary {
+  cursor: pointer;
+}
+.source-file {
+  overflow-wrap: anywhere;
+}

@@ -15,7 +15,7 @@
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { ApiError, errorMessage } from '../api/client'
-import type { DocNode, Note, VersionConflictBody } from '../api/types'
+import type { DocNode, Note, SummaryJob, VersionConflictBody } from '../api/types'
 import { notesApi } from '../api/endpoints'
 import { editorExtensions } from '../lib/editorExtensions'
 import { formatRelative } from '../lib/format'
@@ -23,6 +23,8 @@ import { isDocEmpty } from '../lib/formatJob'
 import { emptyDoc, useNotesStore } from '../stores/notes'
 import { useGoBack } from '../lib/nav'
 import ReminderPanel from './ReminderPanel.vue'
+import SummaryPanel from './SummaryPanel.vue'
+import AttachmentsPanel from './AttachmentsPanel.vue'
 import FormatPanel, { type FormatPhase } from './FormatPanel.vue'
 
 const props = defineProps<{ initial: Note }>()
@@ -178,6 +180,23 @@ async function onFormatStale(current: Note | null) {
   notes.upsert(base.value)
 }
 
+/** A summary was stored: it is of the note version the job was made from, so it may already be stale. */
+function onSummarized(job: SummaryJob) {
+  base.value = {
+    ...base.value,
+    summary: job.summary,
+    summary_version: job.base_version,
+    summary_stale: job.base_version !== base.value.version,
+  }
+}
+
+/** A summary is out of date once the note moved on from the version it was made from (or has unsaved edits). */
+const summaryStale = computed(() => {
+  const made = base.value.summary_version
+  if (!base.value.summary || made === null || made === undefined) return false
+  return made !== base.value.version || status.value === 'unsaved' || status.value === 'saving'
+})
+
 function keepMine() {
   const current = conflict.value
   if (!current) return
@@ -313,6 +332,16 @@ function isActive(name: string, attrs?: Record<string, unknown>) {
       @stale="onFormatStale"
     />
 
+    <SummaryPanel
+      :note-id="id"
+      :summary="base.summary ?? ''"
+      :stale="summaryStale"
+      :empty="empty"
+      :unavailable="formatUnavailable"
+      :ensure-saved="ensureSaved"
+      @done="onSummarized"
+    />
+
     <div v-if="editor && !previewing" class="format-bar" role="toolbar" aria-label="Formatting">
       <button
         type="button"
@@ -357,5 +386,7 @@ function isActive(name: string, attrs?: Record<string, unknown>) {
     </div>
 
     <EditorContent v-show="!previewing" :editor="editor" class="editor" />
+
+    <AttachmentsPanel :note-id="id" />
   </main>
 </template>

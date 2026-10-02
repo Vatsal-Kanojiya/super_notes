@@ -501,3 +501,35 @@ not searchable on its own (its text already is).
 
 **Unsure / owner to confirm:** attachment summaries count under the user's `summary` limit and are
 not automatic (D557); a long note or file is summarised from its first 24,000 characters (D556).
+
+### V2 6 — attachments (web)
+
+**Built** (sub-task 6.4, branch `v2-feat/6d-attachments-web`, D560-D565):
+- `AttachmentsPanel` on the note: file picker and drag-and-drop, upload with progress (XHR,
+  `api/client.ts upload()`), the per-file limit and the storage figure shown up front, server
+  errors (413, 415, 429 quota and throttled, 503) in words; a list with name, size, status
+  (pending / extracting / ready / failed with its message), download through an authenticated
+  fetch and a blob (`requestBlob`), delete, per-file Summarize and its summary; polls while any
+  file is pending or extracting (`lib/attachments.ts`).
+- `SummaryPanel` on the note: Summarize starts a job and polls it, shows the text, an "Out of
+  date" marker when stale, handles 429 and 503 (`lib/summaryJob.ts`, `lib/useSummaryRun.ts`).
+- Citation sources name the file for an attachment citation (`AnswerBody`, `citationLabel`).
+- The format-job poller is generic and shared. New types: `Attachment`, `SummaryJob`, note summary
+  fields, citation `attachment_*`.
+- Tests: 267 vitest (about 60 new: upload validation, error wording, list polling, summary job
+  states, blob download without a token in the URL, XHR upload).
+- Headless check against a real backend (`runserver 8013`, Celery worker, own Redis DB, fake
+  providers): the real client code, run under vitest in Node with an XHR-over-fetch shim, created
+  a note, was refused on a renamed `.exe` (415), uploaded a small PDF (201, again: 200), polled it
+  to `ready`, downloaded the identical bytes, summarised the note (an edit then made it stale),
+  summarised the file, deleted it (list empty, file 404). The CORS preflight for the web origin
+  allows `authorization` and `idempotency-key`. The throwaway test was removed.
+
+**Went wrong:** nothing notable; `type: "note"` is not a note type (`text`/`checklist`), caught by
+the headless run.
+
+**Left:** a real-browser pass (no browser here: drag-and-drop, the progress bar and the blob
+download click were not seen on screen); attachments in `notes/changes/` are not kept by the notes
+store (D563); the 10 MB cap is a client constant (D560).
+
+**Unsure:** the layout and styles of the new panels were not looked at in a browser.

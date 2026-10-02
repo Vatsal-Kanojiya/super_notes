@@ -3423,3 +3423,52 @@ retries used up), `summary_unexpected`, `summary_stuck` (sweeper), `summary_empt
 came back; billed), `summary_note_changed`, `summary_gone` (note or file deleted),
 `summary_not_stored` (a newer summary exists). Messages are fixed strings, never the vendor's.
 **Alternative:** one generic code (a client could not tell "try again" from "edit happened").
+
+### D560. The browser checks a file up front, and the server stays the judge (attachments web, 2026-10-02)
+
+**Decided:** the picker and drop zone refuse an empty file, one over 10 MB, or one that is not
+JPEG/PNG/WebP/PDF by its type (its extension when the browser gives none), with a message, and
+never send it. The 10 MB figure is a constant in `web/src/lib/attachments.ts` (the API does not
+publish `ATTACHMENT_MAX_BYTES`) and is shown beside the picker. The server still sniffs the bytes
+(415) and a refusal from it is shown in words. Names, errors and summaries are rendered as text.
+**Alternative:** send everything and rely on the server (wasted uploads of up to 10 MB).
+**Reverse it if:** the cap becomes per plan; then expose it in `me/` and read it from there.
+
+### D561. A download is an authenticated fetch turned into a blob (attachments web, 2026-10-02)
+
+**Decided:** `requestBlob` (same bearer header and refresh as every call) fetches
+`attachments/<id>/file/`; the blob is saved through a temporary object URL named with the
+attachment's own `original_name`. No token ever goes into a URL.
+**Alternative:** a signed or token-in-query link (leaks into logs and history).
+
+### D562. Uploads use XMLHttpRequest, for progress (attachments web, 2026-10-02)
+
+**Decided:** `upload()` in `api/client.ts` posts the multipart form with XHR because `fetch` cannot
+report upload progress. It follows the same rules as `request`: bearer header, one refresh on a
+401 and a retry, 0 for a dead network; the response status is returned too (201 new, 200 already
+attached). Files go one at a time, and the run stops at a full-storage or paused-service refusal.
+**Alternative:** `fetch` with no progress (a 10 MB upload on a phone would look frozen).
+
+### D563. The attachment list is read by the panel, not kept in the notes store (attachments web, 2026-10-02)
+
+**Decided:** `AttachmentsPanel` loads `notes/<id>/attachments/` (newest first, up to 10 pages) and
+polls it, backing off from 1.5 s to 8 s for at most 5 minutes, while any file is `pending` or
+`extracting`. The attachments that `notes/changes/` carries are not stored by the notes store yet.
+**Alternative:** keep them in the store and render from there (more plumbing; the panel needs a
+fresh status anyway). **Reverse it if:** the list must show offline or in the notes list.
+
+### D564. Summaries: the job follows the format-job path; stale is computed from the version (attachments web, 2026-10-02)
+
+**Decided:** note and file summaries run through `lib/summaryJob.ts`, which reuses the format job's
+backoff poller (made generic). When a job finishes, the editor puts the text on its copy of the
+note with `summary_version = base_version`; the stale marker shows when that differs from the
+note's `version`, or while there are unsaved edits. The editor is not locked during a summary
+(D553: no new version). The button saves the note first, as Format does. 429 (quota with numbers,
+or throttled) and 503 (paused or unavailable) each have their own message.
+
+### D565. A citation from a file names the file (attachments web, 2026-10-02)
+
+**Decided:** the sources list shows `attachment_name` under the note title with a paperclip, and
+the chip's tooltip reads "file.pdf (in Note title)". The chip still opens the note. The name is
+text, so a file called `<b>x</b>.pdf` is shown as typed.
+**Alternative:** open the file on click (a download on a chip is surprising).

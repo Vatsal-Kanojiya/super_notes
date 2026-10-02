@@ -192,8 +192,8 @@ function sessionEnded(): void {
   onAuthLost?.()
 }
 
-/** Make a request and return its parsed JSON body (undefined for a 204). */
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+/** Send a request with the token, refreshing once on a 401; the raw response (a 401 that stays ends the session). */
+async function authedSend(path: string, options: RequestOptions): Promise<Response> {
   const auth = options.auth ?? true
   const token = auth ? getAccess() : null
   let response = await send(path, options, token)
@@ -201,7 +201,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (response.status === 401 && auth) {
     if (!(await refreshAccess(token))) {
       sessionEnded()
-      return parse<T>(response)
+      return response
     }
     response = await send(path, options, getAccess())
     if (response.status === 401) {
@@ -209,7 +209,87 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       sessionEnded()
     }
   }
-  return parse<T>(response)
+  return response
+}
+
+/** Make a request and return its parsed JSON body (undefined for a 204). */
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return parse<T>(await authedSend(path, options))
+}
+
+/**
+ * Fetch a binary body (a file download) with the bearer token in the header, never in a URL.
+ * An error comes back as the usual ApiError.
+ */
+export async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+  const response = await authedSend(path, { ...options, headers: { ...options.headers, Accept: '*/*' } })
+  if (!response.ok) return parse<Blob>(response)
+  return response.blob()
+}
+
+export interface UploadOptions {
+  /** Called with 0..1 as the request body goes out. */
+  onProgress?: (fraction: number) => void
+  signal?: AbortSignal
+}
+
+/** One XHR round: resolves with status and body text; status 0 means the network failed. */
+function xhrPost(
+  path: string,
+  form: FormData,
+  token: string | null,
+  options: UploadOptions,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', buildUrl(path))
+    xhr.setRequestHeader('Accept', 'application/json')
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) options.onProgress?.(event.loaded / event.total)
+    }
+    xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText })
+    xhr.onerror = () => resolve({ status: 0, text: '' })
+    xhr.ontimeout = () => resolve({ status: 0, text: '' })
+    xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'))
+    if (options.signal) {
+      if (options.signal.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'))
+        return
+      }
+      options.signal.addEventListener('abort', () => xhr.abort(), { once: true })
+    }
+    // No Content-Type: the browser adds the multipart boundary itself.
+    xhr.send(form)
+  })
+}
+
+function parseText<T>(status: number, text: string): Promise<T> {
+  if (status === 0) throw new ApiError(0, 'network_error', 'Could not reach the server. Check your connection.', null)
+  return parse<T>(new Response(status === 204 ? null : text, { status }))
+}
+
+/**
+ * POST a multipart form with upload progress (fetch cannot report it, so this is XHR). The same
+ * token and refresh rules as `request`. Resolves to the status as well, since 200 and 201 differ.
+ */
+export async function upload<T>(
+  path: string,
+  form: FormData,
+  options: UploadOptions = {},
+): Promise<{ status: number; body: T }> {
+  const token = getAccess()
+  let result = await xhrPost(path, form, token, options)
+  if (result.status === 401) {
+    if (!(await refreshAccess(token))) {
+      sessionEnded()
+    } else {
+      result = await xhrPost(path, form, getAccess(), options)
+      if (result.status === 401) sessionEnded()
+    }
+  }
+  const body = await parseText<T>(result.status, result.text)
+  return { status: result.status, body }
 }
 
 /** The `cursor` query parameter from a DRF `next`/`previous` URL. */

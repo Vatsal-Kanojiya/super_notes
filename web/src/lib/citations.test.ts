@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Citation } from '../api/types'
-import { splitAnswer } from './citations'
+import { citationLabel, splitAnswer } from './citations'
 
 const cite = (n: number): Citation => ({ n, note_id: n * 10, chunk_id: n * 100, title: `T${n}`, snippet: '' })
 
@@ -36,5 +36,13 @@ describe('splitAnswer', () => {
 
   it('never produces markup: html in the answer stays text', () => {
     expect(splitAnswer('<b>x</b> [1]', [cite(1)])[0]).toEqual({ kind: 'text', text: '<b>x</b> ' })
+  })
+})
+
+describe('citationLabel', () => {
+  it('names the file for an attachment citation, the note otherwise', () => {
+    expect(citationLabel({ ...cite(1), attachment_id: 4, attachment_name: '<b>x</b>.pdf' })).toBe('<b>x</b>.pdf (in T1)')
+    expect(citationLabel({ ...cite(1), attachment_id: null, attachment_name: null })).toBe('T1')
+    expect(citationLabel({ ...cite(1), title: '' })).toBe('Open the note')
   })
 })

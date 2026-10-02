@@ -2,9 +2,10 @@
  * One typed function per endpoint. Paths are relative to `/api/v1/` and keep
  * Django's trailing slash.
  */
-import { request } from './client'
+import { request, requestBlob, upload } from './client'
 import type {
   AskQuery,
+  Attachment,
   AskRequest,
   ChangesResponse,
   Conversation,
@@ -27,6 +28,7 @@ import type {
   SearchParams,
   SessionOpenResponse,
   SignInResponse,
+  SummaryJob,
   UserFact,
   VapidKey,
 } from './types'
@@ -130,4 +132,27 @@ export const memoryApi = {
   list: (cursor?: string) => request<CursorPage<UserFact>>('memory/facts/', { query: { cursor } }),
   forget: (id: Id) => request<void>(`memory/facts/${id}/`, { method: 'DELETE' }),
   forgetAll: () => request<void>('memory/facts/', { method: 'DELETE' }),
+}
+
+export const attachmentsApi = {
+  /** Newest first, one page. */
+  list: (noteId: Id, cursor?: string) =>
+    request<CursorPage<Attachment>>(`notes/${noteId}/attachments/`, { query: { cursor } }),
+  /** Multipart; 201 for a new file, 200 when the note already had it. Reports 0..1 as it goes. */
+  upload: (noteId: Id, file: File, onProgress?: (fraction: number) => void, signal?: AbortSignal) => {
+    const form = new FormData()
+    form.append('file', file)
+    return upload<Attachment>(`notes/${noteId}/attachments/`, form, { onProgress, signal })
+  },
+  remove: (id: Id) => request<void>(`attachments/${id}/`, { method: 'DELETE' }),
+  /** The bytes, fetched with the bearer header (never a URL with a token in it). */
+  file: (id: Id) => requestBlob(`attachments/${id}/file/`),
+  summarize: (id: Id, idempotencyKey: string) =>
+    request<SummaryJob>(`attachments/${id}/summarize/`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey } }),
+}
+
+export const summaryApi = {
+  summarizeNote: (noteId: Id, idempotencyKey: string) =>
+    request<SummaryJob>(`notes/${noteId}/summarize/`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey } }),
+  get: (id: Id) => request<SummaryJob>(`summary-jobs/${id}/`),
 }
