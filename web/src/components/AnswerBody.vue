@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Citation } from '../api/types'
-import { splitAnswer } from '../lib/citations'
+import { citationLabel, splitAnswer } from '../lib/citations'
 
 const props = defineProps<{ answer: string; citations: Citation[] }>()
 const router = useRouter()
@@ -24,7 +24,7 @@ function openCitation(citation: Citation) {
         v-else
         type="button"
         class="cite"
-        :title="segment.citation.title || 'Open the note'"
+        :title="citationLabel(segment.citation)"
         @click="openCitation(segment.citation)"
       >
         {{ segment.citation.n }}
@@ -37,6 +37,9 @@ function openCitation(citation: Citation) {
         <span class="cite static">{{ citation.n }}</span>
         <span class="source-text">
           <strong>{{ citation.title || 'Untitled' }}</strong>
+          <span v-if="citation.attachment_name" class="source-file small" data-testid="source-file">
+            <span aria-hidden="true">📎</span> {{ citation.attachment_name }}
+          </span>
           <span class="muted small">{{ citation.snippet }}</span>
         </span>
       </button>

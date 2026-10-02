@@ -37,3 +37,9 @@ export function splitAnswer(answer: string, citations: Citation[]): AnswerSegmen
   pushText(answer.slice(at))
   return segments
 }
+
+/** A chip's tooltip: names the file when the passage came from an attachment (text only, never HTML). */
+export function citationLabel(citation: Citation): string {
+  const note = citation.title || 'Open the note'
+  return citation.attachment_name ? `${citation.attachment_name} (in ${note})` : note
+}

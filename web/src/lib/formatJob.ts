@@ -26,7 +26,7 @@ export const POLL_FACTOR = 1.5
 /** Stop watching after this long; the server sweeps a stuck job and refunds it. */
 export const POLL_GIVE_UP_MS = 3 * 60_000
 
-export function isFinished(job: FormatJob): boolean {
+export function isFinished(job: { status: string }): boolean {
   return job.status === 'done' || job.status === 'failed'
 }
 
@@ -178,18 +178,18 @@ export function describeJobFailure(job: FormatJob): FormatProblem {
 
 // --------------------------------------------------------------- polling --
 
-export interface PollOptions {
+export interface PollOptions<J extends { status: string } = FormatJob> {
   sleep?: (ms: number) => Promise<void>
   now?: () => number
   /** Checked after every wait: stop quietly (the panel was closed, the account changed). */
   cancelled?: () => boolean
   /** Called with every state of the job that came back. */
-  onJob?: (job: FormatJob) => void
+  onJob?: (job: J) => void
   giveUpMs?: number
 }
 
-export type PollResult =
-  | { kind: 'finished'; job: FormatJob }
+export type PollResult<J extends { status: string } = FormatJob> =
+  | { kind: 'finished'; job: J }
   | { kind: 'cancelled' }
   | { kind: 'timeout' }
   /** The job is gone or the session ended (401, 403, 404): polling cannot help. */
@@ -198,11 +198,11 @@ export type PollResult =
 const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 /** Poll one job with backoff until it is done or failed. Offline blips and 5xx are retried. */
-export async function pollFormatJob(
-  get: FormatDeps['get'],
+export async function pollFormatJob<J extends { status: string } = FormatJob>(
+  get: (jobId: number) => Promise<J>,
   jobId: number,
-  options: PollOptions = {},
-): Promise<PollResult> {
+  options: PollOptions<J> = {},
+): Promise<PollResult<J>> {
   const sleep = options.sleep ?? realSleep
   const now = options.now ?? Date.now
   const deadline = now() + (options.giveUpMs ?? POLL_GIVE_UP_MS)

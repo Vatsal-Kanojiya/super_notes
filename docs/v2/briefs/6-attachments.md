@@ -45,7 +45,7 @@
 - [x] 3. **Summaries** (Sonnet) — `POST notes/<id>/summarize/` job, `Note.summary` /
   `summary_version`, summary chunk, stale summary visible, attachment summaries, `summary` limit
   with refunds; tests.
-- [ ] 4. **Web** (Sonnet) — attach (picker + drop), list with status, download, delete, the
+- [x] 4. **Web** (Sonnet) — attach (picker + drop), list with status, download, delete, the
   note's summary with "Summarize" / stale marker, citation chips naming the file; vitest;
   headless check against the real backend.
 
