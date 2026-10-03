@@ -1,0 +1,352 @@
+<title>Super Notes Scope</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f4f6f8; --surface:#ffffff; --surface2:#eaeef3; --text:#16202b; --muted:#566475;
+  --line:#d3dae3; --accent:#1f4fd8; --accent-ink:#ffffff; --mark:#ffe27a;
+  --ok:#17683a; --ok-bg:#d9f1e2; --wip:#8a5200; --wip-bg:#ffe9c2; --off:#4b5563; --off-bg:#e2e6eb;
+  --need:#a3201f; --need-bg:#fbdcda;
+  --sans:"Schibsted Grotesk",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f151c; --surface:#17202a; --surface2:#1e2935; --text:#e6ebf1; --muted:#9aa8b8;
+    --line:#2c3a49; --accent:#7ea2ff; --accent-ink:#0b1220; --mark:#6b5a12;
+    --ok:#7fdca4; --ok-bg:#16382a; --wip:#ffc872; --wip-bg:#40300f; --off:#b4bfcc; --off-bg:#27323e;
+    --need:#ff9b97; --need-bg:#46201f; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f151c; --surface:#17202a; --surface2:#1e2935; --text:#e6ebf1; --muted:#9aa8b8;
+  --line:#2c3a49; --accent:#7ea2ff; --accent-ink:#0b1220; --mark:#6b5a12;
+  --ok:#7fdca4; --ok-bg:#16382a; --wip:#ffc872; --wip-bg:#40300f; --off:#b4bfcc; --off-bg:#27323e;
+  --need:#ff9b97; --need-bg:#46201f; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 var(--sans);font-variant-numeric:tabular-nums}
+.wrap{max-width:980px;margin:0 auto;padding:0 16px 64px}
+a{color:var(--accent)}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:3px}
+code{font:0.88em var(--mono);background:var(--surface2);padding:1px 5px;border-radius:3px}
+header.top{padding:40px 0 20px}
+.kicker{font:600 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-size:clamp(2rem,6vw,3.2rem);line-height:1.05;margin:8px 0 12px;letter-spacing:-.02em}
+h1 span{background:linear-gradient(transparent 62%,var(--mark) 62%)}
+.lede{max-width:62ch;color:var(--muted);margin:0}
+nav.toc{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;background:var(--bg);border-bottom:1px solid var(--line);margin:0 -16px;padding:0 16px}
+nav.toc ul{list-style:none;margin:0;padding:8px 0;display:flex;gap:4px;overflow-x:auto;white-space:nowrap}
+nav.toc a{display:block;padding:4px 10px;border-radius:999px;text-decoration:none;color:var(--muted);font-size:14px;font-weight:500}
+nav.toc a:hover{background:var(--surface2);color:var(--text)}
+section{padding-top:40px}
+h2{font-size:1.5rem;margin:0 0 4px;letter-spacing:-.01em;display:flex;gap:12px;align-items:baseline}
+h2 .n{font:600 13px var(--mono);color:var(--accent)}
+h3{font-size:1rem;margin:24px 0 6px}
+.sub{color:var(--muted);margin:0 0 16px;max-width:66ch}
+p{max-width:70ch}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);padding:12px 14px}
+.card b{display:block;font-size:2rem;line-height:1.1;letter-spacing:-.02em}
+.card span{font-size:13px;color:var(--muted)}
+.card.need{border-left-color:var(--need);background:var(--need-bg)}
+.card.need b{font-size:1.2rem;color:var(--need)}
+.card.need a{color:var(--need);font-weight:700}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0;border-top:1px solid var(--line);margin-top:16px}
+.facts div{padding:10px 16px 10px 0;border-bottom:1px solid var(--line)}
+.facts dt{font:600 12px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.facts dd{margin:2px 0 0}
+.tl{list-style:none;margin:20px 0 0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:0;position:relative}
+.tl li{position:relative;padding:28px 16px 0 0}
+.tl li::before{content:"";position:absolute;top:8px;left:0;right:0;height:3px;background:var(--line)}
+.tl li::after{content:"";position:absolute;top:0;left:0;width:19px;height:19px;border-radius:50%;background:var(--bg);border:3px solid var(--line)}
+.tl li.done::before{background:var(--ok)} .tl li.done::after{background:var(--ok);border-color:var(--ok)}
+.tl li.wip::before{background:linear-gradient(90deg,var(--wip),var(--line))} .tl li.wip::after{background:var(--wip-bg);border-color:var(--wip)}
+.tl h3{margin:0 0 4px}
+.tl p{margin:4px 0;font-size:14px;color:var(--muted)}
+@media (max-width:640px){
+  .tl{grid-template-columns:1fr}
+  .tl li{padding:0 0 24px 32px}
+  .tl li::before{top:0;bottom:0;left:8px;right:auto;width:3px;height:auto}
+  .tl li::after{top:2px}
+  .tl li.wip::before{background:linear-gradient(var(--wip),var(--line))}
+}
+.pill{display:inline-block;font:600 11px var(--mono);letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:3px;white-space:nowrap}
+.pill.done{background:var(--ok-bg);color:var(--ok)}
+.pill.wip{background:var(--wip-bg);color:var(--wip)}
+.pill.off{background:var(--off-bg);color:var(--off)}
+.pill.need{background:var(--need-bg);color:var(--need)}
+.tw{overflow-x:auto;border:1px solid var(--line);background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:520px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;font-size:15px}
+th{font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--surface2)}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right}
+.group{display:grid;grid-template-columns:minmax(140px,200px) 1fr;gap:4px 24px;padding:16px 0;border-top:1px solid var(--line)}
+.group h3{margin:0;font-size:1rem}
+.group ul{margin:0;padding-left:18px}
+.group li{margin:2px 0}
+@media (max-width:640px){.group{grid-template-columns:1fr}}
+.pending{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--need);padding:8px 16px 16px;margin-top:12px}
+.pending ul{list-style:none;padding:0}
+.flow{font:14px/1.7 var(--mono);background:var(--surface2);padding:12px 14px;overflow-x:auto;white-space:pre;margin:12px 0}
+.owner{display:inline-block;font:600 11px var(--mono);color:var(--accent)}
+footer{margin-top:48px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:12px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div class="kicker">Scope of Work · as of 2026-10-03</div>
+  <h1>Super <span>Notes</span></h1>
+  <p class="lede">What the project is, what was agreed, what is built, what is not, and what is waiting on you.</p>
+</header>
+
+<nav class="toc" aria-label="Sections">
+  <ul>
+    <li><a href="#what">What it is</a></li>
+    <li><a href="#status">Status</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#delivered">Delivered</a></li>
+    <li><a href="#out">Out of scope</a></li>
+    <li><a href="#agreed">Agreed</a></li>
+    <li><a href="#pending">Pending on you</a></li>
+    <li><a href="#how">How we work</a></li>
+  </ul>
+</nav>
+
+<section id="what">
+  <h2><span class="n">01</span>What Super Notes is</h2>
+  <p>Super Notes keeps your notes in sync across your devices, and lets you chat with them. You ask a question in plain language. The answer is written from your own notes and points back to the notes it came from, so you can check it.</p>
+  <dl class="facts">
+    <div><dt>Who it is for</dt><dd>You first. Every note, search, chat, memory and file belongs to one user, and every query is limited to that user in the database.</dd></div>
+    <div><dt>Tech, in one line</dt><dd>Django 5.2 + DRF API, PostgreSQL 16 with pgvector, Celery and Redis, Vue 3 + TipTap web client, Google-only sign-in.</dd></div>
+    <div><dt>Where it runs today</dt><dd>On your machine, with fake AI providers. No hosting target and no real AI key yet.</dd></div>
+  </dl>
+</section>
+
+<section id="status">
+  <h2><span class="n">02</span>Status at a glance</h2>
+  <div class="cards">
+    <div class="card"><b>1,518</b><span>backend tests</span></div>
+    <div class="card"><b>267</b><span>web tests</span></div>
+    <div class="card"><b>7 + 7</b><span>phases done: V1 0–6, V2 0–6</span></div>
+    <div class="card"><b>292</b><span>decisions recorded</span></div>
+    <div class="card"><b>36</b><span>API endpoints</span></div>
+    <div class="card need"><b>Release: pending you</b><span><a href="#pending">See what is needed</a></span></div>
+  </div>
+  <p class="sub" style="margin-top:12px">All V1 and V2 phases are merged and tagged (<code>phase-0-scaffold</code> to <code>phase-6-web</code>, <code>v2-phase-0-foundation</code> to <code>v2-phase-6-attachments</code>). Lint, migrations and the API schema are clean.</p>
+</section>
+
+<section id="roadmap">
+  <h2><span class="n">03</span>Roadmap</h2>
+  <ol class="tl">
+    <li class="done">
+      <h3>V1 <span class="pill done">Done</span></h3>
+      <p>Sign-in, notes and sync, indexing, search, single-question Ask, web client. Released line on <code>master</code>.</p>
+    </li>
+    <li class="wip">
+      <h3>V2 <span class="pill wip">Code complete</span></h3>
+      <p>Conversations, streaming, memory, format, reminders, attachments. Backend and web. Release (<code>v2.0.0</code>) is pending you.</p>
+    </li>
+    <li>
+      <h3>V3 <span class="pill off">Planned later</span></h3>
+      <p>Android app first, then items from the backlog once the web app has real feedback.</p>
+    </li>
+  </ol>
+</section>
+
+<section id="delivered">
+  <h2><span class="n">04</span>In scope, delivered</h2>
+  <p class="sub">Built, tested and merged. "Built" means working with fake AI providers; judging answer quality needs a real key (see pending).</p>
+  <div class="tw"><table>
+    <thead><tr><th>Release</th><th>Feature</th><th>What you get</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>V1</td><td>Auth</td><td>Google sign-in, short-lived sessions, two-device limit, security event trail.</td><td><span class="pill done">Done</span></td></tr>
+      <tr><td>V1</td><td>Notes and sync</td><td>Text and checklist notes, revision-based sync across devices, deletions that sync.</td><td><span class="pill done">Done</span></td></tr>
+      <tr><td>V1</td><td>Indexing</td><td>Notes split into chunks and embedded in the background.</td><td><span class="pill done">Done</span></td></tr>
+      <tr><td>V1</td><td>Hybrid search</td><td>Keyword plus meaning search, merged, always limited to your notes.</td><td><span class="pill done">Done</span></td></tr>
+      <tr><td>V1</td><td>Ask</td><td>One question, one answer from your notes, with citations.</td><td><span class="pill done">Done</span></td></tr>
+      <tr><td>V1</td><td>Web</td><td>Vue client: notes editor, search, Ask.</td><td><span class="pill done">Done</span></td></tr>
+      <tr><td>V2</td><td>Foundation</td><td>Limits and usage ledger, lifecycle hooks, router and deep links, web tests, no-stale-JavaScript defences.</td><td><span class="pill done">Done</span></td></tr>
+      <tr><td>V2</td><td>Conversations</td><td>Multi-turn chat that understands follow-ups, with citations per turn, kept until you delete.</td><td><span class="pill done">Done</span></td></tr>
+      <tr><td>V2</td><td>Streaming</td><td>Answers appear as they are written; polling remains as fallback.</td><td><span class="pill done">Done</span></td></tr>
+      <tr><td>V2</td><td>Memory</td><td>Facts learned from chats, visible and deletable, on by default with notices.</td><td><span class="pill done">Done</span></td></tr>
+      <tr><td>V2</td><td>Format my note</td><td>AI restructures a note and shows a preview you accept or reject.</td><td><span class="pill done">Done</span></td></tr>
+      <tr><td>V2</td><td>Reminders and calendar</td><td>Reminder on a note, by email and web push, with a calendar view.</td><td><span class="pill done">Done</span></td></tr>
+      <tr><td>V2</td><td>Attachments and summaries</td><td>Images and PDFs on notes, text extracted and searchable, note and file summaries.</td><td><span class="pill done">Done</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="out">
+  <h2><span class="n">05</span>Out of scope</h2>
+  <p class="sub">Not in V2. Nothing here starts without your go.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Item</th><th>Moved to</th><th>Why not now</th></tr></thead>
+    <tbody>
+      <tr><td>Android app</td><td>V3</td><td>You decided (D566) to ship V2 as backend and web, then plan Android with real web feedback. Needs Android Studio, an OAuth client and a device; Play Store or sideload is undecided.</td></tr>
+      <tr><td>Sharing and collaboration</td><td>V3 or later</td><td>Breaks the one-owner rule that every query and test relies on. Needs its own design for permissions, sync and search.</td></tr>
+      <tr><td>Real-time collaboration</td><td>V3 or later</td><td>Only useful with sharing. Streaming already works over server-sent events.</td></tr>
+      <tr><td>Payments</td><td>V3 or later</td><td>The plan is edited by an admin. Nothing to charge for until V2 is in use.</td></tr>
+      <tr><td>Offline-first</td><td>V3 or later</td><td>A client rewrite (local database, merge rules). Today, edits made offline retry only while the editor stays open.</td></tr>
+      <tr><td>Desktop app</td><td>V3 or later</td><td>Low value while the web client works in a browser.</td></tr>
+      <tr><td>Trash and undo for deleted notes</td><td>Backlog</td><td>Possible, since deleted notes keep their content, but nobody asked.</td></tr>
+      <tr><td>Account deletion; instant device sign-out</td><td>Backlog</td><td>A signed-out device keeps working for up to 30 minutes. Waiting on whether that is acceptable.</td></tr>
+      <tr><td>Web: dark-mode toggle, semantic search view</td><td>Backlog</td><td>Small additions, not yet prioritised. The theme follows the system.</td></tr>
+      <tr><td>Summary refresh after a model change; large-table search starvation</td><td>Backlog</td><td>Known edge cases (D555, D68). Re-run Summarize after a model change.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="agreed">
+  <h2><span class="n">06</span>What we agreed</h2>
+  <p class="sub">Your decisions, in plain words. The number is the entry in <code>docs/DECISIONS.md</code>.</p>
+
+  <div class="group"><h3>Security</h3><ul>
+    <li>Security level is ASVS L2 (D6): security event trail, sign-in rate limits, strict headers, secrets scrubbed from logs, Dependabot.</li>
+    <li>Sign-in is Google only. No passwords. Google's own MFA protects the account.</li>
+    <li>Two devices per account at most.</li>
+    <li>PostgreSQL with pgvector is required; SQLite is not supported (D2).</li>
+    <li>Sync is based on revision numbers, not timestamps (D5).</li>
+  </ul></div>
+
+  <div class="group"><h3>Limits (D84, D91)</h3><div>
+    <p style="margin-top:0">Two layers: a per-user limit and a system-wide limit, both editable in the admin without a deploy. Going over a limit blocks that feature only. Notes and sync keep working.</p>
+    <div class="tw"><table>
+      <thead><tr><th>Per month</th><th class="num">Free</th><th class="num">Premium</th><th class="num">System</th></tr></thead>
+      <tbody>
+        <tr><td>Chat turns (asks and chat)</td><td class="num">20</td><td class="num">100</td><td class="num">2,000</td></tr>
+        <tr><td>Format my note</td><td class="num">5</td><td class="num">25</td><td class="num">500</td></tr>
+        <tr><td>Summaries</td><td class="num">2</td><td class="num">10</td><td class="num">200</td></tr>
+        <tr><td>Storage per user</td><td class="num">1 GB</td><td class="num">1 GB</td><td class="num">20 GB</td></tr>
+        <tr><td>One file, at most</td><td class="num">10 MB</td><td class="num">10 MB</td><td class="num">n/a</td></tr>
+        <tr><td>Sign-ups per day</td><td class="num">n/a</td><td class="num">n/a</td><td class="num">30</td></tr>
+      </tbody>
+    </table></div>
+    <p>Behind-the-scenes model calls (condensing a follow-up, memory extraction) cost you nothing but are logged and capped by system limits.</p>
+  </div></div>
+
+  <div class="group"><h3>Memory (D88, D94)</h3><ul>
+    <li>On by default, with a switch.</li>
+    <li>The app keeps telling you: a notice on your first open, then every 5 app opens until you choose.</li>
+    <li>You can see and delete every remembered fact.</li>
+  </ul></div>
+
+  <div class="group"><h3>Reminders (D87, D95)</h3><ul>
+    <li>A reminder has a due date and time, such as an expiry.</li>
+    <li>You get a daily heads-up for the 7 days before, then one on the due day: 8 in all.</li>
+    <li>Delivered by email and browser push.</li>
+  </ul></div>
+
+  <div class="group"><h3>Files (D85, D92)</h3><ul>
+    <li>Attachments live in S3 in production and on local disk in development.</li>
+    <li>PDF text is read with <code>pypdf</code>; streaming runs on <code>uvicorn</code>.</li>
+  </ul></div>
+
+  <div class="group"><h3>No stale JavaScript (D89)</h3><ul>
+    <li>The web client must never get stuck on old cached code: hashed file names, <code>index.html</code> never cached, a version check that prompts or forces a reload, and a service worker that never caches app code.</li>
+  </ul></div>
+
+  <div class="group"><h3>Lifecycle hooks (D90, D93)</h3><ul>
+    <li>Server hooks fire on every sign-in and on every app open or resume, so any feature can react without touching the sender.</li>
+    <li>"App open" means a real launch, or the first action after 5 idle hours.</li>
+  </ul></div>
+
+  <div class="group"><h3>Chat and clients</h3><ul>
+    <li>Chat history is kept until you delete it (D96).</li>
+    <li>Web uses <code>vue-router</code> and <code>vitest</code> (D86).</li>
+    <li>Android moves to V3; V2 ships as backend plus web (D566).</li>
+  </ul></div>
+
+  <div class="group"><h3>Working rules (D77)</h3><ul>
+    <li><code>master</code> is released V1 and takes fixes only; <code>v2</code> is the integration branch; one feature branch per phase, merged with <code>--no-ff</code> after review and green checks.</li>
+    <li>No new dependency without your approval. Commits carry your identity and no AI co-author lines.</li>
+  </ul></div>
+</section>
+
+<section id="pending">
+  <h2><span class="n">07</span>Pending on you</h2>
+  <p class="sub">The code is done. These items need a decision, a key or your hands before V2 can be released as <code>v2.0.0</code>.</p>
+  <div class="pending">
+<!-- PENDING-ON-OWNER -->
+<style>
+.pend{display:grid;gap:18px}
+.pend h3{margin:0 0 6px;font-size:1rem}
+.pend ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.pend li{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.pend li input{margin-top:3px;accent-color:var(--accent);flex:none}
+.pend li div{min-width:0}
+.pend .opt{color:var(--muted);font-size:.92em;margin-top:2px}
+.pend .tag{display:inline-block;font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:999px;background:var(--need-bg);color:var(--need);margin-left:6px;vertical-align:1px}
+.pend .tag.later{background:var(--off-bg);color:var(--off)}
+.pend .cost{background:var(--surface2);border-radius:8px;padding:10px 12px}
+</style>
+<div class="pend">
+ <div>
+  <h3>A. To get it live (backend + web)</h3>
+  <ul>
+   <li><input type="checkbox" id="p-server" aria-label="Server"><div><strong>A server</strong> <span class="tag">blocks release</span><div class="opt">Minimum 2 vCPU, 4 GB RAM, Ubuntu 24.04. Options: Oracle Cloud Always Free ARM (free, capacity often unavailable, card to verify) · <strong>Hetzner CX22, about €4–5 a month (recommended)</strong> · Contabo, about €5 for more RAM. One box runs Postgres, Redis, the API, the worker and the web files.</div></div></li>
+   <li><input type="checkbox" id="p-domain" aria-label="Domain"><div><strong>The domain to use</strong> <span class="tag">blocks release</span><div class="opt">Which subdomain, e.g. <code>notes.yourdomain.com</code>, and access to its DNS. Cloudflare's free DNS is simplest and gives HTTPS help.</div></div></li>
+   <li><input type="checkbox" id="p-ai" aria-label="AI keys"><div><strong>AI keys: one embedding and one chat provider</strong> <span class="tag">blocks release</span><div class="opt">Cheapest start: Gemini's free tier for both. Or OpenAI embeddings (very cheap) with Claude Haiku. Until then everything runs on the built-in fake answers.</div></div></li>
+   <li><input type="checkbox" id="p-google" aria-label="Google sign-in"><div><strong>A Google OAuth web client id</strong> <span class="tag">blocks release</span><div class="opt">Free, in Google Cloud Console. Allowed origins: your domain and <code>http://localhost:5173</code>. Without it nobody can sign in.</div></div></li>
+   <li><input type="checkbox" id="p-storage" aria-label="File storage"><div><strong>File storage for attachments</strong><div class="opt">Cloudflare R2 is S3-compatible, free up to 10 GB and charges nothing for downloads, so it works with what is built. Or keep files on the server's disk until there are real users.</div></div></li>
+   <li><input type="checkbox" id="p-email" aria-label="Email"><div><strong>Email for reminders</strong><div class="opt">A free SMTP service (Brevo or Resend free tiers), or Gmail SMTP with an app password.</div></div></li>
+   <li><input type="checkbox" id="p-admin" aria-label="Admin email"><div><strong>An admin email</strong><div class="opt">Where system alerts go, for example when a system-wide limit is reached.</div></div></li>
+  </ul>
+ </div>
+ <div class="cost"><strong>Expected running cost:</strong> about ₹400–500 a month for the server, plus AI usage (a few dollars at personal scale). Storage, email, DNS and Google sign-in on free tiers. Prices as last known; check current ones.</div>
+ <div>
+  <h3>B. Yes / no decisions</h3>
+  <ul>
+   <li><input type="checkbox" id="p-d520" aria-label="D520"><div><strong>Image reading: 50 a month free, 250 premium?</strong> <span class="tag later">D520</span></div></li>
+   <li><input type="checkbox" id="p-d529" aria-label="D529"><div><strong>Show image-reading usage in the app?</strong> <span class="tag later">D529</span></div></li>
+   <li><input type="checkbox" id="p-d504" aria-label="D504"><div><strong>Remembered facts keep numbers written as "(2024)"?</strong> <span class="tag later">D504</span></div></li>
+   <li><input type="checkbox" id="p-d557" aria-label="D557"><div><strong>Attachment summaries only when you press Summarize, counted under the summary limit?</strong> <span class="tag later">D557</span></div></li>
+   <li><input type="checkbox" id="p-d556" aria-label="D556"><div><strong>Long notes summarised from their first 24,000 characters, rather than refused?</strong> <span class="tag later">D556</span></div></li>
+   <li><input type="checkbox" id="p-d100" aria-label="D100"><div><strong>A limit switched off means "not enforced" (usage still counted)?</strong> <span class="tag later">D100</span></div></li>
+   <li><input type="checkbox" id="p-d91" aria-label="D91"><div><strong>System limits = premium × 20 (chat 2,000, format 500, summary 200 a month)?</strong> <span class="tag later">D91</span></div></li>
+   <li><input type="checkbox" id="p-refine" aria-label="Refinements"><div><strong>Refinements you asked to revisit</strong><div class="opt">The 5-hour idle rule for an "app open" (D93), the memory notice every 5 opens (D94), reminder snooze and "stop" options (D95), no retry on a failed reminder email (D137).</div></div></li>
+  </ul>
+ </div>
+ <div>
+  <h3>C. Later (V3)</h3>
+  <ul>
+   <li><input type="checkbox" id="p-android" aria-label="Android"><div><strong>Android app</strong> <span class="tag later">D566</span><div class="opt">Android Studio, an Android OAuth client with the app's SHA-1, a phone, and Play Store or sideload.</div></div></li>
+  </ul>
+ </div>
+</div>
+<!-- /PENDING-ON-OWNER -->
+  </div>
+</section>
+
+<section id="how">
+  <h2><span class="n">08</span>How the work is run</h2>
+  <div class="flow">v2-feat/&lt;item&gt;-&lt;slug&gt;  -&gt;  sub-tasks  -&gt;  review  -&gt;  merge --no-ff into v2  -&gt;  push  -&gt;  tag</div>
+  <ul>
+    <li>A main session conducts: it claims a queue item, splits it into sub-tasks and hands each to a sub-agent, picking a stronger model for subtle work (security, limits, concurrency) and a lighter one for routine work.</li>
+    <li>Every sub-agent result is read and checked before it is committed. Each reviewed sub-task is pushed at once, so a lost session costs one sub-task at most.</li>
+    <li>The docs are the source of truth. If it is not in <code>docs/</code> and pushed, it did not happen.</li>
+    <li>Checks before any merge: backend tests, ruff, migrations check, OpenAPI schema validation, web build and tests.</li>
+  </ul>
+  <h3>Where things live</h3>
+  <div class="tw"><table>
+    <thead><tr><th>File</th><th>What is in it</th></tr></thead>
+    <tbody>
+      <tr><td><code>CLAUDE.md</code></td><td>Working rules for every session</td></tr>
+      <tr><td><code>docs/V2_PLAN.md</code></td><td>V2 scope, open questions, ready queue (section 12), definition of done (section 10)</td></tr>
+      <tr><td><code>docs/DECISIONS.md</code></td><td>Every judgement call, numbered, with alternatives</td></tr>
+      <tr><td><code>docs/BUILD_LOG.md</code></td><td>What was built, what went wrong, what is left, per session</td></tr>
+      <tr><td><code>docs/BACKLOG.md</code></td><td>Parked items and V3 candidates</td></tr>
+      <tr><td><code>docs/COMMIT_PLAN.md</code></td><td>V1 phase plan</td></tr>
+      <tr><td><code>docs/v2/briefs/</code></td><td>One brief per V2 item, with its sub-task checklist</td></tr>
+      <tr><td><code>docs/architecture.html</code></td><td>Architecture page</td></tr>
+      <tr><td><code>docs/openapi.yml</code></td><td>The generated API contract</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>Figures taken from the repository on 2026-10-03: test counts from the V2 build log, decision count from <code>docs/DECISIONS.md</code> headings, endpoints from <code>docs/openapi.yml</code>.</footer>
+</div>
