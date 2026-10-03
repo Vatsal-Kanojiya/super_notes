@@ -3472,3 +3472,21 @@ or throttled) and 503 (paused or unavailable) each have their own message.
 the chip's tooltip reads "file.pdf (in Note title)". The chip still opens the note. The name is
 text, so a file called `<b>x</b>.pdf` is shown as typed.
 **Alternative:** open the file on click (a download on a chip is surprising).
+
+### D566. Android moves to V3; V2 ships as backend + web (owner, 2026-10-03)
+
+**Decided (by the owner):** V2 is released as the backend and the web client only. V1's Phase 7
+(Capacitor wrap, native Google sign-in) and V2's Phase 7 (native notifications, share sheet,
+deep links) move together to **V3**, planned once the web app has given real feedback.
+Supersedes D97's "after V2" timing.
+
+**Alternatives:** Android before V2's release; Android as a V2 phase.
+
+**Why:** the scope grew as V2 was built; one working client gives enough feedback to refine the
+core, and the Android app is a thin wrapper of the same web client that can come later at low
+risk. Already prepared for it: routes and deep links (D86), `session/open/` accepting
+`platform: "android"` (D90), the build-id version check (D89).
+
+**Reverse it if:** users need the phone first (offline capture, notifications while the browser
+is closed) before the web app is refined.
+

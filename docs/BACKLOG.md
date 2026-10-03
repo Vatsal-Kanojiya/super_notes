@@ -76,3 +76,11 @@ Things that came up and were left for a decision. Each names what it is waiting 
 - **Chunk search post-filtering** (D68) — the HNSW owner post-filter can starve a small user in a
   large table; D517 fixed it for facts only. Revisit with pgvector ≥ 0.8 iterative scans.
 
+## V3 candidates
+
+- **Android app** (D566): V1 Phase 7 (Capacitor wrap of `web/`, native Google sign-in with the
+  Android client id and the app's SHA-1, API base URL from build config) plus V2 Phase 7 (native
+  reminder notifications with Capacitor local notifications + FCM, "share to Super Notes", deep
+  links). Needs: Android Studio/SDK, an Android OAuth client, a device; decide Play Store vs
+  sideload and signing.
+
