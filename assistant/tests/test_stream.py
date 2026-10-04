@@ -77,7 +77,7 @@ class FakeSubscription:
     async def get(self, timeout):
         try:
             return await asyncio.wait_for(self.queue.get(), timeout)
-        except TimeoutError:
+        except asyncio.TimeoutError:  # a distinct class before Python 3.11
             return None
 
     async def close(self):
