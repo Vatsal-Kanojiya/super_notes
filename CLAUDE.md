@@ -94,6 +94,10 @@ python manage.py makemigrations --check --dry-run
 python manage.py spectacular --file docs/openapi.yml --validate --fail-on-warn
 cd web && npm run build && npm test                  # npm test once vitest exists
 ```
+CI runs **Python 3.10**; a local 3.12 venv hides 3.11+ behaviour (`datetime.UTC`, `asyncio.TimeoutError`
+vs `TimeoutError`, …). Before merging, also run the suite on 3.10:
+`uv venv -p 3.10 <scratch>/py310 && uv pip install -p <scratch>/py310/bin/python -r requirements.txt -r requirements-dev.txt`,
+then `<scratch>/py310/bin/python manage.py test --noinput`. After pushing, check the CI run went green.
 
 ## Environment
 - Postgres 16 + pgvector (required): `DATABASE_URL=postgres:///super_notes`. Redis for Celery.
